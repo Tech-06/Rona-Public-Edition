@@ -4,8 +4,6 @@
 
 Rona; kendi sunucunuzda barındırdığınız, herhangi bir OpenAI API uyumlu dil modeline bağlanabilen kişisel bir yapay zeka asistanı platformudur. Tek bir sohbet penceresinden ibaret değildir: birbirinden bağımsız olarak çalıştırılabilen üç parçadan oluşur — bir **backend** (ajan çekirdeği), bir **CLI istemcisi** ve bir **web paneli** — ve gerçek yeteneklerle gelir: web'de arama yapabilir, hava durumuna bakabilir, metin çevirebilir, Google Takvim/Kişiler/Gmail hesaplarınızı yönetebilir, konuşmalar arasında sizinle ilgili bilgileri anlamsal aramayla hatırlayabilir, uzun süren işleri arka planda çalışan alt ajanlara devredebilir ve siz çevrimdışıyken bile kendiliğinden çalışan zamanlanmış görevler oluşturabilir.
 
-Bu depo — **Rona Public Edition** — projenin kişisel verilerden, gizli anahtarlardan ve tek bir kullanıcıya özel varsayımlardan arındırılmış, herkese açık şablon halidir. Depoyu klonlayıp kendi LLM uç noktanızı ve API anahtarlarınızı tanımladığınızda, Rona kendi asistanınız haline gelir.
-
 ## İçindekiler
 
 - [Genel Bakış](#genel-bakış)
@@ -509,7 +507,6 @@ Asistanın adını değiştirmek isterseniz `backend/.env` içindeki `APP_NAME`'
 
 ## Güvenlik Notları
 
-- `.env` dosyaları, `rona.db`/`rona_checkpoints.db`, log dosyaları ve Google OAuth kimlik/jeton dosyaları (`credentials.json`, `token_*.json`) `.gitignore` ile depodan tamamen hariç tutulmuştur — bunları asla commit etmeyin.
 - Backend'in tüm uç noktaları `AUTH_TOKEN` ile korunur; bu token'ı tahmin edilemeyecek şekilde rastgele üretin ve kimseyle paylaşmayın.
 - Web paneli, backend ile aynı `AUTH_TOKEN`'ı kullanır ve isteklerinizi backend'e bu token ile proxy'ler; paneli `127.0.0.1` dışına açacaksanız (ör. `WEB_HOST=0.0.0.0`) mutlaka bir ters proxy arkasında TLS ile sunun ve `WEB_ALLOWED_HOSTS`'u gerçek alan adınızla sınırlayın.
 - Hassas araç çağrıları (e-posta gönderme, veri silme, "deep" katmanına bellek yazma vb.) her zaman kullanıcı onayından geçer; `create_task` ile önceden onaylanan çağrılar yalnızca tanımlandıkları parametrelerle çalışabilir, yürütücü bunları değiştiremez.
