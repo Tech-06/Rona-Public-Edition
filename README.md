@@ -514,7 +514,3 @@ Asistanın adını değiştirmek isterseniz `backend/.env` içindeki `APP_NAME`'
 - Web paneli, backend ile aynı `AUTH_TOKEN`'ı kullanır ve isteklerinizi backend'e bu token ile proxy'ler; paneli `127.0.0.1` dışına açacaksanız (ör. `WEB_HOST=0.0.0.0`) mutlaka bir ters proxy arkasında TLS ile sunun ve `WEB_ALLOWED_HOSTS`'u gerçek alan adınızla sınırlayın.
 - Hassas araç çağrıları (e-posta gönderme, veri silme, "deep" katmanına bellek yazma vb.) her zaman kullanıcı onayından geçer; `create_task` ile önceden onaylanan çağrılar yalnızca tanımlandıkları parametrelerle çalışabilir, yürütücü bunları değiştiremez.
 - Herhangi bir anahtarın veya token'ın sızdığından şüpheleniyorsanız ilgili sağlayıcıda hemen iptal edip yeniden oluşturun ve `AUTH_TOKEN`'ı değiştirin.
-
-## Lisans
-
-Bu depo şu an için bir `LICENSE` dosyası içermemektedir. Projeyi herkese açık olarak paylaşmadan önce bir lisans (ör. MIT, Apache-2.0) seçip kök dizine eklemeniz önerilir.

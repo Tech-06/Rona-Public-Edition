@@ -514,7 +514,3 @@ If you want to rename the assistant, note that `APP_NAME` in `backend/.env` only
 - The web dashboard uses the same `AUTH_TOKEN` as the backend and proxies your requests to it with that token; if you expose the dashboard beyond `127.0.0.1` (e.g. `WEB_HOST=0.0.0.0`), put it behind a reverse proxy with TLS and restrict `WEB_ALLOWED_HOSTS` to your real domain.
 - Sensitive tool calls (sending email, deleting data, writing to the "deep" memory layer, etc.) always go through user confirmation; calls pre-approved via `create_task` can only ever run with the exact parameters they were defined with — the executor cannot change them.
 - If you suspect any key or token has leaked, revoke and regenerate it with the relevant provider immediately, and rotate `AUTH_TOKEN`.
-
-## License
-
-This repository does not currently include a `LICENSE` file. Before sharing the project publicly, choose a license (e.g. MIT, Apache-2.0) and add it to the repository root.
