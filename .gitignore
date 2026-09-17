@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rona backend local data
+backend/rona.log
+backend/rona.log.*
+backend/rona.db
+backend/rona.db-wal
+backend/rona.db-shm
+backend/rona_checkpoints.db
+backend/rona_checkpoints.db-wal
+backend/rona_checkpoints.db-shm
+backend/toolbox/tools/credentials.json
+backend/toolbox/tools/token_*.json
+backend/backend_spawn.log
+
+# Web client
+web-client/node_modules/
+web-client/frontend/node_modules/
+web-client/frontend/*.tsbuildinfo
+web-client/webui/dist/
+web-client/webui.pid
+web-client/webui.lock
+web-client/webui.log
+web-client/webui.log.*
+
+# Local agent handoff docs (not part of the public template)
+/project.md
+/project-plan.md
