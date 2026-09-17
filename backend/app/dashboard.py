@@ -1,0 +1,410 @@
+import asyncio
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from app.config import Settings, get_settings
+from app.llm import chat_completion
+from graph import CHECKPOINT_DB_PATH
+from graph.threads import active_count, snapshot_activity
+from subagents import store as subagent_store
+from toolbox.db import DB_PATH
+from toolbox.registry import iter_specs
+from toolbox.tools.calendar_tool import ALLOWED_ACCOUNTS as CALENDAR_ACCOUNTS
+from toolbox.tools.contacts_tool import ALLOWED_ACCOUNTS as CONTACTS_ACCOUNTS
+from toolbox.tools.deepl_translate import translate_text
+from toolbox.tools.get_weather import get_weather
+from toolbox.tools.google_auth import CREDENTIALS_FILE as GOOGLE_CREDENTIALS_FILE
+from toolbox.tools.google_auth import get_google_credentials, get_registered_accounts
+from toolbox.tools.mail_tool import ALLOWED_ACCOUNTS as MAIL_ACCOUNTS
+from toolbox.tools.mem_tool import get_memories
+from toolbox.tools.notes_tool import get_notes
+from toolbox.tools.people_tool import get_people
+from toolbox.tools.web_search import web_search
+from trigger import scheduler as trigger_scheduler
+from trigger import store as trigger_store
+
+settings = get_settings()
+router = APIRouter(prefix="/api")
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+ENV_PATH = ROOT_DIR / ".env"
+
+STARTED_AT = time.time()
+
+LOG_TAIL_INTERVAL_SECONDS = 1.0
+LOG_TAIL_MAX_SECONDS = 600
+
+_SECRET_FIELDS = {
+    "auth_token",
+    "flash_model_api",
+    "pro_model_api",
+    "flash_model_headers",
+    "pro_model_headers",
+}
+
+_EDITABLE_FIELDS = {
+    "log_level",
+    "reload",
+    "flash_model",
+    "flash_model_url",
+    "pro_model",
+    "pro_model_url",
+    "conversation_ttl_seconds",
+    "max_history_messages",
+    "llm_timeout_seconds",
+    "graph_recursion_limit",
+    "subagent_max_rounds",
+    "subagent_timeout_seconds",
+    "subagent_max_concurrent",
+    "subagent_retention_hours",
+    "subagent_llm_timeout_seconds",
+    "subagent_max_context_messages",
+    "trigger_timezone",
+    "trigger_max_concurrent",
+    "trigger_max_rounds",
+    "trigger_llm_timeout_seconds",
+    "trigger_max_context_messages",
+    "web_host",
+    "web_port",
+    "web_autostart",
+    "backend_url",
+    "web_allowed_hosts",
+}
+
+
+def _file_size(path: Path) -> int | None:
+    return path.stat().st_size if path.exists() else None
+
+
+def _log_path() -> Path:
+    path = Path(settings.log_file)
+    return path if path.is_absolute() else ROOT_DIR / path
+
+
+@router.get("/status")
+async def get_status():
+    return {
+        "app": settings.app_name,
+        "uptime_seconds": round(time.time() - STARTED_AT, 2),
+        "flash_model": settings.flash_model,
+        "pro_configured": settings.pro_configured,
+        "scheduler_running": trigger_scheduler.is_running(),
+        "active_conversations": active_count(),
+        "running_subagents": subagent_store.count_running(),
+        "running_trigger_occurrences": trigger_store.count_running(),
+        "db_size_bytes": _file_size(DB_PATH),
+        "checkpoint_db_size_bytes": _file_size(CHECKPOINT_DB_PATH),
+        "log_size_bytes": _file_size(_log_path()),
+    }
+
+
+@router.get("/connections")
+async def get_connections():
+    registered = get_registered_accounts()["registered_accounts"]
+    google_accounts = []
+    for name in sorted({*CALENDAR_ACCOUNTS, *CONTACTS_ACCOUNTS, *MAIL_ACCOUNTS}):
+        google_accounts.append(
+            {
+                "account": name,
+                "token_present": name in registered,
+                "calendar": name in CALENDAR_ACCOUNTS,
+                "contacts": name in CONTACTS_ACCOUNTS,
+                "mail": name in MAIL_ACCOUNTS,
+            }
+        )
+    return {
+        "google_accounts": google_accounts,
+        "google_credentials_file_present": GOOGLE_CREDENTIALS_FILE.exists(),
+        "tavily_configured": bool(os.getenv("TAVILY_API_KEY")),
+        "deepl_configured": bool(os.getenv("DEEPL_API_KEY")),
+        "openweather_configured": bool(os.getenv("OPENWEATHER_API_KEY")),
+        "gemini_embedding_configured": bool(os.getenv("GOOGLE_API_KEY"))
+        and bool(os.getenv("EMBEDDING_MODEL_NAME")),
+        "flash_configured": bool(
+            settings.flash_model and settings.flash_model_url and settings.flash_model_api
+        ),
+        "pro_configured": settings.pro_configured,
+        "db_present": DB_PATH.exists(),
+        "checkpoint_db_present": CHECKPOINT_DB_PATH.exists(),
+    }
+
+
+async def _probe_google(account: str) -> dict[str, Any]:
+    try:
+        await asyncio.to_thread(get_google_credentials, account, False)
+        return {"ok": True, "detail": "credentials valid"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "detail": str(exc)}
+
+
+@router.post("/connections/probe")
+async def probe_connections():
+    registered = get_registered_accounts()["registered_accounts"]
+    google_results = {
+        name: await _probe_google(name) for name in registered
+    }
+    weather = await asyncio.to_thread(get_weather, "Istanbul")
+    translated = await asyncio.to_thread(translate_text, "merhaba", "EN-US")
+    search = await asyncio.to_thread(web_search, "test", 1)
+    llm_ok = True
+    llm_detail = "ok"
+    try:
+        await chat_completion(
+            [{"role": "user", "content": "ping"}], timeout=15
+        )
+    except Exception as exc:  # noqa: BLE001
+        llm_ok = False
+        llm_detail = str(exc)
+    return {
+        "google": google_results,
+        "weather": {"ok": bool(weather.get("success")), "detail": weather.get("error", "ok")},
+        "translate": {
+            "ok": bool(translated.get("success")),
+            "detail": translated.get("error", "ok"),
+        },
+        "web_search": {"ok": bool(search.get("success")), "detail": search.get("error", "ok")},
+        "llm": {"ok": llm_ok, "detail": llm_detail},
+    }
+
+
+@router.get("/tools")
+async def list_tools():
+    specs = sorted(iter_specs(), key=lambda spec: spec.name)
+    return {"tools": [spec.model_dump() for spec in specs]}
+
+
+@router.get("/config")
+async def read_config():
+    data = get_settings().model_dump()
+    for field in _SECRET_FIELDS:
+        data.pop(field, None)
+    return {"values": data, "editable": sorted(_EDITABLE_FIELDS)}
+
+
+def _read_env_file() -> dict[str, str]:
+    pairs: dict[str, str] = {}
+    if not ENV_PATH.exists():
+        return pairs
+    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        if "=" not in line or line.lstrip().startswith("#"):
+            continue
+        key, _, value = line.partition("=")
+        pairs[key.strip()] = value
+    return pairs
+
+
+def _encode_env_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _validate_candidate(candidate: dict[str, str]) -> str | None:
+    kwargs = {
+        key.lower(): value
+        for key, value in candidate.items()
+        if key.lower() in Settings.model_fields
+    }
+    try:
+        Settings(_env_file=None, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        return str(exc)
+    return None
+
+
+def _write_env_updates(updates: dict[str, str]) -> None:
+    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+    seen: set[str] = set()
+    new_lines: list[str] = []
+    for line in lines:
+        if "=" in line and not line.lstrip().startswith("#"):
+            key = line.partition("=")[0].strip()
+            if key in updates:
+                new_lines.append(f"{key}={updates[key]}")
+                seen.add(key)
+                continue
+        new_lines.append(line)
+    for key, value in updates.items():
+        if key not in seen:
+            new_lines.append(f"{key}={value}")
+    text = "\n".join(new_lines) + "\n"
+    if ENV_PATH.exists():
+        ENV_PATH.with_suffix(".bak").write_bytes(ENV_PATH.read_bytes())
+    tmp_path = ENV_PATH.with_suffix(".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    os.replace(tmp_path, ENV_PATH)
+    try:
+        os.chmod(ENV_PATH, 0o600)
+    except OSError:
+        pass
+
+
+@router.put("/config")
+async def update_config(payload: dict[str, Any]):
+    unknown = set(payload) - _EDITABLE_FIELDS
+    if unknown:
+        raise HTTPException(400, f"Not editable: {', '.join(sorted(unknown))}")
+    updates = {field.upper(): _encode_env_value(value) for field, value in payload.items()}
+    candidate = {**_read_env_file(), **updates}
+    error = _validate_candidate(candidate)
+    if error:
+        raise HTTPException(400, error)
+    _write_env_updates(updates)
+    return {"restart_required": True}
+
+
+@router.get("/tasks")
+async def list_tasks(status: str = "all", limit: int = 100):
+    try:
+        tasks = trigger_store.list_tasks(status, limit)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    next_runs = trigger_scheduler.next_run_map()
+    for task in tasks:
+        next_run = next_runs.get(task["id"])
+        task["next_run"] = next_run.isoformat() if next_run else None
+    return {"tasks": tasks}
+
+
+@router.get("/tasks/{task_id}")
+async def get_task(task_id: str):
+    task = trigger_store.get_task(task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    next_run = trigger_scheduler.next_run_map().get(task_id)
+    task["next_run"] = next_run.isoformat() if next_run else None
+    return task
+
+
+@router.get("/tasks/{task_id}/runs")
+async def list_task_runs(task_id: str, limit: int = 10):
+    return {"runs": trigger_store.list_runs(task_id, limit)}
+
+
+class TaskStatusUpdate(BaseModel):
+    status: str
+
+
+@router.post("/tasks/{task_id}/status")
+async def set_task_status(task_id: str, payload: TaskStatusUpdate):
+    try:
+        changed = trigger_store.set_task_status(task_id, payload.status)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not changed:
+        raise HTTPException(404, "Task not found")
+    task = trigger_store.get_task(task_id)
+    if payload.status == "active":
+        trigger_scheduler.register_task(task)
+    else:
+        trigger_scheduler.unregister_task(task_id)
+    return task
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str):
+    trigger_scheduler.unregister_task(task_id)
+    changed = trigger_store.delete_task(task_id)
+    if not changed:
+        raise HTTPException(404, "Task not found")
+    return {"deleted": True}
+
+
+@router.get("/subagents")
+async def list_subagents(status: str = "all", limit: int = 20):
+    try:
+        return {"runs": subagent_store.list_runs(status, limit)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/subagents/{run_id}")
+async def get_subagent(run_id: str):
+    run = subagent_store.get_run(run_id)
+    if run is None:
+        raise HTTPException(404, "Run not found")
+    return run
+
+
+@router.get("/data/notes")
+async def data_notes(limit: int = 50, offset: int = 0):
+    return get_notes(limit=limit, offset=offset)
+
+
+@router.get("/data/people")
+async def data_people():
+    return get_people()
+
+
+@router.get("/data/memories")
+async def data_memories(
+    limit: int = 100,
+    offset: int = 0,
+    person: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    return get_memories(
+        limit=limit, offset=offset, person=person, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get("/conversations")
+async def list_conversations():
+    activity = snapshot_activity()
+    now = time.time()
+    items = [
+        {
+            "conversation_id": conversation_id,
+            "last_active_seconds_ago": round(now - last_active, 1),
+        }
+        for conversation_id, last_active in activity.items()
+    ]
+    items.sort(key=lambda item: item["last_active_seconds_ago"])
+    return {"conversations": items}
+
+
+@router.get("/logs")
+async def tail_logs(level: str | None = None, q: str | None = None):
+    log_path = _log_path()
+
+    async def event_source():
+        offset = log_path.stat().st_size if log_path.exists() else 0
+        started = time.monotonic()
+        while time.monotonic() - started < LOG_TAIL_MAX_SECONDS:
+            await asyncio.sleep(LOG_TAIL_INTERVAL_SECONDS)
+            if not log_path.exists():
+                continue
+            size = log_path.stat().st_size
+            if size < offset:
+                offset = 0
+            if size == offset:
+                yield ": ping\n\n"
+                continue
+            with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+                handle.seek(offset)
+                chunk = handle.read(size - offset)
+            offset = size
+            for line in chunk.splitlines():
+                if not line:
+                    continue
+                if level and f" {level} " not in line:
+                    continue
+                if q and q.lower() not in line.lower():
+                    continue
+                yield f"data: {json.dumps(line, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )

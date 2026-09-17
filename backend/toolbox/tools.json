@@ -1,0 +1,1177 @@
+{
+  "tools": [
+    {
+      "name": "get_time",
+      "description": "Returns the current date and time for a given timezone. Provide an IANA timezone name such as 'Europe/Istanbul'; defaults to UTC.",
+      "module": "toolbox.tools.get_time",
+      "function": "get_time",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone name, e.g. 'Europe/Istanbul'. Defaults to 'UTC'."
+          }
+        },
+        "required": []
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "web_search",
+      "description": "Searches the internet with the Tavily API and returns the top results with titles, URLs and content snippets.",
+      "module": "toolbox.tools.web_search",
+      "function": "web_search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query."
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results to return (1-10). Defaults to 5."
+          }
+        },
+        "required": ["query"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "web_scraper",
+      "description": "Fetches a web page by URL and extracts its readable text content (title plus up to 5000 characters of text).",
+      "module": "toolbox.tools.web_scraper",
+      "function": "web_scraper",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL of the page, starting with http:// or https://."
+          }
+        },
+        "required": ["url"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "get_weather",
+      "description": "Returns the current weather for a city (description, temperature in Celsius, humidity) using the OpenWeatherMap API.",
+      "module": "toolbox.tools.get_weather",
+      "function": "get_weather",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "description": "City name, e.g. 'Istanbul'."
+          }
+        },
+        "required": ["city"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "translate_text",
+      "description": "Translates text with the DeepL API and returns the translation plus the detected source language.",
+      "module": "toolbox.tools.deepl_translate",
+      "function": "translate_text",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to translate."
+          },
+          "target_lang": {
+            "type": "string",
+            "description": "DeepL target language code, e.g. 'EN-US', 'TR', 'DE'."
+          }
+        },
+        "required": ["text", "target_lang"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "get_events",
+      "description": "Lists upcoming events from the primary Google Calendar of an account, ordered by start time.",
+      "module": "toolbox.tools.calendar_tool",
+      "function": "get_events",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["okul_mail", "ana_mail"],
+            "description": "Google account to use."
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Maximum number of events to return. Defaults to 10."
+          }
+        },
+        "required": ["account_name"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "add_event",
+      "description": "Adds a new event to the primary Google Calendar of an account. A date-only value (YYYY-MM-DD) creates a full-day event; otherwise use ISO 8601 date-times.",
+      "module": "toolbox.tools.calendar_tool",
+      "function": "add_event",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["okul_mail", "ana_mail"],
+            "description": "Google account to use."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Event title."
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Event start as ISO 8601 date-time, or YYYY-MM-DD for a full-day event."
+          },
+          "end_time": {
+            "type": "string",
+            "description": "Event end as ISO 8601 date-time, or YYYY-MM-DD for a full-day event."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional event description."
+          }
+        },
+        "required": ["account_name", "summary", "start_time", "end_time"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "edit_event",
+      "description": "Updates an existing Google Calendar event by its event ID. Only the provided fields are changed.",
+      "module": "toolbox.tools.calendar_tool",
+      "function": "edit_event",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["okul_mail", "ana_mail"],
+            "description": "Google account to use."
+          },
+          "event_id": {
+            "type": "string",
+            "description": "ID of the event to update, as returned by get_events."
+          },
+          "summary": {
+            "type": "string",
+            "description": "New event title."
+          },
+          "start_time": {
+            "type": "string",
+            "description": "New event start as ISO 8601 date-time."
+          },
+          "end_time": {
+            "type": "string",
+            "description": "New event end as ISO 8601 date-time."
+          },
+          "description": {
+            "type": "string",
+            "description": "New event description."
+          }
+        },
+        "required": ["account_name", "event_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "delete_event",
+      "description": "Deletes a Google Calendar event by its event ID. This cannot be undone.",
+      "module": "toolbox.tools.calendar_tool",
+      "function": "delete_event",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["okul_mail", "ana_mail"],
+            "description": "Google account to use."
+          },
+          "event_id": {
+            "type": "string",
+            "description": "ID of the event to delete, as returned by get_events."
+          }
+        },
+        "required": ["account_name", "event_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "get_contacts",
+      "description": "Lists contacts from the Google Contacts of an account, with names, email addresses and phone numbers.",
+      "module": "toolbox.tools.contacts_tool",
+      "function": "get_contacts",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["eski_mail"],
+            "description": "Google account to use."
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Number of contacts to return. Defaults to 10."
+          }
+        },
+        "required": ["account_name"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "add_contact",
+      "description": "Adds a new contact to the Google Contacts of an account.",
+      "module": "toolbox.tools.contacts_tool",
+      "function": "add_contact",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["eski_mail"],
+            "description": "Google account to use."
+          },
+          "first_name": {
+            "type": "string",
+            "description": "Given name of the contact."
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Family name of the contact."
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address of the contact."
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number of the contact."
+          }
+        },
+        "required": ["account_name", "first_name"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "edit_contact",
+      "description": "Updates an existing Google contact by its resource name. Only the provided fields are changed.",
+      "module": "toolbox.tools.contacts_tool",
+      "function": "edit_contact",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["eski_mail"],
+            "description": "Google account to use."
+          },
+          "resource_name": {
+            "type": "string",
+            "description": "Resource name of the contact, as returned by get_contacts."
+          },
+          "first_name": {
+            "type": "string",
+            "description": "New given name."
+          },
+          "last_name": {
+            "type": "string",
+            "description": "New family name."
+          },
+          "email": {
+            "type": "string",
+            "description": "New email address."
+          },
+          "phone": {
+            "type": "string",
+            "description": "New phone number."
+          }
+        },
+        "required": ["account_name", "resource_name"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "delete_contact",
+      "description": "Deletes a Google contact by its resource name. This cannot be undone.",
+      "module": "toolbox.tools.contacts_tool",
+      "function": "delete_contact",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["eski_mail"],
+            "description": "Google account to use."
+          },
+          "resource_name": {
+            "type": "string",
+            "description": "Resource name of the contact, as returned by get_contacts."
+          }
+        },
+        "required": ["account_name", "resource_name"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "send_email",
+      "description": "Sends an email from a Google account to a recipient.",
+      "module": "toolbox.tools.mail_tool",
+      "function": "send_email",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["ana_mail", "eski_mail", "okul_mail"],
+            "description": "Google account to send from."
+          },
+          "to": {
+            "type": "string",
+            "description": "Recipient email address."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject."
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body text."
+          }
+        },
+        "required": ["account_name", "to", "subject", "body"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "get_recent_emails",
+      "description": "Lists recent emails from the inbox of a Google account, with senders, subjects and snippets.",
+      "module": "toolbox.tools.mail_tool",
+      "function": "get_recent_emails",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "account_name": {
+            "type": "string",
+            "enum": ["ana_mail", "eski_mail", "okul_mail"],
+            "description": "Google account to read from."
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of emails to return. Defaults to 5."
+          }
+        },
+        "required": ["account_name"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "add_note",
+      "description": "Adds a new note to the local notes database.",
+      "module": "toolbox.tools.notes_tool",
+      "function": "add_note",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Note title."
+          },
+          "body": {
+            "type": "string",
+            "description": "Note content."
+          }
+        },
+        "required": ["title", "body"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "get_notes",
+      "description": "Lists notes from the local notes database, newest first.",
+      "module": "toolbox.tools.notes_tool",
+      "function": "get_notes",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of notes to return. Defaults to 50."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of notes to skip for pagination. Defaults to 0."
+          }
+        },
+        "required": []
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "edit_note",
+      "description": "Updates an existing note by its ID. Only the provided fields are changed.",
+      "module": "toolbox.tools.notes_tool",
+      "function": "edit_note",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note_id": {
+            "type": "integer",
+            "description": "ID of the note to update, as returned by get_notes."
+          },
+          "title": {
+            "type": "string",
+            "description": "New note title."
+          },
+          "body": {
+            "type": "string",
+            "description": "New note content."
+          }
+        },
+        "required": ["note_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "delete_note",
+      "description": "Deletes a note by its ID from the local notes database.",
+      "module": "toolbox.tools.notes_tool",
+      "function": "delete_note",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "note_id": {
+            "type": "integer",
+            "description": "ID of the note to delete, as returned by get_notes."
+          }
+        },
+        "required": ["note_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "add_person",
+      "description": "Adds a new person to the local people database with contact details.",
+      "module": "toolbox.tools.people_tool",
+      "function": "add_person",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "First name of the person."
+          },
+          "surname": {
+            "type": "string",
+            "description": "Surname of the person."
+          },
+          "nickname": {
+            "type": "string",
+            "description": "Nickname of the person."
+          },
+          "connection": {
+            "type": "string",
+            "description": "Relationship or connection, e.g. 'friend', 'cousin', 'club member'."
+          },
+          "phone_num": {
+            "type": "string",
+            "description": "Phone number."
+          },
+          "mail": {
+            "type": "string",
+            "description": "Email address."
+          },
+          "birthday": {
+            "type": "string",
+            "description": "Birthday, e.g. '2003-05-17'."
+          },
+          "address": {
+            "type": "string",
+            "description": "Home address."
+          }
+        },
+        "required": ["name"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "get_people",
+      "description": "Lists all people from the local people database.",
+      "module": "toolbox.tools.people_tool",
+      "function": "get_people",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "edit_person",
+      "description": "Updates an existing person by ID. Only the provided fields are changed.",
+      "module": "toolbox.tools.people_tool",
+      "function": "edit_person",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "integer",
+            "description": "ID of the person to update, as returned by get_people or search_person."
+          },
+          "name": {
+            "type": "string",
+            "description": "New first name."
+          },
+          "surname": {
+            "type": "string",
+            "description": "New surname."
+          },
+          "nickname": {
+            "type": "string",
+            "description": "New nickname."
+          },
+          "connection": {
+            "type": "string",
+            "description": "New relationship or connection."
+          },
+          "phone_num": {
+            "type": "string",
+            "description": "New phone number."
+          },
+          "mail": {
+            "type": "string",
+            "description": "New email address."
+          },
+          "birthday": {
+            "type": "string",
+            "description": "New birthday."
+          },
+          "address": {
+            "type": "string",
+            "description": "New home address."
+          }
+        },
+        "required": ["person_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "delete_person",
+      "description": "Deletes a person by ID from the local people database.",
+      "module": "toolbox.tools.people_tool",
+      "function": "delete_person",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "integer",
+            "description": "ID of the person to delete, as returned by get_people or search_person."
+          }
+        },
+        "required": ["person_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "search_person",
+      "description": "Searches the local people database by name, nickname or connection (case-insensitive).",
+      "module": "toolbox.tools.people_tool",
+      "function": "search_person",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Text to search for."
+          },
+          "search_field": {
+            "type": "string",
+            "enum": ["name", "nickname", "connection"],
+            "description": "Field to search in. If omitted, searches name, nickname and connection together."
+          }
+        },
+        "required": ["query"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "add_memory",
+      "description": "Stores a new memory in the local memory database. The content is embedded as a vector so it can be recalled later with search_memories.",
+      "module": "toolbox.tools.mem_tool",
+      "function": "add_memory",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "layer": {
+            "type": "string",
+            "enum": ["deep", "seasonal", "short"],
+            "description": "Memory layer: 'deep' for durable, defining facts the user explicitly wants remembered; 'seasonal' for ongoing projects, plans and mid-term context; 'short' for recent conversation details and transient context."
+          },
+          "content": {
+            "type": "string",
+            "description": "Memory text to store."
+          },
+          "person_id": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Person the memory is about. Use 0 ONLY when it describes the user themself (their traits, tastes, habits, life). Use a positive person ID from the people database when it is about that specific person. Omit entirely when it is not about any individual person — topics, news, events, group plans. Examples: 'The user plays guitar' → 0; 'Ulas uses Claude Code' → Ulas's person ID; 'OpenAI went through a drama this term' → omit."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Optional extra key-value data to store with the memory."
+          }
+        },
+        "required": ["layer", "content"]
+      },
+      "requires_confirmation": {"param": "layer", "values": ["deep"]},
+      "background": false
+    },
+    {
+      "name": "get_memories",
+      "description": "Lists memories from the local memory database, newest first. Omit 'person' to list general (person-unlinked) memories, pass 'all' to list every memory regardless of person.",
+      "module": "toolbox.tools.mem_tool",
+      "function": "get_memories",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of memories to return. Defaults to 100."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of memories to skip for pagination. Defaults to 0."
+          },
+          "person": {
+            "description": "Person scope: 0 for the user themself, a positive person ID, 'all' for every memory regardless of person, or omit for general memories with no person link.",
+            "anyOf": [
+              {"type": "integer", "minimum": 0},
+              {"type": "string", "enum": ["all"]},
+              {"type": "null"}
+            ]
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Optional ISO 8601 lower bound (YYYY-MM-DD or date-time) on the memory creation date."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Optional ISO 8601 upper bound (YYYY-MM-DD or date-time) on the memory creation date."
+          }
+        },
+        "required": []
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "edit_memory",
+      "description": "Updates an existing memory by its ID. Only the provided fields are changed; the embedding is recomputed automatically when content changes.",
+      "module": "toolbox.tools.mem_tool",
+      "function": "edit_memory",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "memory_id": {
+            "type": "integer",
+            "description": "ID of the memory to update, as returned by get_memories or search_memories."
+          },
+          "layer": {
+            "type": "string",
+            "enum": ["deep", "seasonal", "short"],
+            "description": "New memory layer: 'deep' for durable, defining facts the user explicitly wants remembered; 'seasonal' for ongoing projects, plans and mid-term context; 'short' for recent conversation details and transient context."
+          },
+          "content": {
+            "type": "string",
+            "description": "New memory text."
+          },
+          "person_id": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "New person link: 0 only when the memory is about the user themself, a positive person ID for another person, or omit to keep unchanged."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "New extra key-value data."
+          }
+        },
+        "required": ["memory_id"]
+      },
+      "requires_confirmation": {"param": "layer", "values": ["deep"]},
+      "background": false
+    },
+    {
+      "name": "delete_memory",
+      "description": "Deletes a memory by its ID from the local memory database.",
+      "module": "toolbox.tools.mem_tool",
+      "function": "delete_memory",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "memory_id": {
+            "type": "integer",
+            "description": "ID of the memory to delete, as returned by get_memories or search_memories."
+          }
+        },
+        "required": ["memory_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "search_memories",
+      "description": "Semantic search over the local memory database: returns memories whose meaning is most similar to the query text. Omit 'person' to search general (person-unlinked) memories, 0 for the user's own, a positive person ID for that person, 'all' for the whole memory store. For thorough recall, run several searches in the same turn with varied keywords and person scopes.",
+      "module": "toolbox.tools.mem_tool",
+      "function": "search_memories",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search text; memories with similar meaning are returned, best matches first."
+          },
+          "person": {
+            "description": "Person scope: 0 for the user themself, a positive person ID, 'all' for the whole memory store, or omit for general memories with no person link.",
+            "anyOf": [
+              {"type": "integer", "minimum": 0},
+              {"type": "string", "enum": ["all"]},
+              {"type": "null"}
+            ]
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Optional ISO 8601 lower bound (YYYY-MM-DD or date-time) on the memory creation date."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Optional ISO 8601 upper bound (YYYY-MM-DD or date-time) on the memory creation date."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return. Defaults to 10."
+          }
+        },
+        "required": ["query"]
+      },
+      "requires_confirmation": false,
+      "background": true
+    },
+    {
+      "name": "start_subagent",
+      "description": "Starts a background subagent that works on a task out-of-band while you keep chatting with the user. Use tier 'flash' for long-running but straightforward work that does not need advanced reasoning (scanning many emails for something specific, fetching and reading several pages, collecting data). Use tier 'pro' for long-running work that needs deep reasoning, multi-step planning, comparing options and making a judgment, or producing a complex analysis. Returns immediately with a run_id. Delegate with this tool instead of running many tool calls yourself when a request will take a long time.",
+      "module": "toolbox.tools.subagent_tools",
+      "function": "start_subagent",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Complete, self-contained description of the task for the background agent. Include every detail, account name, scope and expectation the agent needs, because it cannot ask the user questions."
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["flash", "pro"],
+            "description": "'flash' for straightforward long tasks, 'pro' for tasks requiring advanced reasoning, planning or judgment."
+          }
+        },
+        "required": ["task", "tier"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "list_subagents",
+      "description": "Lists background subagent runs with their run_id, task, tier, status (running, completed or failed) and timestamps. Use it when the user asks about the progress or outcome of a background task. Completed runs are listed here without their result; use get_subagent_report for that.",
+      "module": "toolbox.tools.subagent_tools",
+      "function": "list_subagents",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["all", "running", "completed", "failed"],
+            "description": "Filter by status. Defaults to 'all'."
+          }
+        },
+        "required": []
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "get_subagent_report",
+      "description": "Returns the result of a completed background subagent run. By default returns the short summary of the result; with detail=true returns the full detailed report. Also use it for failed runs to see the error, and for running runs to confirm they are still in progress. Marks the result as delivered to the user.",
+      "module": "toolbox.tools.subagent_tools",
+      "function": "get_subagent_report",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run ID returned by start_subagent or list_subagents."
+          },
+          "detail": {
+            "type": "boolean",
+            "description": "Set true to get the full detailed report instead of the summary. Defaults to false."
+          }
+        },
+        "required": ["run_id"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "dismiss_subagent_report",
+      "description": "Marks a background subagent result as delivered without showing it, so the user stops being reminded about it. Use it when the user says they do not care about a result or already knows about it.",
+      "module": "toolbox.tools.subagent_tools",
+      "function": "dismiss_subagent_report",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run ID returned by start_subagent or list_subagents."
+          }
+        },
+        "required": ["run_id"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "create_task",
+      "description": "Creates a scheduled task that the server executes automatically at the scheduled time, even if the user is offline. Use it when the user asks for something to happen at a future time ('today at 15:00 send an SMS to Ulas') or on a recurring routine ('every weekday at 09:00 summarize my calendar'). The task runs a headless agent that first verifies the condition (if any) with read-only tools, then performs the task and reports the result. The main action (tool_name + tool_params) and any pre_approved_calls are executed with EXACTLY these parameters and nothing else; analyze the task and pre-approve the exact calls it will need before calling this tool, and inform the user about the permissions you are baking in. A task without an action runs like a research-and-report task. Use model 'flash' for straightforward work, 'pro' for tasks needing deep reasoning or multi-step judgment.",
+      "module": "toolbox.tools.trigger_tools",
+      "function": "create_task",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Short task name, e.g. 'SMS to Ulas'."
+          },
+          "description": {
+            "type": "string",
+            "description": "Complete, self-contained description of what the task must accomplish at execution time: goal, context, recipient/account names, expected report content. The executor agent only sees this."
+          },
+          "schedule": {
+            "type": "object",
+            "description": "When the task fires. Use type 'once' with 'at' (ISO 8601 datetime) for one-time tasks, 'daily' with 'times' (list of HH:MM), 'weekly' with 'weekdays' (mon..sun) + 'time', 'monthly' with 'day' + 'time', 'yearly' with 'month' + 'day' + 'time', or 'cron' with a 5-field 'expression' for anything else. Add 'timezone' (IANA name) if the user means a different timezone.",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["once", "daily", "weekly", "monthly", "yearly", "cron"],
+                "description": "Schedule type."
+              },
+              "at": {
+                "type": "string",
+                "description": "ISO 8601 datetime for type 'once', e.g. '2026-09-14T15:00:00+03:00'. Must be in the future."
+              },
+              "times": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of HH:MM times for type 'daily', e.g. ['09:00', '15:30']."
+              },
+              "weekdays": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                },
+                "description": "Days of week for type 'weekly'."
+              },
+              "day": {
+                "type": "integer",
+                "description": "Day of month (1-31) for types 'monthly' and 'yearly'."
+              },
+              "month": {
+                "type": "integer",
+                "description": "Month (1-12) for type 'yearly'."
+              },
+              "time": {
+                "type": "string",
+                "description": "HH:MM time for types 'weekly', 'monthly' and 'yearly'."
+              },
+              "expression": {
+                "type": "string",
+                "description": "Standard 5-field cron expression (minute hour day month weekday) for type 'cron'."
+              },
+              "timezone": {
+                "type": "string",
+                "description": "IANA timezone the schedule applies in, e.g. 'Europe/Istanbul'. Defaults to the server trigger timezone."
+              }
+            },
+            "required": ["type"]
+          },
+          "model": {
+            "type": "string",
+            "enum": ["flash", "pro"],
+            "description": "Model tier the task executes with. 'flash' for straightforward work, 'pro' for deep reasoning, planning or judgment. Defaults to 'flash'."
+          },
+          "condition": {
+            "type": "string",
+            "description": "Optional natural language condition that must hold at execution time, e.g. 'it is not raining in Istanbul'. The executor verifies it with read-only tools before acting; if it does not hold, the run is retried according to the retry policy and finally fails. Omit or leave empty for time-only tasks."
+          },
+          "tool_name": {
+            "type": "string",
+            "description": "Main action tool to execute when the task fires, e.g. 'send_sms'. Omit for research-and-report tasks."
+          },
+          "tool_params": {
+            "type": "object",
+            "description": "EXACT parameters of the main action call. The executor may not modify them; the user's task approval covers exactly this call."
+          },
+          "pre_approved_calls": {
+            "type": "array",
+            "description": "Additional tool calls the executor may use during condition checking or execution that normally require approval, e.g. sending a report email. Each is {tool_name, tool_params} and is executed with EXACTLY these parameters.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool_name": {"type": "string"},
+                "tool_params": {"type": "object"}
+              },
+              "required": ["tool_name"]
+            }
+          },
+          "max_retries": {
+            "type": "integer",
+            "description": "How many times to retry after a failed attempt (condition not met, action error, timeout). 0 means a single attempt. Default 2, max 20."
+          },
+          "retry_delay_seconds": {
+            "type": "integer",
+            "description": "Seconds to wait between attempts. Default 300 (5 minutes)."
+          },
+          "timeout_minutes": {
+            "type": "integer",
+            "description": "Wall-clock time limit per attempt in minutes. Default 15."
+          }
+        },
+        "required": ["name", "description", "schedule"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "list_tasks",
+      "description": "Lists scheduled tasks with their status (active/passive), schedule, next run time and model tier. Use it when the user asks what tasks exist, when something will run next, or wants an overview of their scheduled work.",
+      "module": "toolbox.tools.trigger_tools",
+      "function": "list_tasks",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["all", "active", "passive"],
+            "description": "Filter by status. Defaults to 'all'."
+          }
+        },
+        "required": []
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "get_task",
+      "description": "Returns a scheduled task's full definition (schedule, condition, pre-approved calls, retry policy) and optionally its recent run history with outcomes. Use it when the user asks whether a task ran, what it did, or wants to inspect or change its configuration.",
+      "module": "toolbox.tools.trigger_tools",
+      "function": "get_task",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Task ID returned by create_task or list_tasks."
+          },
+          "include_runs": {
+            "type": "boolean",
+            "description": "Include the recent run history (last 10 runs). Defaults to true."
+          }
+        },
+        "required": ["task_id"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "update_task",
+      "description": "Updates a scheduled task. Only the provided fields change. Use it to change the schedule, condition, action, pre-approved calls, retry policy, model tier, or to toggle status between 'active' and 'passive' (e.g. when the user says 'pause that task' or 'reactivate it'). Changing the schedule reschedules the task. When changing tool_name, also pass tool_params.",
+      "module": "toolbox.tools.trigger_tools",
+      "function": "update_task",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Task ID returned by create_task or list_tasks."
+          },
+          "name": {
+            "type": "string",
+            "description": "New short name."
+          },
+          "description": {
+            "type": "string",
+            "description": "New self-contained task description."
+          },
+          "model": {
+            "type": "string",
+            "enum": ["flash", "pro"],
+            "description": "New model tier."
+          },
+          "schedule": {
+            "type": "object",
+            "description": "New schedule, same format as in create_task.",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["once", "daily", "weekly", "monthly", "yearly", "cron"]
+              },
+              "at": {"type": "string"},
+              "times": {"type": "array", "items": {"type": "string"}},
+              "weekdays": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                }
+              },
+              "day": {"type": "integer"},
+              "month": {"type": "integer"},
+              "time": {"type": "string"},
+              "expression": {"type": "string"},
+              "timezone": {"type": "string"}
+            },
+            "required": ["type"]
+          },
+          "condition": {
+            "type": "string",
+            "description": "New natural language condition. Empty string clears it."
+          },
+          "tool_name": {
+            "type": "string",
+            "description": "New main action tool. Empty string removes the action (research-and-report task). When setting it, also pass tool_params."
+          },
+          "tool_params": {
+            "type": "object",
+            "description": "EXACT new parameters for the main action."
+          },
+          "pre_approved_calls": {
+            "type": "array",
+            "description": "Replacement list of additional pre-approved calls ({tool_name, tool_params}).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool_name": {"type": "string"},
+                "tool_params": {"type": "object"}
+              },
+              "required": ["tool_name"]
+            }
+          },
+          "max_retries": {"type": "integer"},
+          "retry_delay_seconds": {"type": "integer"},
+          "timeout_minutes": {"type": "integer"},
+          "status": {
+            "type": "string",
+            "enum": ["active", "passive"],
+            "description": "Set 'passive' to pause the task or 'active' to resume it."
+          }
+        },
+        "required": ["task_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "delete_task",
+      "description": "Permanently deletes a scheduled task together with its entire run history and removes it from the scheduler. Use it when the user explicitly asks to remove a task. For a temporary pause, use update_task with status 'passive' instead.",
+      "module": "toolbox.tools.trigger_tools",
+      "function": "delete_task",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Task ID returned by create_task or list_tasks."
+          }
+        },
+        "required": ["task_id"]
+      },
+      "requires_confirmation": true,
+      "background": false
+    },
+    {
+      "name": "get_task_run",
+      "description": "Returns the result of a scheduled task run: status (completed, failed, missed or running), attempt count, summary and, with detail=true, the full report. Use it to answer questions like 'did the message get sent?' or to relay a completed task's result. Marks the result as delivered to the user so it is not reminded again.",
+      "module": "toolbox.tools.trigger_tools",
+      "function": "get_task_run",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run ID from the task notification, get_task or list_tasks run history."
+          },
+          "detail": {
+            "type": "boolean",
+            "description": "Set true to get the full detailed report instead of the summary. Defaults to false."
+          }
+        },
+        "required": ["run_id"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    },
+    {
+      "name": "dismiss_task_run",
+      "description": "Marks a scheduled task result as delivered without showing it, so the user stops being reminded about it. Use it when the user says they do not care about a result or already knows about it.",
+      "module": "toolbox.tools.trigger_tools",
+      "function": "dismiss_task_run",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Run ID from the task notification, get_task or list_tasks run history."
+          }
+        },
+        "required": ["run_id"]
+      },
+      "requires_confirmation": false,
+      "background": false
+    }
+  ]
+}

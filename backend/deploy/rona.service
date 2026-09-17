@@ -1,0 +1,15 @@
+[Unit]
+Description=Rona AI Assistant Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/rona/backend
+ExecStart=%h/rona/backend/.venv/bin/python run.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

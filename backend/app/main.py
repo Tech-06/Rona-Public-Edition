@@ -1,0 +1,275 @@
+import asyncio
+import json
+import secrets
+import time
+import uuid
+from contextlib import asynccontextmanager
+from typing import Any
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.errors import GraphRecursionError
+from langgraph.types import Command
+
+from app.config import get_settings
+from app.dashboard import router as dashboard_router
+from app.logging_config import configure_file_logging
+from app.schemas import ChatRequest, ChatResponse, ToolCallInfo
+from app.streaming import StreamRun, encode_frame, get_or_create_run
+from graph import CHECKPOINT_DB_PATH, build_graph, get_lock, purge_expired, touch
+from graph.state import replace_messages
+from subagents.store import cleanup_reported, reconcile_running
+from trigger import scheduler as trigger_scheduler
+from trigger.store import reconcile_runs as reconcile_trigger_runs
+
+settings = get_settings()
+
+started_at = time.time()
+
+RECURSION_LIMIT_REPLY = (
+    "Bu istek beklenenden çok daha fazla araç adımı gerektirdi ve "
+    "tur sınırına ulaştım. İsteği biraz daraltabilir misin, ya da "
+    "nereden devam etmemi istediğini söyle."
+)
+
+STREAM_HEARTBEAT_SECONDS = 15
+
+
+async def verify_bearer_token(request: Request) -> None:
+    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(
+        token.strip(), settings.auth_token
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    configure_file_logging(settings)
+    reconcile_running()
+    reconcile_trigger_runs()
+    trigger_scheduler.start()
+    async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH)) as checkpointer:
+        await checkpointer.setup()
+        app.state.graph = build_graph(checkpointer)
+        yield
+        trigger_scheduler.shutdown()
+
+
+app = FastAPI(
+    title=settings.app_name,
+    lifespan=lifespan,
+    dependencies=[Depends(verify_bearer_token)],
+)
+app.include_router(dashboard_router)
+
+store_lock = asyncio.Lock()
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "app": settings.app_name,
+        "model": settings.flash_model,
+        "uptime_seconds": round(time.time() - started_at, 2),
+    }
+
+
+def _interrupt_payload(result: dict[str, Any]) -> dict[str, Any] | None:
+    for interrupt_object in result.get("__interrupt__") or []:
+        return interrupt_object.value
+    return None
+
+
+def _tool_call_infos(payload: dict[str, Any]) -> list[ToolCallInfo]:
+    infos = []
+    for tool_call in payload.get("tool_calls") or []:
+        try:
+            args = json.loads(tool_call["function"].get("arguments") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            args = {}
+        infos.append(ToolCallInfo(name=tool_call["function"]["name"], args=args))
+    return infos
+
+
+def _final_reply(result: dict[str, Any]) -> str:
+    for message in reversed(result.get("messages") or []):
+        if message.get("role") == "assistant" and message.get("content"):
+            return message["content"]
+    return ""
+
+
+def _repair_dangling_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    repaired = list(messages)
+    if (
+        repaired
+        and repaired[-1].get("role") == "assistant"
+        and repaired[-1].get("tool_calls")
+    ):
+        for tool_call in repaired[-1]["tool_calls"]:
+            repaired.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": json.dumps(
+                        {
+                            "status": "error",
+                            "error": "This tool call is a remnant of an incomplete request.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            )
+    return repaired
+
+
+async def _run_turn(
+    graph: Any,
+    conversation_id: str,
+    message: str,
+    sink: StreamRun | None = None,
+) -> dict[str, Any]:
+    config = {
+        "configurable": {"thread_id": conversation_id},
+        "recursion_limit": settings.graph_recursion_limit,
+    }
+    async with get_lock(conversation_id):
+        resume = False
+        repaired_messages: list[dict[str, Any]] | None = None
+        async with store_lock:
+            await purge_expired(settings.conversation_ttl_seconds, graph.checkpointer)
+            cleanup_reported(settings.subagent_retention_hours)
+            snapshot = await graph.aget_state(config)
+            if snapshot.next:
+                resume = any(task.interrupts for task in snapshot.tasks)
+                if not resume:
+                    repaired_messages = _repair_dangling_tool_calls(
+                        snapshot.values.get("messages") or []
+                    )
+            touch(conversation_id)
+        if resume:
+            graph_input: Any = Command(resume=message)
+        elif repaired_messages is not None:
+            graph_input = replace_messages(
+                [*repaired_messages, {"role": "user", "content": message}]
+            )
+        else:
+            graph_input = {"messages": [{"role": "user", "content": message}]}
+        try:
+            interrupt_payload: dict[str, Any] | None = None
+            final_values: dict[str, Any] = {}
+            async for mode, payload in graph.astream(
+                graph_input, config, stream_mode=["custom", "updates", "values"]
+            ):
+                if mode == "custom":
+                    if sink is not None:
+                        sink.publish("progress", payload)
+                elif mode == "updates":
+                    candidate = _interrupt_payload(payload)
+                    if candidate is not None:
+                        interrupt_payload = candidate
+                elif mode == "values":
+                    final_values = payload
+        except GraphRecursionError:
+            return {"status": "ok", "reply": RECURSION_LIMIT_REPLY, "tool_calls": None}
+        if interrupt_payload is not None:
+            return {
+                "status": "confirmation_required",
+                "reply": interrupt_payload.get("question", ""),
+                "tool_calls": [
+                    info.model_dump() for info in _tool_call_infos(interrupt_payload)
+                ],
+            }
+        return {
+            "status": "ok",
+            "reply": _final_reply(final_values),
+            "tool_calls": None,
+        }
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(chat_request: ChatRequest, http_request: Request) -> ChatResponse:
+    graph = http_request.app.state.graph
+    conversation_id = chat_request.conversation_id or str(uuid.uuid4())
+    try:
+        result = await _run_turn(graph, conversation_id, chat_request.message)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Model call failed: {exc}")
+    return ChatResponse(
+        reply=result["reply"],
+        model=settings.flash_model,
+        conversation_id=conversation_id,
+        status=result["status"],
+        tool_calls=result["tool_calls"],
+    )
+
+
+async def _stream_worker(
+    graph: Any, conversation_id: str, message: str, run: StreamRun
+) -> None:
+    try:
+        try:
+            result = await _run_turn(graph, conversation_id, message, sink=run)
+        except Exception as exc:  # noqa: BLE001
+            run.publish(
+                "error",
+                {
+                    "detail": f"Model call failed: {exc}",
+                    "conversation_id": conversation_id,
+                },
+            )
+        else:
+            run.publish("done", {**result, "conversation_id": conversation_id})
+    finally:
+        run.finish()
+
+
+@app.post("/chat/stream")
+async def chat_stream(chat_request: ChatRequest, http_request: Request):
+    graph = http_request.app.state.graph
+    conversation_id = chat_request.conversation_id or str(uuid.uuid4())
+    run, created = get_or_create_run(conversation_id)
+    if created:
+        run.task = asyncio.create_task(
+            _stream_worker(graph, conversation_id, chat_request.message, run)
+        )
+    last_event_id = 0
+    header_value = http_request.headers.get("last-event-id")
+    if header_value and header_value.isdigit():
+        last_event_id = int(header_value)
+    backlog, queue = run.subscribe(last_event_id)
+
+    async def event_source():
+        yield encode_frame(0, "conversation", {"conversation_id": conversation_id})
+        try:
+            for event_id, event_type, data in backlog:
+                yield encode_frame(event_id, event_type, data)
+                if event_type in ("done", "error"):
+                    return
+            while True:
+                try:
+                    event_id, event_type, data = await asyncio.wait_for(
+                        queue.get(), timeout=STREAM_HEARTBEAT_SECONDS
+                    )
+                except TimeoutError:
+                    yield ": ping\n\n"
+                    if run.done and queue.empty():
+                        return
+                    continue
+                yield encode_frame(event_id, event_type, data)
+                if event_type in ("done", "error"):
+                    return
+        finally:
+            run.unsubscribe(queue)
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
