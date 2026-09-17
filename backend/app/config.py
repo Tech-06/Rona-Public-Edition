@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     subagent_llm_timeout_seconds: int = 300
     subagent_max_context_messages: int = 40
 
-    trigger_timezone: str = "Europe/Istanbul"
+    trigger_timezone: str = "UTC"
     trigger_max_concurrent: int = 2
     trigger_max_rounds: int = 30
     trigger_llm_timeout_seconds: int = 300

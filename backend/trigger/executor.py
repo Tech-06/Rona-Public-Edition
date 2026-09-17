@@ -36,9 +36,9 @@ REPORTER_SYSTEM_PROMPT = (
     "in. Both fields must contain real, informative content about this specific "
     "task, never placeholder words. Example for a task that had to send a "
     "greeting SMS: "
-    '{"summary": "The SMS was sent to Ulas at 15:03 with the text '
+    '{"summary": "The SMS was sent to Alex at 15:03 with the text '
     "'Nasılsın?'. The first attempt hit a transient API error and succeeded on "
-    'attempt 2.", "report": "The task fired at 15:00 Europe/Istanbul. The '
+    'attempt 2.", "report": "The task fired at 15:00 UTC. The '
     "condition was checked first and held. The pre-approved send_sms call was "
     'executed exactly as approved. The provider confirmed delivery at 15:03."}'
 )

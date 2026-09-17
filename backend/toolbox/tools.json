@@ -650,7 +650,7 @@
           "person_id": {
             "type": "integer",
             "minimum": 0,
-            "description": "Person the memory is about. Use 0 ONLY when it describes the user themself (their traits, tastes, habits, life). Use a positive person ID from the people database when it is about that specific person. Omit entirely when it is not about any individual person — topics, news, events, group plans. Examples: 'The user plays guitar' → 0; 'Ulas uses Claude Code' → Ulas's person ID; 'OpenAI went through a drama this term' → omit."
+            "description": "Person the memory is about. Use 0 ONLY when it describes the user themself (their traits, tastes, habits, life). Use a positive person ID from the people database when it is about that specific person. Omit entirely when it is not about any individual person — topics, news, events, group plans. Examples: 'The user plays guitar' → 0; 'Alex uses Claude Code' → Alex's person ID; 'OpenAI went through a drama this term' → omit."
           },
           "metadata": {
             "type": "object",
@@ -876,7 +876,7 @@
     },
     {
       "name": "create_task",
-      "description": "Creates a scheduled task that the server executes automatically at the scheduled time, even if the user is offline. Use it when the user asks for something to happen at a future time ('today at 15:00 send an SMS to Ulas') or on a recurring routine ('every weekday at 09:00 summarize my calendar'). The task runs a headless agent that first verifies the condition (if any) with read-only tools, then performs the task and reports the result. The main action (tool_name + tool_params) and any pre_approved_calls are executed with EXACTLY these parameters and nothing else; analyze the task and pre-approve the exact calls it will need before calling this tool, and inform the user about the permissions you are baking in. A task without an action runs like a research-and-report task. Use model 'flash' for straightforward work, 'pro' for tasks needing deep reasoning or multi-step judgment.",
+      "description": "Creates a scheduled task that the server executes automatically at the scheduled time, even if the user is offline. Use it when the user asks for something to happen at a future time ('today at 15:00 send an SMS to Alex') or on a recurring routine ('every weekday at 09:00 summarize my calendar'). The task runs a headless agent that first verifies the condition (if any) with read-only tools, then performs the task and reports the result. The main action (tool_name + tool_params) and any pre_approved_calls are executed with EXACTLY these parameters and nothing else; analyze the task and pre-approve the exact calls it will need before calling this tool, and inform the user about the permissions you are baking in. A task without an action runs like a research-and-report task. Use model 'flash' for straightforward work, 'pro' for tasks needing deep reasoning or multi-step judgment.",
       "module": "toolbox.tools.trigger_tools",
       "function": "create_task",
       "parameters": {
@@ -884,7 +884,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Short task name, e.g. 'SMS to Ulas'."
+            "description": "Short task name, e.g. 'SMS to Alex'."
           },
           "description": {
             "type": "string",
