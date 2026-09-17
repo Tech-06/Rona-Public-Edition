@@ -4,8 +4,6 @@
 
 Rona is a self-hosted personal AI assistant platform that connects to any OpenAI-API-compatible language model. It is not a single chat window — it is three independently deployable pieces: a **backend** (the agent core), a **CLI client**, and a **web dashboard** — and it ships with real capabilities: it can search the web, check the weather, translate text, manage your Google Calendar/Contacts/Gmail, remember things about you across conversations through semantic search, delegate long-running work to background subagents, and run scheduled tasks on its own even while you're offline.
 
-This repository — **Rona Public Edition** — is the de-identified, public template version of the project: stripped of personal data, secrets, and single-user assumptions. Clone it, plug in your own LLM endpoint and API keys, and it becomes your own assistant.
-
 ## Table of Contents
 
 - [Overview](#overview)
@@ -509,8 +507,6 @@ If you want to rename the assistant, note that `APP_NAME` in `backend/.env` only
 
 ## Security Notes
 
-- `.env` files, `rona.db`/`rona_checkpoints.db`, log files, and Google OAuth credential/token files (`credentials.json`, `token_*.json`) are fully excluded from the repository via `.gitignore` — never commit them.
-- Every backend endpoint is protected by `AUTH_TOKEN`; generate it randomly and unguessably, and never share it.
 - The web dashboard uses the same `AUTH_TOKEN` as the backend and proxies your requests to it with that token; if you expose the dashboard beyond `127.0.0.1` (e.g. `WEB_HOST=0.0.0.0`), put it behind a reverse proxy with TLS and restrict `WEB_ALLOWED_HOSTS` to your real domain.
 - Sensitive tool calls (sending email, deleting data, writing to the "deep" memory layer, etc.) always go through user confirmation; calls pre-approved via `create_task` can only ever run with the exact parameters they were defined with — the executor cannot change them.
 - If you suspect any key or token has leaked, revoke and regenerate it with the relevant provider immediately, and rotate `AUTH_TOKEN`.
