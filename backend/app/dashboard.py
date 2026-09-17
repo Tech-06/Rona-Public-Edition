@@ -71,11 +71,8 @@ _EDITABLE_FIELDS = {
     "trigger_max_rounds",
     "trigger_llm_timeout_seconds",
     "trigger_max_context_messages",
-    "web_host",
-    "web_port",
     "web_autostart",
-    "backend_url",
-    "web_allowed_hosts",
+    "web_client_dir",
 }
 
 

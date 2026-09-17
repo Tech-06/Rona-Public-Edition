@@ -61,8 +61,8 @@ def test_update_config_preserves_unknown_lines_and_order(client):
 
 def test_update_config_appends_previously_absent_editable_key(client):
     test_client, env_path = client
-    test_client.put("/api/config", json={"web_port": 9999})
-    assert "WEB_PORT=9999" in env_path.read_text(encoding="utf-8").splitlines()
+    test_client.put("/api/config", json={"web_autostart": True})
+    assert "WEB_AUTOSTART=true" in env_path.read_text(encoding="utf-8").splitlines()
 
 
 def test_read_config_excludes_secret_fields(client):

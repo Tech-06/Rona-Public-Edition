@@ -53,11 +53,12 @@ class Settings(BaseSettings):
     trigger_llm_timeout_seconds: int = 300
     trigger_max_context_messages: int = 30
 
-    web_host: str = "127.0.0.1"
-    web_port: int = 8016
+    # Whether this process should spawn the web dashboard as a subprocess on
+    # startup (see run.py). The dashboard's own host/port/allowed-hosts are
+    # configured independently in its own .env now that it's a separate
+    # deployable component.
     web_autostart: bool = False
-    backend_url: str = "http://127.0.0.1:8000"
-    web_allowed_hosts: str = "localhost,127.0.0.1"
+    web_client_dir: str = "../web-client"
 
     @property
     def pro_configured(self) -> bool:

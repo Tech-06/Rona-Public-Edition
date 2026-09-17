@@ -1,0 +1,15 @@
+[Unit]
+Description=Rona Web Dashboard
+After=network.target rona.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/rona/web-client
+EnvironmentFile=%h/rona/web-client/.env
+ExecStart=%h/rona/web-client/.venv/bin/python -m uvicorn webui.server:app --host ${WEB_HOST} --port ${WEB_PORT}
+Restart=always
+RestartSec=2
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
