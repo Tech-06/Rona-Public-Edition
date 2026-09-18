@@ -52,6 +52,13 @@ backend/toolbox/tools/credentials.json
 backend/toolbox/tools/token_*.json
 backend/backend_spawn.log
 
+# Installed custom tool packages (fetched on demand by toolbox.manager from
+# the separate Rona Tools repo) and their local lockfile/config -- not part
+# of the template, regenerated per install.
+backend/toolbox/custom/*
+!backend/toolbox/custom/__init__.py
+!backend/toolbox/custom/.gitkeep
+
 # Web client
 web-client/node_modules/
 web-client/frontend/node_modules/

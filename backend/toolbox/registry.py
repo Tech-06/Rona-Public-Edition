@@ -1,12 +1,18 @@
 import importlib
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from toolbox import packages
+from toolbox.packages import PackageLoadError, PackageManifest
+
 MANIFEST_PATH = Path(__file__).resolve().parent / "tools.json"
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class ToolSpec(BaseModel):
@@ -78,29 +84,85 @@ class ToolEntry:
         self.fn = fn
 
 
-def _load_manifest() -> dict[str, ToolEntry]:
+def _load_tool_entry(item: dict[str, Any], *, origin: str) -> tuple[str, ToolEntry] | None:
+    """Validate one raw tool dict and resolve it to a callable.
+
+    Returns ``None`` (after logging a warning) instead of raising when
+    ``origin`` is a custom package -- a single broken tool must not take the
+    whole registry down. Core tool errors still raise: a broken core
+    manifest is a bug in the base repo, not something to silently degrade.
+    """
+    is_core = origin == "core"
+    try:
+        if not isinstance(item, dict):
+            raise TypeError("each tool must be an object")
+        spec = ToolSpec.model_validate(item)
+        module = importlib.import_module(spec.module)
+        fn = getattr(module, spec.function, None)
+        if not callable(fn):
+            raise TypeError(f"{spec.module}.{spec.function} is not callable")
+    except Exception as exc:  # noqa: BLE001
+        if is_core:
+            raise ValueError(f"toolbox manifest: failed to load core tool: {exc}") from exc
+        logger.warning("toolbox: skipping tool from package '%s': %s", origin, exc)
+        return None
+    return spec.name, ToolEntry(spec, fn)
+
+
+def _load_manifest() -> tuple[dict[str, ToolEntry], list[PackageManifest], list[str]]:
     raw = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     tools_raw = raw.get("tools", [])
     if not isinstance(tools_raw, list):
         raise TypeError("toolbox manifest: 'tools' must be a list")
+
     entries: dict[str, ToolEntry] = {}
     for item in tools_raw:
-        if not isinstance(item, dict):
-            raise TypeError("toolbox manifest: each tool must be an object")
-        spec = ToolSpec.model_validate(item)
-        if spec.name in entries:
-            raise ValueError(f"toolbox manifest: duplicate tool name '{spec.name}'")
+        loaded = _load_tool_entry(item, origin="core")
+        assert loaded is not None  # core failures raise instead of returning None
+        name, entry = loaded
+        if name in entries:
+            raise ValueError(f"toolbox manifest: duplicate tool name '{name}'")
+        entries[name] = entry
+
+    loaded_packages: list[PackageManifest] = []
+    warnings: list[str] = []
+    for pkg_dir in packages.iter_installed():
         try:
-            module = importlib.import_module(spec.module)
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"toolbox manifest: failed to load '{spec.module}': {exc}")
-        fn = getattr(module, spec.function, None)
-        if not callable(fn):
-            raise TypeError(
-                f"toolbox manifest: {spec.module}.{spec.function} is not callable"
+            manifest = packages.load_manifest(pkg_dir)
+            tools_raw = packages.load_tools_raw(pkg_dir, manifest)
+        except PackageLoadError as exc:
+            message = f"skipping package in {pkg_dir}: {exc}"
+            logger.warning("toolbox: %s", message)
+            warnings.append(message)
+            continue
+
+        package_ok = True
+        package_entries: dict[str, ToolEntry] = {}
+        for item in tools_raw:
+            loaded = _load_tool_entry(item, origin=manifest.id)
+            if loaded is None:
+                package_ok = False
+                continue
+            name, entry = loaded
+            if name in entries or name in package_entries:
+                message = (
+                    f"package '{manifest.id}': tool name '{name}' conflicts with an "
+                    "already-loaded tool, skipping it"
+                )
+                logger.warning("toolbox: %s", message)
+                warnings.append(message)
+                package_ok = False
+                continue
+            package_entries[name] = entry
+
+        entries.update(package_entries)
+        loaded_packages.append(manifest)
+        if not package_ok:
+            warnings.append(
+                f"package '{manifest.id}' loaded with some tools skipped (see log)"
             )
-        entries[spec.name] = ToolEntry(spec, fn)
-    return entries
+
+    return entries, loaded_packages, warnings
 
 
 def has_tool(name: str) -> bool:
@@ -149,4 +211,28 @@ def get_tool_schemas(names: set[str] | None = None) -> list[dict[str, Any]]:
     ]
 
 
-_registry: dict[str, ToolEntry] = _load_manifest()
+def installed_packages() -> list[PackageManifest]:
+    """Custom packages that loaded successfully, in load order."""
+    return list(_installed_packages)
+
+
+def load_warnings() -> list[str]:
+    """Human-readable problems hit while loading custom packages, if any."""
+    return list(_load_warnings)
+
+
+def reload_registry() -> None:
+    """Re-scan toolbox/tools.json and every installed package from disk.
+
+    Called after `toolbox.manager` installs or removes a package so the
+    running process picks up the change without a restart. Also used by
+    tests to exercise package loading without a real process restart.
+    """
+    global _registry, _installed_packages, _load_warnings
+    _registry, _installed_packages, _load_warnings = _load_manifest()
+
+
+_registry: dict[str, ToolEntry]
+_installed_packages: list[PackageManifest]
+_load_warnings: list[str]
+_registry, _installed_packages, _load_warnings = _load_manifest()
