@@ -14,20 +14,20 @@ export interface StatusResponse {
   log_size_bytes: number | null;
 }
 
-export interface GoogleAccountInfo {
-  account: string;
-  token_present: boolean;
-  calendar: boolean;
-  contacts: boolean;
-  mail: boolean;
+export interface PackageStatus {
+  id: string;
+  name: string;
+  version: string;
+  kind: "tool" | "library";
+  description: string;
+  provides: string[];
+  requires: string[];
+  configured: boolean;
+  missing_config: string[];
 }
 
 export interface ConnectionsResponse {
-  google_accounts: GoogleAccountInfo[];
-  google_credentials_file_present: boolean;
-  tavily_configured: boolean;
-  deepl_configured: boolean;
-  openweather_configured: boolean;
+  packages: PackageStatus[];
   gemini_embedding_configured: boolean;
   flash_configured: boolean;
   pro_configured: boolean;
@@ -41,11 +41,13 @@ export interface ProbeResult {
 }
 
 export interface ProbeResponse {
-  google: Record<string, ProbeResult>;
-  weather: ProbeResult;
-  translate: ProbeResult;
-  web_search: ProbeResult;
+  packages: Record<string, ProbeResult>;
   llm: ProbeResult;
+}
+
+export interface PackagesResponse {
+  packages: PackageStatus[];
+  warnings: string[];
 }
 
 export interface ToolSpecResponse {
@@ -138,6 +140,7 @@ export const dashboardApi = {
   status: () => api.get<StatusResponse>("/api/status"),
   connections: () => api.get<ConnectionsResponse>("/api/connections"),
   probeConnections: () => api.post<ProbeResponse>("/api/connections/probe"),
+  packages: () => api.get<PackagesResponse>("/api/packages"),
   tools: () => api.get<{ tools: ToolSpecResponse[] }>("/api/tools"),
   config: () => api.get<ConfigResponse>("/api/config"),
   updateConfig: (values: Record<string, unknown>) =>
@@ -148,7 +151,10 @@ export const dashboardApi = {
     api.post<TaskResponse>(`/api/tasks/${taskId}/status`, { status }),
   deleteTask: (taskId: string) => api.del<{ deleted: boolean }>(`/api/tasks/${taskId}`),
   subagents: () => api.get<{ runs: SubagentRunResponse[] }>("/api/subagents"),
-  notes: () => api.get<{ success: boolean; notes: Array<Record<string, unknown>> }>("/api/data/notes"),
+  notes: () =>
+    api.get<{ success: boolean; installed: boolean; notes: Array<Record<string, unknown>> }>(
+      "/api/data/notes",
+    ),
   people: () => api.get<{ success: boolean; people: Array<Record<string, unknown>> }>("/api/data/people"),
   memories: () =>
     api.get<{ success: boolean; memories: Array<Record<string, unknown>> }>(

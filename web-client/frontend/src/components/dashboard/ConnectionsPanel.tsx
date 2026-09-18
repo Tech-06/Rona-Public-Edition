@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
-import { dashboardApi, type ProbeResponse } from "../../api/dashboard";
+import { dashboardApi, type PackageStatus, type ProbeResponse } from "../../api/dashboard";
 import { usePoll } from "../../hooks/usePoll";
-import { Badge, Button, Card, ErrorState } from "./ui";
+import { Badge, Button, Card, EmptyState, ErrorState } from "./ui";
 
 export function ConnectionsPanel() {
   const connections = usePoll(useCallback(() => dashboardApi.connections(), []), 15000);
@@ -43,41 +43,51 @@ export function ConnectionsPanel() {
             probe={probe?.llm}
           />
           <ConnectionRow label="Pro model" ok={data.pro_configured} />
-          <ConnectionRow label="Tavily (web arama)" ok={data.tavily_configured} probe={probe?.web_search} />
-          <ConnectionRow label="DeepL (çeviri)" ok={data.deepl_configured} probe={probe?.translate} />
-          <ConnectionRow label="OpenWeather" ok={data.openweather_configured} probe={probe?.weather} />
           <ConnectionRow label="Gemini embedding (hafıza)" ok={data.gemini_embedding_configured} />
           <ConnectionRow label="rona.db" ok={data.db_present} />
           <ConnectionRow label="Sohbet geçmişi (checkpoint)" ok={data.checkpoint_db_present} />
         </div>
       </Card>
 
-      <Card title="Google hesapları">
-        <div className="flex flex-col gap-2">
-          {data.google_accounts.map((account) => (
-            <div
-              key={account.account}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-app px-3 py-2 text-sm"
-            >
-              <span className="font-medium text-fg-soft">{account.account}</span>
-              <Badge tone={account.token_present ? "ok" : "bad"}>
-                {account.token_present ? "token var" : "token yok"}
-              </Badge>
-              {account.calendar && <Badge tone="neutral">takvim</Badge>}
-              {account.contacts && <Badge tone="neutral">kişiler</Badge>}
-              {account.mail && <Badge tone="neutral">mail</Badge>}
-              {probe?.google[account.account] && (
-                <Badge tone={probe.google[account.account].ok ? "ok" : "bad"}>
-                  {probe.google[account.account].ok ? "doğrulandı" : probe.google[account.account].detail}
-                </Badge>
-              )}
-            </div>
-          ))}
-          {!data.google_credentials_file_present && (
-            <p className="text-xs text-warn-text">credentials.json bulunamadı.</p>
-          )}
-        </div>
+      <Card title="Araç paketleri">
+        {data.packages.length === 0 ? (
+          <EmptyState>
+            Kurulu isteğe bağlı araç paketi yok. Eklemek için:{" "}
+            <code className="rounded bg-app px-1 py-0.5 text-xs">
+              python -m toolbox.manager install &lt;paket_id&gt;
+            </code>
+          </EmptyState>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {data.packages.map((pkg) => (
+              <PackageRow key={pkg.id} pkg={pkg} probe={probe?.packages[pkg.id]} />
+            ))}
+          </div>
+        )}
       </Card>
+    </div>
+  );
+}
+
+function PackageRow({
+  pkg,
+  probe,
+}: {
+  pkg: PackageStatus;
+  probe?: { ok: boolean; detail: string };
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-app px-3 py-2 text-sm">
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-fg-soft">{pkg.name}</p>
+        <p className="text-xs text-fg-subtle">{pkg.description}</p>
+      </div>
+      <Badge tone={pkg.configured ? "ok" : "warn"}>
+        {pkg.configured ? "yapılandırıldı" : `eksik: ${pkg.missing_config.join(", ")}`}
+      </Badge>
+      {probe && (
+        <Badge tone={probe.ok ? "ok" : "bad"}>{probe.ok ? "canlı" : probe.detail}</Badge>
+      )}
     </div>
   );
 }

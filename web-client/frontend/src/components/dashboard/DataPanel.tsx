@@ -43,6 +43,16 @@ function NotesTab() {
   const notes = usePoll(useCallback(() => dashboardApi.notes(), []), null);
   if (notes.error) return <ErrorState message={notes.error} />;
   if (!notes.data) return null;
+  if (!notes.data.installed) {
+    return (
+      <EmptyState>
+        Not aracı kurulu değil. Eklemek için:{" "}
+        <code className="rounded bg-app px-1 py-0.5 text-xs">
+          python -m toolbox.manager install notes
+        </code>
+      </EmptyState>
+    );
+  }
   if (notes.data.notes.length === 0) return <EmptyState>Not yok.</EmptyState>;
   return (
     <div className="flex flex-col gap-2">
