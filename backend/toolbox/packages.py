@@ -54,6 +54,9 @@ class ConfigField(BaseModel):
         under ``env_var`` (never stored in the package's own config.json).
       - "config": a non-secret value (e.g. a list of Google account names),
         stored in ``toolbox/custom/<id>/config.json`` under ``key``.
+      - "file": a local file the user points to (e.g. a Google OAuth
+        ``credentials.json``), copied into the package directory under
+        ``dest_filename`` rather than stored as a value anywhere.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -62,8 +65,9 @@ class ConfigField(BaseModel):
     label: str = ""
     description: str = ""
     type: Literal["string", "integer", "boolean", "list"] = "string"
-    target: Literal["env", "config"] = "config"
+    target: Literal["env", "config", "file"] = "config"
     env_var: str | None = None
+    dest_filename: str | None = None
     secret: bool = False
     required: bool = True
     default: Any = None
@@ -171,6 +175,9 @@ def load_config_values(manifest: PackageManifest) -> dict[str, Any]:
             env_var = field.env_var or f"{manifest.id.upper()}_{field.key.upper()}"
             value = os.getenv(env_var)
             values[field.key] = value if value not in (None, "") else field.default
+        elif field.target == "file":
+            dest = package_dir(manifest.id) / (field.dest_filename or field.key)
+            values[field.key] = str(dest) if dest.is_file() else None
         else:
             value = stored.get(field.key, field.default)
             values[field.key] = value
