@@ -39,7 +39,7 @@ export function LogsPanel() {
           <select
             value={level}
             onChange={(event) => setLevel(event.target.value)}
-            className="rounded-lg border border-surface-border bg-surface px-2.5 py-1.5 text-sm text-slate-200"
+            className="rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg-soft"
           >
             <option value="">Tüm seviyeler</option>
             <option value="INFO">INFO</option>
@@ -51,13 +51,13 @@ export function LogsPanel() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Ara..."
-            className="flex-1 rounded-lg border border-surface-border bg-surface px-2.5 py-1.5 text-sm text-slate-200 focus:border-sky-500 focus:outline-none"
+            className="flex-1 rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg-soft focus:border-accent focus:outline-none"
           />
-          <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-slate-600"}`} />
+          <span className={`h-2 w-2 rounded-full ${connected ? "bg-ok-hover" : "bg-fg-faint"}`} />
         </div>
       </Card>
-      <div className="flex-1 overflow-y-auto rounded-xl border border-surface-border bg-black/40 p-3 font-mono text-xs text-slate-300">
-        {lines.length === 0 && <p className="text-slate-600">Henüz log yok.</p>}
+      <div className="flex-1 overflow-y-auto rounded-xl border border-line bg-code p-3 font-mono text-xs text-fg-soft">
+        {lines.length === 0 && <p className="text-fg-faint">Henüz log yok.</p>}
         {lines.map((line, index) => (
           <div key={index} className="whitespace-pre-wrap break-all">
             {line}

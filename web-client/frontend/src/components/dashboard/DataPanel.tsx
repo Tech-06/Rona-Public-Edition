@@ -24,8 +24,8 @@ export function DataPanel() {
             onClick={() => setTab(item.id)}
             className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
               tab === item.id
-                ? "bg-sky-600 text-white"
-                : "border border-surface-border text-slate-400 hover:text-slate-200"
+                ? "bg-accent text-accent-fg"
+                : "border border-line text-fg-muted hover:text-fg-soft"
             }`}
           >
             {item.label}
@@ -48,9 +48,9 @@ function NotesTab() {
     <div className="flex flex-col gap-2">
       {notes.data.notes.map((note) => (
         <Card key={String(note.id)}>
-          <p className="text-sm font-medium text-slate-200">{String(note.title)}</p>
-          <p className="mt-1 text-sm text-slate-400">{String(note.body)}</p>
-          <p className="mt-1 text-xs text-slate-600">{String(note.date)}</p>
+          <p className="text-sm font-medium text-fg-soft">{String(note.title)}</p>
+          <p className="mt-1 text-sm text-fg-muted">{String(note.body)}</p>
+          <p className="mt-1 text-xs text-fg-faint">{String(note.date)}</p>
         </Card>
       ))}
     </div>
@@ -63,17 +63,17 @@ function PeopleTab() {
   if (!people.data) return null;
   if (people.data.people.length === 0) return <EmptyState>Kişi yok.</EmptyState>;
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2">
       {people.data.people.map((person) => (
         <Card key={String(person.id)}>
-          <p className="text-sm font-medium text-slate-200">
+          <p className="text-sm font-medium text-fg-soft">
             {String(person.name)} {person.surname ? String(person.surname) : ""}
           </p>
           {person.connection ? (
-            <p className="text-xs text-slate-500">{String(person.connection)}</p>
+            <p className="text-xs text-fg-subtle">{String(person.connection)}</p>
           ) : null}
-          {person.phone_num ? <p className="text-xs text-slate-500">{String(person.phone_num)}</p> : null}
-          {person.mail ? <p className="text-xs text-slate-500">{String(person.mail)}</p> : null}
+          {person.phone_num ? <p className="text-xs text-fg-subtle">{String(person.phone_num)}</p> : null}
+          {person.mail ? <p className="text-xs text-fg-subtle">{String(person.mail)}</p> : null}
         </Card>
       ))}
     </div>
@@ -89,8 +89,8 @@ function MemoriesTab() {
     <div className="flex flex-col gap-2">
       {memories.data.memories.map((memory) => (
         <Card key={String(memory.id)}>
-          <p className="text-sm text-slate-200">{String(memory.content)}</p>
-          <p className="mt-1 text-xs text-slate-600">{String(memory.created_at)}</p>
+          <p className="text-sm text-fg-soft">{String(memory.content)}</p>
+          <p className="mt-1 text-xs text-fg-faint">{String(memory.created_at)}</p>
         </Card>
       ))}
     </div>

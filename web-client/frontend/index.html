@@ -1,11 +1,31 @@
 <!doctype html>
-<html lang="tr" class="dark">
+<html lang="tr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <title>Rona</title>
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var dark = true;
+        try {
+          var stored = localStorage.getItem("rona:theme");
+          var mode = stored === "light" || stored === "dark" ? stored : "system";
+          dark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+        } catch (e) {
+          // private mode / storage unavailable: fall back to dark
+        }
+        root.classList.toggle("dark", dark);
+        root.style.colorScheme = dark ? "dark" : "light";
+        root.style.backgroundColor = dark ? "#0f1115" : "#ffffff";
+      })();
+    </script>
   </head>
-  <body class="bg-surface text-slate-100 antialiased">
+  <body class="bg-app text-fg antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

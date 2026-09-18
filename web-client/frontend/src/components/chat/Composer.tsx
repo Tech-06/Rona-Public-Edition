@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
+import { ArrowUpIcon, CheckIcon, XIcon } from "../ui/icons";
 
 interface Props {
   onSend: (message: string) => void;
@@ -25,34 +26,19 @@ export function Composer({ onSend, disabled, awaitingConfirmation, onApprove, on
     }
   }
 
+  // While a confirmation is pending, the approve/reject controls take the
+  // send button's spot. Typing a free-text reply instead (the alternative
+  // to clicking them) swaps them back out for the send button; clearing
+  // the draft brings them back.
+  const showConfirmActions = awaitingConfirmation && !value.trim();
+  const canSend = !disabled && value.trim().length > 0;
+
   return (
-    <div className="border-t border-surface-border bg-surface px-4 py-3">
+    <div className="border-t border-line bg-app px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-        {awaitingConfirmation && (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onApprove}
-              disabled={disabled}
-              className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
-            >
-              Onayla
-            </button>
-            <button
-              type="button"
-              onClick={onReject}
-              disabled={disabled}
-              className="rounded-full bg-rose-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-rose-500 disabled:opacity-40"
-            >
-              Reddet
-            </button>
-          </div>
-        )}
         <div
-          className={`flex items-end gap-2 rounded-2xl border px-3 py-2 transition-colors ${
-            awaitingConfirmation
-              ? "border-amber-500/60 bg-amber-500/[0.07]"
-              : "border-surface-border bg-surface-raised"
+          className={`flex items-end gap-2 rounded-full border px-4 py-2 transition-colors ${
+            awaitingConfirmation ? "border-warn/60 bg-warn/[0.07]" : "border-line bg-panel"
           }`}
         >
           <textarea
@@ -60,17 +46,43 @@ export function Composer({ onSend, disabled, awaitingConfirmation, onApprove, on
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder={awaitingConfirmation ? "Onaylıyor musun? Yanıtını yaz..." : "Rona'ya yaz..."}
-            className="max-h-40 flex-1 resize-none bg-transparent text-[15px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
+            placeholder={awaitingConfirmation ? "Onaylıyor musun? Yanıtını yaz..." : ""}
+            className="max-h-40 flex-1 resize-none bg-transparent py-1 text-[16px] text-fg placeholder:text-fg-subtle focus:outline-none sm:text-[15px]"
           />
-          <button
-            type="button"
-            onClick={submit}
-            disabled={disabled || !value.trim()}
-            className="rounded-full bg-sky-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
-          >
-            Gönder
-          </button>
+          {showConfirmActions ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onApprove}
+                disabled={disabled}
+                aria-label="Onayla"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-ok text-accent-fg transition-colors hover:bg-ok-hover disabled:opacity-40"
+              >
+                <CheckIcon className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onReject}
+                disabled={disabled}
+                aria-label="Reddet"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-strong text-accent-fg transition-colors hover:bg-danger-hover disabled:opacity-40"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSend}
+              aria-label="Gönder"
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors ${
+                canSend ? "bg-accent text-accent-fg hover:bg-accent-hover" : "bg-elevated text-fg-faint"
+              }`}
+            >
+              <ArrowUpIcon className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>

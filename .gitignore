@@ -17,6 +17,7 @@ ENV/
 .env
 .env.local
 .env.*.local
+.env.bak
 
 # Test / coverage
 .pytest_cache/
@@ -32,6 +33,7 @@ htmlcov/
 .idea/
 .vscode/
 *.swp
+.claude/
 
 # OS
 .DS_Store
@@ -54,6 +56,8 @@ backend/backend_spawn.log
 web-client/node_modules/
 web-client/frontend/node_modules/
 web-client/frontend/*.tsbuildinfo
+web-client/frontend/vite.config.js
+web-client/frontend/vite.config.d.ts
 web-client/webui/dist/
 web-client/webui.pid
 web-client/webui.lock

@@ -3,12 +3,12 @@ import { toolLabel } from "../../lib/toolLabels";
 import type { StepRecord } from "../../types";
 
 const STATUS_DOT: Record<StepRecord["status"], string> = {
-  running: "bg-sky-400 animate-pulseDot",
-  ok: "bg-emerald-500",
-  error: "bg-rose-500",
-  rejected: "bg-amber-500",
-  unknown_tool: "bg-rose-500",
-  bad_args: "bg-rose-500",
+  running: "bg-accent-hover animate-pulseDot",
+  ok: "bg-ok-hover",
+  error: "bg-danger",
+  rejected: "bg-warn",
+  unknown_tool: "bg-danger",
+  bad_args: "bg-danger",
 };
 
 function formatDuration(ms: number | null | undefined): string {
@@ -32,9 +32,9 @@ export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2 text-sm">
           <span className="flex gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulseDot [animation-delay:-0.3s]" />
-            <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulseDot [animation-delay:-0.15s]" />
-            <span className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulseDot" />
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-hover animate-pulseDot [animation-delay:-0.3s]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-hover animate-pulseDot [animation-delay:-0.15s]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-hover animate-pulseDot" />
           </span>
           <span className="shimmer-text font-medium">{phase ?? "Düşünülüyor"}</span>
         </div>
@@ -52,7 +52,7 @@ export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-full border border-surface-border bg-surface px-2.5 py-1 text-xs text-slate-400 transition-colors hover:text-slate-200"
+        className="inline-flex items-center gap-1.5 rounded-full border border-line bg-app px-2.5 py-1 text-xs text-fg-muted transition-colors hover:text-fg-soft"
       >
         <span>
           {steps.length} adım{durationLabel ? ` · ${durationLabel}` : ""}
@@ -70,13 +70,13 @@ export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props
 
 function StepTimeline({ steps }: { steps: StepRecord[] }) {
   return (
-    <ul className="flex flex-col gap-1.5 border-l border-surface-border pl-3 text-xs text-slate-400">
+    <ul className="flex flex-col gap-1.5 border-l border-line pl-3 text-xs text-fg-muted">
       {steps.map((step) => (
         <li key={step.callId} className="flex items-center gap-2">
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[step.status]}`} />
-          <span className="text-slate-300">{toolLabel(step.name, step.args)}</span>
+          <span className="text-fg-soft">{toolLabel(step.name, step.args)}</span>
           {step.durationMs !== null && (
-            <span className="text-slate-500">{formatDuration(step.durationMs)}</span>
+            <span className="text-fg-subtle">{formatDuration(step.durationMs)}</span>
           )}
         </li>
       ))}

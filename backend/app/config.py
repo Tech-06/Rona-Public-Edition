@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     pro_model_api: str = ""
     pro_model_headers: dict[str, str] = {}
 
-    conversation_ttl_seconds: int = 7200
+    conversation_ttl_seconds: int = 0
     max_history_messages: int = 50
     llm_timeout_seconds: int = 120
     graph_recursion_limit: int = 100

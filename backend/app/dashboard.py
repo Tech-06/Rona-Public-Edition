@@ -2,17 +2,19 @@ import asyncio
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 from app.llm import chat_completion
-from graph import CHECKPOINT_DB_PATH
-from graph.threads import active_count, snapshot_activity
+from app.streaming import drop_run
+from graph import CHECKPOINT_DB_PATH, conversations
+from graph.threads import get_lock
 from subagents import store as subagent_store
 from toolbox.db import DB_PATH
 from toolbox.registry import iter_specs
@@ -93,7 +95,7 @@ async def get_status():
         "flash_model": settings.flash_model,
         "pro_configured": settings.pro_configured,
         "scheduler_running": trigger_scheduler.is_running(),
-        "active_conversations": active_count(),
+        "active_conversations": conversations.count(),
         "running_subagents": subagent_store.count_running(),
         "running_trigger_occurrences": trigger_store.count_running(),
         "db_size_bytes": _file_size(DB_PATH),
@@ -355,19 +357,90 @@ async def data_memories(
     )
 
 
+def _seconds_ago(timestamp: str) -> float:
+    try:
+        parsed = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return 0.0
+    return round(time.time() - parsed.timestamp(), 1)
+
+
 @router.get("/conversations")
 async def list_conversations():
-    activity = snapshot_activity()
-    now = time.time()
     items = [
         {
-            "conversation_id": conversation_id,
-            "last_active_seconds_ago": round(now - last_active, 1),
+            "conversation_id": row["thread_id"],
+            "last_active": row["last_active"],
+            "last_active_seconds_ago": _seconds_ago(row["last_active"]),
+            "pinned": row["pinned"],
         }
-        for conversation_id, last_active in activity.items()
+        for row in conversations.list_active()
     ]
-    items.sort(key=lambda item: item["last_active_seconds_ago"])
-    return {"conversations": items}
+    return {
+        "conversations": items,
+        "purged": conversations.list_purged(),
+        "ttl_seconds": settings.conversation_ttl_seconds,
+        "max_history_messages": settings.max_history_messages,
+    }
+
+
+class ConversationPinUpdate(BaseModel):
+    pinned: bool
+
+
+@router.post("/conversations/{conversation_id}/pin")
+async def pin_conversation(conversation_id: str, payload: ConversationPinUpdate):
+    return conversations.set_pinned(conversation_id, payload.pinned)
+
+
+def _get_checkpointer(request: Request):
+    graph = getattr(request.app.state, "graph", None)
+    checkpointer = getattr(graph, "checkpointer", None)
+    if checkpointer is None:
+        raise HTTPException(503, "Graph is not ready")
+    return checkpointer
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, request: Request):
+    checkpointer = _get_checkpointer(request)
+    lock = get_lock(conversation_id)
+    try:
+        await asyncio.wait_for(lock.acquire(), timeout=5.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(409, "Conversation is busy")
+    try:
+        delete = getattr(checkpointer, "adelete_thread", None)
+        if delete is not None:
+            await delete(conversation_id)
+        conversations.forget(conversation_id)
+    finally:
+        lock.release()
+    drop_run(conversation_id)
+    return {"deleted": True}
+
+
+@router.delete("/conversations")
+async def delete_all_conversations(request: Request):
+    checkpointer = _get_checkpointer(request)
+    delete = getattr(checkpointer, "adelete_thread", None)
+    deleted = 0
+    skipped = 0
+    for row in conversations.list_active(limit=10_000):
+        conversation_id = row["thread_id"]
+        lock = get_lock(conversation_id)
+        if lock.locked():
+            skipped += 1
+            continue
+        async with lock:
+            if delete is not None:
+                await delete(conversation_id)
+            conversations.forget(conversation_id)
+            drop_run(conversation_id)
+        deleted += 1
+    return {"deleted": deleted, "skipped": skipped}
 
 
 @router.get("/logs")

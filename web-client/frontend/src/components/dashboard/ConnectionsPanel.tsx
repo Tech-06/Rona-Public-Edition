@@ -36,7 +36,7 @@ export function ConnectionsPanel() {
         }
       >
         {probeError && <ErrorState message={probeError} />}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2">
           <ConnectionRow
             label="Flash model"
             ok={data.flash_configured}
@@ -57,9 +57,9 @@ export function ConnectionsPanel() {
           {data.google_accounts.map((account) => (
             <div
               key={account.account}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm"
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-app px-3 py-2 text-sm"
             >
-              <span className="font-medium text-slate-200">{account.account}</span>
+              <span className="font-medium text-fg-soft">{account.account}</span>
               <Badge tone={account.token_present ? "ok" : "bad"}>
                 {account.token_present ? "token var" : "token yok"}
               </Badge>
@@ -74,7 +74,7 @@ export function ConnectionsPanel() {
             </div>
           ))}
           {!data.google_credentials_file_present && (
-            <p className="text-xs text-amber-300">credentials.json bulunamadı.</p>
+            <p className="text-xs text-warn-text">credentials.json bulunamadı.</p>
           )}
         </div>
       </Card>
@@ -92,8 +92,8 @@ function ConnectionRow({
   probe?: { ok: boolean; detail: string };
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm">
-      <span className="text-slate-300">{label}</span>
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-line bg-app px-3 py-2 text-sm">
+      <span className="text-fg-soft">{label}</span>
       <div className="flex items-center gap-2">
         <Badge tone={ok ? "ok" : "bad"}>{ok ? "yapılandırıldı" : "eksik"}</Badge>
         {probe && (

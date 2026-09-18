@@ -16,7 +16,33 @@ INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
 )
 
-MIGRATIONS: list[tuple[int, tuple[str, ...]]] = []
+MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
+    (
+        1,
+        (
+            # Mirrors graph/conversations.py's SCHEMA/INDEX. Duplicated as a
+            # literal (rather than imported) so this script stays independent
+            # of the app package -- importing `graph` would pull in
+            # app.config's Settings(), which requires AUTH_TOKEN/FLASH_MODEL*
+            # from .env and would break running this script before .env is
+            # filled in. Both copies use IF NOT EXISTS, so any drift between
+            # them is harmless: graph.conversations.ensure_schema() also runs
+            # at every app startup regardless of whether this migration ran.
+            """
+            CREATE TABLE IF NOT EXISTS conversation_registry (
+                thread_id   TEXT PRIMARY KEY,
+                last_active TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                pinned      INTEGER NOT NULL DEFAULT 0,
+                purged_at   TEXT
+            )
+            """,
+            (
+                "CREATE INDEX IF NOT EXISTS idx_conversation_registry_scan "
+                "ON conversation_registry(pinned, purged_at, last_active)"
+            ),
+        ),
+    ),
+]
 
 
 def _table_exists(cursor: sqlite3.Cursor, name: str) -> bool:

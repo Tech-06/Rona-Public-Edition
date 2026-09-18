@@ -54,11 +54,11 @@ export function TasksPanel() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-medium text-slate-200">{task.name}</p>
+                <p className="truncate text-sm font-medium text-fg-soft">{task.name}</p>
                 <Badge tone={task.status === "active" ? "ok" : "neutral"}>{task.status}</Badge>
               </div>
-              <p className="mt-1 truncate text-xs text-slate-500">{task.description}</p>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 truncate text-xs text-fg-subtle">{task.description}</p>
+              <p className="mt-1 text-xs text-fg-faint">
                 Sonraki çalışma: {task.next_run ? formatDate(task.next_run) : "—"}
               </p>
             </div>
@@ -73,22 +73,22 @@ export function TasksPanel() {
             </div>
           </div>
           {expanded === task.id && (
-            <div className="mt-3 border-t border-surface-border pt-3">
-              {runsLoading && <p className="text-xs text-slate-500">Yükleniyor...</p>}
+            <div className="mt-3 border-t border-line pt-3">
+              {runsLoading && <p className="text-xs text-fg-subtle">Yükleniyor...</p>}
               {!runsLoading && runs.length === 0 && (
-                <p className="text-xs text-slate-500">Henüz çalışma kaydı yok.</p>
+                <p className="text-xs text-fg-subtle">Henüz çalışma kaydı yok.</p>
               )}
               <ul className="flex flex-col gap-2">
                 {runs.map((run) => (
-                  <li key={run.id} className="rounded-lg bg-surface px-3 py-2 text-xs">
+                  <li key={run.id} className="rounded-lg bg-app px-3 py-2 text-xs">
                     <div className="flex items-center gap-2">
                       <Badge tone={run.status === "completed" ? "ok" : run.status === "failed" ? "bad" : "neutral"}>
                         {run.status}
                       </Badge>
-                      <span className="text-slate-500">{formatDate(run.started_at)}</span>
+                      <span className="text-fg-subtle">{formatDate(run.started_at)}</span>
                     </div>
-                    {run.summary && <p className="mt-1 text-slate-400">{run.summary}</p>}
-                    {run.error && <p className="mt-1 text-rose-400">{run.error}</p>}
+                    {run.summary && <p className="mt-1 text-fg-muted">{run.summary}</p>}
+                    {run.error && <p className="mt-1 text-danger-text">{run.error}</p>}
                   </li>
                 ))}
               </ul>
