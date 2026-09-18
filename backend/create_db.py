@@ -73,19 +73,6 @@ def create_database() -> None:
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
 
-    if not _table_exists(cursor, "notes"):
-        print("'notes' table not found, creating...")
-        cursor.execute(
-            """
-            CREATE TABLE notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                date TEXT NOT NULL
-            )
-            """
-        )
-
     if not _table_exists(cursor, "people"):
         print("'people' table not found, creating...")
         cursor.execute(

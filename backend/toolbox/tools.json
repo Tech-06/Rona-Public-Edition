@@ -1,46 +1,6 @@
 {
   "tools": [
     {
-      "name": "get_time",
-      "description": "Returns the current date and time for a given timezone. Provide an IANA timezone name such as 'Europe/Istanbul'; defaults to UTC.",
-      "module": "toolbox.tools.get_time",
-      "function": "get_time",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "timezone": {
-            "type": "string",
-            "description": "IANA timezone name, e.g. 'Europe/Istanbul'. Defaults to 'UTC'."
-          }
-        },
-        "required": []
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
-      "name": "web_search",
-      "description": "Searches the internet with the Tavily API and returns the top results with titles, URLs and content snippets.",
-      "module": "toolbox.tools.web_search",
-      "function": "web_search",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string",
-            "description": "Search query."
-          },
-          "max_results": {
-            "type": "integer",
-            "description": "Number of results to return (1-10). Defaults to 5."
-          }
-        },
-        "required": ["query"]
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
       "name": "web_scraper",
       "description": "Fetches a web page by URL and extracts its readable text content (title plus up to 5000 characters of text).",
       "module": "toolbox.tools.web_scraper",
@@ -53,432 +13,12 @@
             "description": "Full URL of the page, starting with http:// or https://."
           }
         },
-        "required": ["url"]
+        "required": [
+          "url"
+        ]
       },
       "requires_confirmation": false,
       "background": true
-    },
-    {
-      "name": "get_weather",
-      "description": "Returns the current weather for a city (description, temperature in Celsius, humidity) using the OpenWeatherMap API.",
-      "module": "toolbox.tools.get_weather",
-      "function": "get_weather",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "city": {
-            "type": "string",
-            "description": "City name, e.g. 'Istanbul'."
-          }
-        },
-        "required": ["city"]
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
-      "name": "translate_text",
-      "description": "Translates text with the DeepL API and returns the translation plus the detected source language.",
-      "module": "toolbox.tools.deepl_translate",
-      "function": "translate_text",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "text": {
-            "type": "string",
-            "description": "Text to translate."
-          },
-          "target_lang": {
-            "type": "string",
-            "description": "DeepL target language code, e.g. 'EN-US', 'TR', 'DE'."
-          }
-        },
-        "required": ["text", "target_lang"]
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
-      "name": "get_events",
-      "description": "Lists upcoming events from the primary Google Calendar of an account, ordered by start time.",
-      "module": "toolbox.tools.calendar_tool",
-      "function": "get_events",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["okul_mail", "ana_mail"],
-            "description": "Google account to use."
-          },
-          "max_results": {
-            "type": "integer",
-            "description": "Maximum number of events to return. Defaults to 10."
-          }
-        },
-        "required": ["account_name"]
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
-      "name": "add_event",
-      "description": "Adds a new event to the primary Google Calendar of an account. A date-only value (YYYY-MM-DD) creates a full-day event; otherwise use ISO 8601 date-times.",
-      "module": "toolbox.tools.calendar_tool",
-      "function": "add_event",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["okul_mail", "ana_mail"],
-            "description": "Google account to use."
-          },
-          "summary": {
-            "type": "string",
-            "description": "Event title."
-          },
-          "start_time": {
-            "type": "string",
-            "description": "Event start as ISO 8601 date-time, or YYYY-MM-DD for a full-day event."
-          },
-          "end_time": {
-            "type": "string",
-            "description": "Event end as ISO 8601 date-time, or YYYY-MM-DD for a full-day event."
-          },
-          "description": {
-            "type": "string",
-            "description": "Optional event description."
-          }
-        },
-        "required": ["account_name", "summary", "start_time", "end_time"]
-      },
-      "requires_confirmation": false,
-      "background": false
-    },
-    {
-      "name": "edit_event",
-      "description": "Updates an existing Google Calendar event by its event ID. Only the provided fields are changed.",
-      "module": "toolbox.tools.calendar_tool",
-      "function": "edit_event",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["okul_mail", "ana_mail"],
-            "description": "Google account to use."
-          },
-          "event_id": {
-            "type": "string",
-            "description": "ID of the event to update, as returned by get_events."
-          },
-          "summary": {
-            "type": "string",
-            "description": "New event title."
-          },
-          "start_time": {
-            "type": "string",
-            "description": "New event start as ISO 8601 date-time."
-          },
-          "end_time": {
-            "type": "string",
-            "description": "New event end as ISO 8601 date-time."
-          },
-          "description": {
-            "type": "string",
-            "description": "New event description."
-          }
-        },
-        "required": ["account_name", "event_id"]
-      },
-      "requires_confirmation": true,
-      "background": false
-    },
-    {
-      "name": "delete_event",
-      "description": "Deletes a Google Calendar event by its event ID. This cannot be undone.",
-      "module": "toolbox.tools.calendar_tool",
-      "function": "delete_event",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["okul_mail", "ana_mail"],
-            "description": "Google account to use."
-          },
-          "event_id": {
-            "type": "string",
-            "description": "ID of the event to delete, as returned by get_events."
-          }
-        },
-        "required": ["account_name", "event_id"]
-      },
-      "requires_confirmation": true,
-      "background": false
-    },
-    {
-      "name": "get_contacts",
-      "description": "Lists contacts from the Google Contacts of an account, with names, email addresses and phone numbers.",
-      "module": "toolbox.tools.contacts_tool",
-      "function": "get_contacts",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["eski_mail"],
-            "description": "Google account to use."
-          },
-          "page_size": {
-            "type": "integer",
-            "description": "Number of contacts to return. Defaults to 10."
-          }
-        },
-        "required": ["account_name"]
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
-      "name": "add_contact",
-      "description": "Adds a new contact to the Google Contacts of an account.",
-      "module": "toolbox.tools.contacts_tool",
-      "function": "add_contact",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["eski_mail"],
-            "description": "Google account to use."
-          },
-          "first_name": {
-            "type": "string",
-            "description": "Given name of the contact."
-          },
-          "last_name": {
-            "type": "string",
-            "description": "Family name of the contact."
-          },
-          "email": {
-            "type": "string",
-            "description": "Email address of the contact."
-          },
-          "phone": {
-            "type": "string",
-            "description": "Phone number of the contact."
-          }
-        },
-        "required": ["account_name", "first_name"]
-      },
-      "requires_confirmation": true,
-      "background": false
-    },
-    {
-      "name": "edit_contact",
-      "description": "Updates an existing Google contact by its resource name. Only the provided fields are changed.",
-      "module": "toolbox.tools.contacts_tool",
-      "function": "edit_contact",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["eski_mail"],
-            "description": "Google account to use."
-          },
-          "resource_name": {
-            "type": "string",
-            "description": "Resource name of the contact, as returned by get_contacts."
-          },
-          "first_name": {
-            "type": "string",
-            "description": "New given name."
-          },
-          "last_name": {
-            "type": "string",
-            "description": "New family name."
-          },
-          "email": {
-            "type": "string",
-            "description": "New email address."
-          },
-          "phone": {
-            "type": "string",
-            "description": "New phone number."
-          }
-        },
-        "required": ["account_name", "resource_name"]
-      },
-      "requires_confirmation": true,
-      "background": false
-    },
-    {
-      "name": "delete_contact",
-      "description": "Deletes a Google contact by its resource name. This cannot be undone.",
-      "module": "toolbox.tools.contacts_tool",
-      "function": "delete_contact",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["eski_mail"],
-            "description": "Google account to use."
-          },
-          "resource_name": {
-            "type": "string",
-            "description": "Resource name of the contact, as returned by get_contacts."
-          }
-        },
-        "required": ["account_name", "resource_name"]
-      },
-      "requires_confirmation": true,
-      "background": false
-    },
-    {
-      "name": "send_email",
-      "description": "Sends an email from a Google account to a recipient.",
-      "module": "toolbox.tools.mail_tool",
-      "function": "send_email",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["ana_mail", "eski_mail", "okul_mail"],
-            "description": "Google account to send from."
-          },
-          "to": {
-            "type": "string",
-            "description": "Recipient email address."
-          },
-          "subject": {
-            "type": "string",
-            "description": "Email subject."
-          },
-          "body": {
-            "type": "string",
-            "description": "Email body text."
-          }
-        },
-        "required": ["account_name", "to", "subject", "body"]
-      },
-      "requires_confirmation": true,
-      "background": false
-    },
-    {
-      "name": "get_recent_emails",
-      "description": "Lists recent emails from the inbox of a Google account, with senders, subjects and snippets.",
-      "module": "toolbox.tools.mail_tool",
-      "function": "get_recent_emails",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "account_name": {
-            "type": "string",
-            "enum": ["ana_mail", "eski_mail", "okul_mail"],
-            "description": "Google account to read from."
-          },
-          "max_results": {
-            "type": "integer",
-            "description": "Number of emails to return. Defaults to 5."
-          }
-        },
-        "required": ["account_name"]
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
-      "name": "add_note",
-      "description": "Adds a new note to the local notes database.",
-      "module": "toolbox.tools.notes_tool",
-      "function": "add_note",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "description": "Note title."
-          },
-          "body": {
-            "type": "string",
-            "description": "Note content."
-          }
-        },
-        "required": ["title", "body"]
-      },
-      "requires_confirmation": false,
-      "background": false
-    },
-    {
-      "name": "get_notes",
-      "description": "Lists notes from the local notes database, newest first.",
-      "module": "toolbox.tools.notes_tool",
-      "function": "get_notes",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "integer",
-            "description": "Maximum number of notes to return. Defaults to 50."
-          },
-          "offset": {
-            "type": "integer",
-            "description": "Number of notes to skip for pagination. Defaults to 0."
-          }
-        },
-        "required": []
-      },
-      "requires_confirmation": false,
-      "background": true
-    },
-    {
-      "name": "edit_note",
-      "description": "Updates an existing note by its ID. Only the provided fields are changed.",
-      "module": "toolbox.tools.notes_tool",
-      "function": "edit_note",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "note_id": {
-            "type": "integer",
-            "description": "ID of the note to update, as returned by get_notes."
-          },
-          "title": {
-            "type": "string",
-            "description": "New note title."
-          },
-          "body": {
-            "type": "string",
-            "description": "New note content."
-          }
-        },
-        "required": ["note_id"]
-      },
-      "requires_confirmation": true,
-      "background": false
-    },
-    {
-      "name": "delete_note",
-      "description": "Deletes a note by its ID from the local notes database.",
-      "module": "toolbox.tools.notes_tool",
-      "function": "delete_note",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "note_id": {
-            "type": "integer",
-            "description": "ID of the note to delete, as returned by get_notes."
-          }
-        },
-        "required": ["note_id"]
-      },
-      "requires_confirmation": true,
-      "background": false
     },
     {
       "name": "add_person",
@@ -521,7 +61,9 @@
             "description": "Home address."
           }
         },
-        "required": ["name"]
+        "required": [
+          "name"
+        ]
       },
       "requires_confirmation": true,
       "background": false
@@ -584,7 +126,9 @@
             "description": "New home address."
           }
         },
-        "required": ["person_id"]
+        "required": [
+          "person_id"
+        ]
       },
       "requires_confirmation": true,
       "background": false
@@ -602,7 +146,9 @@
             "description": "ID of the person to delete, as returned by get_people or search_person."
           }
         },
-        "required": ["person_id"]
+        "required": [
+          "person_id"
+        ]
       },
       "requires_confirmation": true,
       "background": false
@@ -621,11 +167,17 @@
           },
           "search_field": {
             "type": "string",
-            "enum": ["name", "nickname", "connection"],
+            "enum": [
+              "name",
+              "nickname",
+              "connection"
+            ],
             "description": "Field to search in. If omitted, searches name, nickname and connection together."
           }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "requires_confirmation": false,
       "background": true
@@ -640,7 +192,11 @@
         "properties": {
           "layer": {
             "type": "string",
-            "enum": ["deep", "seasonal", "short"],
+            "enum": [
+              "deep",
+              "seasonal",
+              "short"
+            ],
             "description": "Memory layer: 'deep' for durable, defining facts the user explicitly wants remembered; 'seasonal' for ongoing projects, plans and mid-term context; 'short' for recent conversation details and transient context."
           },
           "content": {
@@ -657,9 +213,17 @@
             "description": "Optional extra key-value data to store with the memory."
           }
         },
-        "required": ["layer", "content"]
+        "required": [
+          "layer",
+          "content"
+        ]
       },
-      "requires_confirmation": {"param": "layer", "values": ["deep"]},
+      "requires_confirmation": {
+        "param": "layer",
+        "values": [
+          "deep"
+        ]
+      },
       "background": false
     },
     {
@@ -681,9 +245,19 @@
           "person": {
             "description": "Person scope: 0 for the user themself, a positive person ID, 'all' for every memory regardless of person, or omit for general memories with no person link.",
             "anyOf": [
-              {"type": "integer", "minimum": 0},
-              {"type": "string", "enum": ["all"]},
-              {"type": "null"}
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "all"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "date_from": {
@@ -714,7 +288,11 @@
           },
           "layer": {
             "type": "string",
-            "enum": ["deep", "seasonal", "short"],
+            "enum": [
+              "deep",
+              "seasonal",
+              "short"
+            ],
             "description": "New memory layer: 'deep' for durable, defining facts the user explicitly wants remembered; 'seasonal' for ongoing projects, plans and mid-term context; 'short' for recent conversation details and transient context."
           },
           "content": {
@@ -731,9 +309,16 @@
             "description": "New extra key-value data."
           }
         },
-        "required": ["memory_id"]
+        "required": [
+          "memory_id"
+        ]
       },
-      "requires_confirmation": {"param": "layer", "values": ["deep"]},
+      "requires_confirmation": {
+        "param": "layer",
+        "values": [
+          "deep"
+        ]
+      },
       "background": false
     },
     {
@@ -749,7 +334,9 @@
             "description": "ID of the memory to delete, as returned by get_memories or search_memories."
           }
         },
-        "required": ["memory_id"]
+        "required": [
+          "memory_id"
+        ]
       },
       "requires_confirmation": true,
       "background": false
@@ -769,9 +356,19 @@
           "person": {
             "description": "Person scope: 0 for the user themself, a positive person ID, 'all' for the whole memory store, or omit for general memories with no person link.",
             "anyOf": [
-              {"type": "integer", "minimum": 0},
-              {"type": "string", "enum": ["all"]},
-              {"type": "null"}
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "all"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "date_from": {
@@ -787,7 +384,9 @@
             "description": "Maximum number of results to return. Defaults to 10."
           }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "requires_confirmation": false,
       "background": true
@@ -806,11 +405,17 @@
           },
           "tier": {
             "type": "string",
-            "enum": ["flash", "pro"],
+            "enum": [
+              "flash",
+              "pro"
+            ],
             "description": "'flash' for straightforward long tasks, 'pro' for tasks requiring advanced reasoning, planning or judgment."
           }
         },
-        "required": ["task", "tier"]
+        "required": [
+          "task",
+          "tier"
+        ]
       },
       "requires_confirmation": false,
       "background": false
@@ -825,7 +430,12 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["all", "running", "completed", "failed"],
+            "enum": [
+              "all",
+              "running",
+              "completed",
+              "failed"
+            ],
             "description": "Filter by status. Defaults to 'all'."
           }
         },
@@ -851,7 +461,9 @@
             "description": "Set true to get the full detailed report instead of the summary. Defaults to false."
           }
         },
-        "required": ["run_id"]
+        "required": [
+          "run_id"
+        ]
       },
       "requires_confirmation": false,
       "background": false
@@ -869,7 +481,9 @@
             "description": "Run ID returned by start_subagent or list_subagents."
           }
         },
-        "required": ["run_id"]
+        "required": [
+          "run_id"
+        ]
       },
       "requires_confirmation": false,
       "background": false
@@ -896,7 +510,14 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["once", "daily", "weekly", "monthly", "yearly", "cron"],
+                "enum": [
+                  "once",
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "yearly",
+                  "cron"
+                ],
                 "description": "Schedule type."
               },
               "at": {
@@ -905,14 +526,24 @@
               },
               "times": {
                 "type": "array",
-                "items": {"type": "string"},
+                "items": {
+                  "type": "string"
+                },
                 "description": "List of HH:MM times for type 'daily', e.g. ['09:00', '15:30']."
               },
               "weekdays": {
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                  "enum": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ]
                 },
                 "description": "Days of week for type 'weekly'."
               },
@@ -937,11 +568,16 @@
                 "description": "IANA timezone the schedule applies in, e.g. 'Europe/Istanbul'. Defaults to the server trigger timezone."
               }
             },
-            "required": ["type"]
+            "required": [
+              "type"
+            ]
           },
           "model": {
             "type": "string",
-            "enum": ["flash", "pro"],
+            "enum": [
+              "flash",
+              "pro"
+            ],
             "description": "Model tier the task executes with. 'flash' for straightforward work, 'pro' for deep reasoning, planning or judgment. Defaults to 'flash'."
           },
           "condition": {
@@ -962,10 +598,16 @@
             "items": {
               "type": "object",
               "properties": {
-                "tool_name": {"type": "string"},
-                "tool_params": {"type": "object"}
+                "tool_name": {
+                  "type": "string"
+                },
+                "tool_params": {
+                  "type": "object"
+                }
               },
-              "required": ["tool_name"]
+              "required": [
+                "tool_name"
+              ]
             }
           },
           "max_retries": {
@@ -981,7 +623,11 @@
             "description": "Wall-clock time limit per attempt in minutes. Default 15."
           }
         },
-        "required": ["name", "description", "schedule"]
+        "required": [
+          "name",
+          "description",
+          "schedule"
+        ]
       },
       "requires_confirmation": true,
       "background": false
@@ -996,7 +642,11 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["all", "active", "passive"],
+            "enum": [
+              "all",
+              "active",
+              "passive"
+            ],
             "description": "Filter by status. Defaults to 'all'."
           }
         },
@@ -1022,7 +672,9 @@
             "description": "Include the recent run history (last 10 runs). Defaults to true."
           }
         },
-        "required": ["task_id"]
+        "required": [
+          "task_id"
+        ]
       },
       "requires_confirmation": false,
       "background": false
@@ -1049,7 +701,10 @@
           },
           "model": {
             "type": "string",
-            "enum": ["flash", "pro"],
+            "enum": [
+              "flash",
+              "pro"
+            ],
             "description": "New model tier."
           },
           "schedule": {
@@ -1058,24 +713,58 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["once", "daily", "weekly", "monthly", "yearly", "cron"]
+                "enum": [
+                  "once",
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "yearly",
+                  "cron"
+                ]
               },
-              "at": {"type": "string"},
-              "times": {"type": "array", "items": {"type": "string"}},
+              "at": {
+                "type": "string"
+              },
+              "times": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "weekdays": {
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                  "enum": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ]
                 }
               },
-              "day": {"type": "integer"},
-              "month": {"type": "integer"},
-              "time": {"type": "string"},
-              "expression": {"type": "string"},
-              "timezone": {"type": "string"}
+              "day": {
+                "type": "integer"
+              },
+              "month": {
+                "type": "integer"
+              },
+              "time": {
+                "type": "string"
+              },
+              "expression": {
+                "type": "string"
+              },
+              "timezone": {
+                "type": "string"
+              }
             },
-            "required": ["type"]
+            "required": [
+              "type"
+            ]
           },
           "condition": {
             "type": "string",
@@ -1095,22 +784,39 @@
             "items": {
               "type": "object",
               "properties": {
-                "tool_name": {"type": "string"},
-                "tool_params": {"type": "object"}
+                "tool_name": {
+                  "type": "string"
+                },
+                "tool_params": {
+                  "type": "object"
+                }
               },
-              "required": ["tool_name"]
+              "required": [
+                "tool_name"
+              ]
             }
           },
-          "max_retries": {"type": "integer"},
-          "retry_delay_seconds": {"type": "integer"},
-          "timeout_minutes": {"type": "integer"},
+          "max_retries": {
+            "type": "integer"
+          },
+          "retry_delay_seconds": {
+            "type": "integer"
+          },
+          "timeout_minutes": {
+            "type": "integer"
+          },
           "status": {
             "type": "string",
-            "enum": ["active", "passive"],
+            "enum": [
+              "active",
+              "passive"
+            ],
             "description": "Set 'passive' to pause the task or 'active' to resume it."
           }
         },
-        "required": ["task_id"]
+        "required": [
+          "task_id"
+        ]
       },
       "requires_confirmation": true,
       "background": false
@@ -1128,7 +834,9 @@
             "description": "Task ID returned by create_task or list_tasks."
           }
         },
-        "required": ["task_id"]
+        "required": [
+          "task_id"
+        ]
       },
       "requires_confirmation": true,
       "background": false
@@ -1150,7 +858,9 @@
             "description": "Set true to get the full detailed report instead of the summary. Defaults to false."
           }
         },
-        "required": ["run_id"]
+        "required": [
+          "run_id"
+        ]
       },
       "requires_confirmation": false,
       "background": false
@@ -1168,7 +878,9 @@
             "description": "Run ID from the task notification, get_task or list_tasks run history."
           }
         },
-        "required": ["run_id"]
+        "required": [
+          "run_id"
+        ]
       },
       "requires_confirmation": false,
       "background": false

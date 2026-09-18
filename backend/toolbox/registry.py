@@ -101,7 +101,7 @@ def _load_tool_entry(item: dict[str, Any], *, origin: str) -> tuple[str, ToolEnt
         fn = getattr(module, spec.function, None)
         if not callable(fn):
             raise TypeError(f"{spec.module}.{spec.function} is not callable")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if is_core:
             raise ValueError(f"toolbox manifest: failed to load core tool: {exc}") from exc
         logger.warning("toolbox: skipping tool from package '%s': %s", origin, exc)
@@ -110,6 +110,12 @@ def _load_tool_entry(item: dict[str, Any], *, origin: str) -> tuple[str, ToolEnt
 
 
 def _load_manifest() -> tuple[dict[str, ToolEntry], list[PackageManifest], list[str]]:
+    # A package installed (or removed) moments ago may not be visible to the
+    # import system yet -- Python's path-based finders cache directory
+    # listings. reload_registry() is exactly the "created/deleted files at
+    # runtime that we're about to import" case the stdlib docs tell you to
+    # call this for.
+    importlib.invalidate_caches()
     raw = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     tools_raw = raw.get("tools", [])
     if not isinstance(tools_raw, list):

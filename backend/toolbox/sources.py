@@ -256,7 +256,7 @@ def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
         member_path = (dest_resolved / member.name).resolve()
         if dest_resolved not in member_path.parents and member_path != dest_resolved:
             raise SourceError(f"unsafe path in archive: {member.name}")
-    tar.extractall(dest)  # noqa: S202 -- members validated above
+    tar.extractall(dest)
 
 
 def parse_source(spec: str) -> CatalogSource:

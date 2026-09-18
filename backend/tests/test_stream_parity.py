@@ -31,10 +31,10 @@ TOOL_CALL_SCRIPT = [
         "role": "assistant",
         "content": None,
         "tool_calls": [
-            {"id": "call_1", "type": "function", "function": {"name": "get_time", "arguments": "{}"}}
+            {"id": "call_1", "type": "function", "function": {"name": "get_people", "arguments": "{}"}}
         ],
     },
-    {"role": "assistant", "content": "saat geldi"},
+    {"role": "assistant", "content": "kişiler geldi"},
 ]
 
 
@@ -57,22 +57,22 @@ def test_run_turn_plain_reply_shape(monkeypatch):
 def test_run_turn_streaming_matches_non_streaming_result(monkeypatch):
     monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(list(TOOL_CALL_SCRIPT)))
     plain_graph = build_graph(InMemorySaver())
-    plain_result = asyncio.run(_run_turn(plain_graph, "test-parity-plain-2", "saat kaç"))
+    plain_result = asyncio.run(_run_turn(plain_graph, "test-parity-plain-2", "kişileri getir"))
 
     monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(list(TOOL_CALL_SCRIPT)))
     streamed_graph = build_graph(InMemorySaver())
     sink = RecordingSink()
     streamed_result = asyncio.run(
-        _run_turn(streamed_graph, "test-parity-streamed", "saat kaç", sink=sink)
+        _run_turn(streamed_graph, "test-parity-streamed", "kişileri getir", sink=sink)
     )
 
-    expected = {"status": "ok", "reply": "saat geldi", "tool_calls": None}
+    expected = {"status": "ok", "reply": "kişiler geldi", "tool_calls": None}
     assert plain_result == expected
     assert streamed_result == expected
 
     progress = [data for event_type, data in sink.events if event_type == "progress"]
-    assert any(item["type"] == "tool_start" and item["name"] == "get_time" for item in progress)
-    tool_end = next(item for item in progress if item["type"] == "tool_end" and item["name"] == "get_time")
+    assert any(item["type"] == "tool_start" and item["name"] == "get_people" for item in progress)
+    tool_end = next(item for item in progress if item["type"] == "tool_end" and item["name"] == "get_people")
     assert tool_end["status"] == "ok"
     assert isinstance(tool_end["duration_ms"], int)
 
@@ -86,7 +86,7 @@ def test_run_turn_confirmation_required_matches_across_modes(monkeypatch):
                 {
                     "id": "call_2",
                     "type": "function",
-                    "function": {"name": "delete_note", "arguments": '{"note_id": 999999}'},
+                    "function": {"name": "delete_person", "arguments": '{"person_id": 999999}'},
                 }
             ],
         },
@@ -94,19 +94,19 @@ def test_run_turn_confirmation_required_matches_across_modes(monkeypatch):
     ]
     monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(list(script)))
     plain_graph = build_graph(InMemorySaver())
-    plain_result = asyncio.run(_run_turn(plain_graph, "test-parity-confirm-plain", "notu sil"))
+    plain_result = asyncio.run(_run_turn(plain_graph, "test-parity-confirm-plain", "kişiyi sil"))
 
     monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(list(script)))
     streamed_graph = build_graph(InMemorySaver())
     sink = RecordingSink()
     streamed_result = asyncio.run(
-        _run_turn(streamed_graph, "test-parity-confirm-streamed", "notu sil", sink=sink)
+        _run_turn(streamed_graph, "test-parity-confirm-streamed", "kişiyi sil", sink=sink)
     )
 
     assert plain_result["status"] == streamed_result["status"] == "confirmation_required"
     assert plain_result["reply"] == streamed_result["reply"] == "silmemi onaylıyor musun?"
     assert plain_result["tool_calls"] == streamed_result["tool_calls"] == [
-        {"name": "delete_note", "args": {"note_id": 999999}}
+        {"name": "delete_person", "args": {"person_id": 999999}}
     ]
     progress = [data for event_type, data in sink.events if event_type == "progress"]
     assert any(item["type"] == "confirm_start" for item in progress)
@@ -122,7 +122,7 @@ def test_run_turn_recursion_limit_uses_the_documented_turkish_reply(monkeypatch)
                 {
                     "id": f"call_{i}",
                     "type": "function",
-                    "function": {"name": "get_time", "arguments": "{}"},
+                    "function": {"name": "get_people", "arguments": "{}"},
                 }
             ],
         }
@@ -130,7 +130,7 @@ def test_run_turn_recursion_limit_uses_the_documented_turkish_reply(monkeypatch)
     ]
     monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(script))
     graph = build_graph(InMemorySaver())
-    result = asyncio.run(_run_turn(graph, "test-parity-recursion", "saat kaç"))
+    result = asyncio.run(_run_turn(graph, "test-parity-recursion", "kişileri getir"))
     assert result["status"] == "ok"
     assert "tur sınırına ulaştım" in result["reply"]
     assert result["tool_calls"] is None

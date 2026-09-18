@@ -6,15 +6,14 @@ pydantic-settings>=2.3
 langgraph>=1.0
 langgraph-checkpoint-sqlite>=2.0
 aiosqlite>=0.20
-tavily-python>=0.5
-deepl>=1.5
-requests>=2.32
 beautifulsoup4>=4.12
 httpx>=0.27
 python-dotenv>=1.0
-google-api-python-client>=2.130
-google-auth-httplib2>=0.2
-google-auth-oauthlib>=1.2
 google-genai>=1.0
 apscheduler>=3.10,<4
 tzdata>=2024.1; platform_system == "Windows"
+
+# Optional tool packages (installed on demand via `python -m toolbox.manager
+# install <id>` from the Rona Tools catalog) bring their own dependencies --
+# e.g. tavily-python, deepl, requests, google-api-python-client -- and pip
+# -install them automatically at install time. They are not listed here.

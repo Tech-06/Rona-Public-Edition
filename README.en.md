@@ -36,19 +36,30 @@ Outside the backend there are two independent clients: a dependency-free **CLI c
 - Two-tier model support: a fast, default **flash** tier and an optional **pro** tier for work that needs deeper reasoning. Both work with any OpenAI-API-compatible endpoint (OpenAI, OpenRouter, Azure OpenAI, a local vLLM/Ollama, etc.) and support custom request headers.
 
 ### Toolbox
-30 built-in tools the model can call automatically:
+22 core tools built into the backend (no install needed):
 
 | Category | Tools |
 |---|---|
-| Time, search, web | `get_time`, `web_search` (Tavily), `web_scraper`, `get_weather` (OpenWeatherMap), `translate_text` (DeepL) |
-| Google Calendar | `get_events`, `add_event`, `edit_event`, `delete_event` |
-| Google Contacts | `get_contacts`, `add_contact`, `edit_contact`, `delete_contact` |
-| Gmail | `send_email`, `get_recent_emails` |
-| Local notes | `add_note`, `get_notes`, `edit_note`, `delete_note` |
+| Web scraping | `web_scraper` |
 | Local people records | `add_person`, `get_people`, `edit_person`, `delete_person`, `search_person` |
 | Memory system | `add_memory`, `get_memories`, `edit_memory`, `delete_memory`, `search_memories` |
 | Subagents | `start_subagent`, `list_subagents`, `get_subagent_report`, `dismiss_subagent_report` |
 | Scheduled tasks | `create_task`, `list_tasks`, `get_task`, `update_task`, `delete_task`, `get_task_run`, `dismiss_task_run` |
+
+Web search, weather, translation, local notes, and Google Calendar/Contacts/Gmail are no longer built into the core -- each is a separate **optional tool package** installed one at a time from the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog, so no install is forced to pull in every tool's dependencies/API keys. Install with:
+
+```bash
+python -m toolbox.manager install <package_id>
+```
+
+Packages in the catalog: `get_time`, `web_search` (Tavily), `weather` (OpenWeatherMap), `deepl_translate` (DeepL), `notes` (a local notes list), `google_auth` (shared Google OAuth, installed automatically by the three Google packages below), `google_calendar`, `google_contacts`, `google_mail`. Each package asks for its required API key/account list during install, writes it to `.env` or its own config file, and runs a health check. Other commands:
+
+```bash
+python -m toolbox.manager available     # list every package in the catalog
+python -m toolbox.manager installed     # list installed packages
+python -m toolbox.manager verify <id>   # re-run a package's health check
+python -m toolbox.manager uninstall <id>
+```
 
 ### Semantic memory system
 Rona stores information about you in three layers: **deep** (durable, defining facts), **seasonal** (mid-term projects and plans), and **short** (current conversation context). Each memory can be linked to a specific person or left general/topical. Memories are embedded into vectors and searched semantically with `search_memories` — by meaning, not keyword matching.
@@ -114,7 +125,7 @@ Rona Public Edition/
 - **Node.js 18 or newer** with npm (only needed to build the web dashboard's frontend — not required for the backend or the CLI client)
 - **Git**
 - An OpenAI-API-compatible LLM endpoint and API key (required for chat to work at all)
-- Optional third-party keys: Tavily (web search), DeepL (translation), OpenWeatherMap (weather), a Google Cloud OAuth client (Calendar/Contacts/Gmail), and a Google Gemini API key (embeddings for memory search)
+- Optional: a Google Gemini API key (embeddings for memory search). Tavily/DeepL/OpenWeatherMap keys and a Google Cloud OAuth client are only needed if you install the corresponding [Rona Tools](https://github.com/Tech-06/Rona-Tools) package (`web_search`/`deepl_translate`/`weather`/`google_*`) -- `toolbox.manager` asks for them at install time
 
 ## Installation & Running
 
@@ -158,10 +169,10 @@ python create_db.py
 python run.py
 ```
 
-The backend is now running at `http://127.0.0.1:8000`. If you want the Google Calendar/Contacts/Gmail tools, place the OAuth client file you downloaded from Google Cloud Console at `backend\toolbox\tools\credentials.json`, then run this once per account (a browser window opens for you to grant access):
+The backend is now running at `http://127.0.0.1:8000`. Tools like web search, weather, translation, notes, and Google Calendar/Contacts/Gmail aren't installed at this point -- each is optional, see [Toolbox](#toolbox). When you want a Google Calendar/Contacts/Gmail package, `python -m toolbox.manager install google_calendar` (or `google_contacts`/`google_mail`) will ask for the OAuth client file you downloaded from Google Cloud Console and place it for you; then run this once per account (a browser window opens for you to grant access):
 
 ```powershell
-python -m toolbox.tools.add_account <account_name>
+python -m toolbox.custom.google_auth.add_account <account_name>
 ```
 
 #### 4. CLI client
@@ -243,10 +254,10 @@ python create_db.py
 python run.py
 ```
 
-The backend runs at `http://127.0.0.1:8000`. For the Google integrations, place `credentials.json` at `backend/toolbox/tools/credentials.json` and run once per account:
+The backend runs at `http://127.0.0.1:8000`. The Google integrations are optional: `python -m toolbox.manager install google_calendar` (or `google_contacts`/`google_mail`) will ask for the path to `credentials.json` and place it for you; then run once per account:
 
 ```bash
-python -m toolbox.tools.add_account <account_name>
+python -m toolbox.custom.google_auth.add_account <account_name>
 ```
 
 #### 4. CLI client
@@ -319,7 +330,7 @@ python create_db.py
 python run.py
 ```
 
-For the Google integrations, place `credentials.json` at `backend/toolbox/tools/credentials.json` and run `python -m toolbox.tools.add_account <account_name>` once per account (do this in a desktop session where a browser can open).
+The Google integrations are optional: install the package you want (`python -m toolbox.manager install google_calendar`, etc.), which will ask for `credentials.json`'s path. Then run `python -m toolbox.custom.google_auth.add_account <account_name>` once per account (do this in a desktop session where a browser can open).
 
 #### 4. CLI client
 
@@ -393,14 +404,13 @@ If you cloned the repository somewhere other than `~/rona`, edit the `WorkingDir
 | `SUBAGENT_MAX_ROUNDS`, `SUBAGENT_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONCURRENT`, `SUBAGENT_RETENTION_HOURS`, `SUBAGENT_LLM_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONTEXT_MESSAGES` | No | see `.env.example` | Subagent system's round/timeout/concurrency/retention settings |
 | `TRIGGER_TIMEZONE` | No | `UTC` | Default timezone for scheduled tasks (IANA, e.g. `Europe/Istanbul`) |
 | `TRIGGER_MAX_CONCURRENT`, `TRIGGER_MAX_ROUNDS`, `TRIGGER_LLM_TIMEOUT_SECONDS`, `TRIGGER_MAX_CONTEXT_MESSAGES` | No | see `.env.example` | Task executor's concurrency/round/timeout settings |
-| `TAVILY_API_KEY` | No | — | For the `web_search` tool |
-| `DEEPL_API_KEY` | No | — | For the `translate_text` tool |
-| `OPENWEATHER_API_KEY` | No | — | For the `get_weather` tool |
 | `GOOGLE_API_KEY` + `EMBEDDING_MODEL_NAME` | No | — | Embedding model (Gemini) for the memory system's semantic search |
 | `WEB_AUTOSTART` | No | `false` | Whether the backend auto-starts the web dashboard on boot |
 | `WEB_CLIENT_DIR` | No | `../web-client` | Relative path to the web dashboard (only used when `WEB_AUTOSTART=true`) |
 
-The Google Calendar/Contacts/Gmail tools additionally require a file, not an environment variable: `backend/toolbox/tools/credentials.json` (an OAuth client from Google Cloud Console). Each account's authorization token is written next to it as `token_<account_name>.json` when you run `python -m toolbox.tools.add_account <account_name>`.
+Tool-specific variables like `TAVILY_API_KEY`, `DEEPL_API_KEY`, `OPENWEATHER_API_KEY` aren't defined in this file -- installing the corresponding [Rona Tools](https://github.com/Tech-06/Rona-Tools) package with `python -m toolbox.manager install <package_id>` asks for it and appends it to `.env` automatically.
+
+The Google Calendar/Contacts/Gmail packages also require a file, not an environment variable, for their shared `google_auth` dependency: a `credentials.json` (an OAuth client from Google Cloud Console) copied to `backend/toolbox/custom/google_auth/credentials.json` when you install one of them. Each account's authorization token is written next to it as `token_<account_name>.json` when you run `python -m toolbox.custom.google_auth.add_account <account_name>`.
 
 ### `web-client/.env`
 
@@ -456,7 +466,7 @@ flowchart LR
   ```
 
   The `await_confirmation` node genuinely suspends execution via LangGraph's `interrupt()` and persists the conversation to the checkpoint store; it resumes exactly where it left off once the user's reply arrives.
-- **`toolbox/`** — tool schemas defined in `tools.json`, their Python implementations under `toolbox/tools/`, and access to the `rona.db` SQLite database (`db.py`, `registry.py`) that holds local data: notes, people, memories, tasks, and subagent records.
+- **`toolbox/`** — the core tools: schemas defined in `tools.json`, their Python implementations under `toolbox/tools/`, and access to the `rona.db` SQLite database (`db.py`, `registry.py`) that holds local data: people, memories, tasks, and subagent records. Optional tool packages install into `toolbox/custom/<package_id>/` (`packages.py`) and are merged with the core by `registry.py`; install/uninstall/health-checks are `manager.py`'s job, fetching from a package source (local/git/https) is `sources.py`'s (see [Rona Tools](https://github.com/Tech-06/Rona-Tools)).
 - **`trigger/`** — the `APScheduler`-based scheduler (`scheduler.py`), task validation and persistence (`store.py`), and the headless agent that runs when a task fires (`executor.py`).
 - **`subagents/`** — the async runner that executes background work with its own round limit and its own tool subset (`runner.py`), plus run-state storage (`store.py`).
 - **`prompts/`** — the system prompt, assembled from `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `subagents.md`, and `trigger.md`, in that order (see [Customizing Identity and Behavior](#customizing-identity-and-behavior)).

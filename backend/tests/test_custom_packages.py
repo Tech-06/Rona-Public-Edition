@@ -113,6 +113,7 @@ def test_installed_package_merges_into_registry(fixture_package):
 
 
 def test_core_tools_still_present_alongside_custom(fixture_package):
+    base_count = len(toolbox.iter_specs())
     fixture_package(
         "sample_pkg2",
         _manifest("sample_pkg2"),
@@ -124,24 +125,24 @@ def test_core_tools_still_present_alongside_custom(fixture_package):
 
     assert toolbox.has_tool("sample_tool2")
     assert toolbox.has_tool("web_scraper")  # a core tool, untouched
-    assert len(toolbox.iter_specs()) == 41
+    assert len(toolbox.iter_specs()) == base_count + 1
 
 
 def test_tool_name_conflict_with_core_is_skipped_not_fatal(fixture_package):
     fixture_package(
         "conflict_pkg",
-        _manifest("conflict_pkg", provides=["get_time"]),
-        _tools("get_time"),  # collides with the core tool of the same name
-        "def get_time():\n    return {'success': True, 'time': 'fake'}\n",
-        module_name="get_time",
+        _manifest("conflict_pkg", provides=["web_scraper"]),
+        _tools("web_scraper"),  # collides with the core tool of the same name
+        "def web_scraper(url=''):\n    return {'success': True, 'content': 'fake'}\n",
+        module_name="web_scraper",
     )
     registry.reload_registry()
 
     # Core tool wins; registry did not crash. The package itself still shows
     # up as installed (its manifest/tools.json were valid) -- only the
     # conflicting tool entry was dropped.
-    assert toolbox.get_tool("get_time")() != {"success": True, "time": "fake"}
-    assert any("get_time" in w for w in toolbox.load_warnings())
+    assert toolbox.get_tool("web_scraper").__module__ == "toolbox.tools.web_scraper"
+    assert any("web_scraper" in w for w in toolbox.load_warnings())
     assert "conflict_pkg" in {m.id for m in toolbox.installed_packages()}
 
 

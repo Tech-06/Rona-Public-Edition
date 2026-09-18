@@ -25,7 +25,7 @@ def test_filtered_args_drops_non_scalar_values():
 def test_run_tool_call_works_without_a_writer():
     tool_call = {
         "id": "call_1",
-        "function": {"name": "get_time", "arguments": '{"timezone": "Europe/Istanbul"}'},
+        "function": {"name": "get_people", "arguments": "{}"},
     }
     message = asyncio.run(_run_tool_call(tool_call, confirmation={}))
     assert message["role"] == "tool"
@@ -43,7 +43,7 @@ def test_run_tool_call_reports_unknown_tool():
 
 
 def test_run_tool_call_reports_bad_args():
-    tool_call = {"id": "call_3", "function": {"name": "get_time", "arguments": "not json"}}
+    tool_call = {"id": "call_3", "function": {"name": "get_people", "arguments": "not json"}}
     events = []
     asyncio.run(_run_tool_call(tool_call, confirmation={}, writer=lambda event: events.append(event)))
     assert any(event["type"] == "tool_end" and event["status"] == "bad_args" for event in events)

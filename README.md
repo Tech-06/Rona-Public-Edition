@@ -36,19 +36,30 @@ Backend'in dışında iki bağımsız istemci bulunur: bağımlılıksız bir **
 - İki katmanlı model desteği: hızlı/varsayılan **flash** katmanı ve isteğe bağlı, derin akıl yürütme gerektiren işler için **pro** katmanı. Her ikisi de herhangi bir OpenAI API uyumlu uç noktayla (OpenAI, OpenRouter, Azure OpenAI, yerel vLLM/Ollama vb.) çalışır; özel istek başlıkları tanımlanabilir.
 
 ### Araç kutusu (toolbox)
-Modelin otomatik olarak kullanabildiği 30 hazır araç:
+Backend'de hazır gelen (kurulum gerektirmeyen) 22 çekirdek araç:
 
 | Kategori | Araçlar |
 |---|---|
-| Zaman, arama, web | `get_time`, `web_search` (Tavily), `web_scraper`, `get_weather` (OpenWeatherMap), `translate_text` (DeepL) |
-| Google Takvim | `get_events`, `add_event`, `edit_event`, `delete_event` |
-| Google Kişiler | `get_contacts`, `add_contact`, `edit_contact`, `delete_contact` |
-| Gmail | `send_email`, `get_recent_emails` |
-| Yerel notlar | `add_note`, `get_notes`, `edit_note`, `delete_note` |
+| Web scraping | `web_scraper` |
 | Yerel kişi kayıtları | `add_person`, `get_people`, `edit_person`, `delete_person`, `search_person` |
 | Bellek sistemi | `add_memory`, `get_memories`, `edit_memory`, `delete_memory`, `search_memories` |
 | Alt ajanlar | `start_subagent`, `list_subagents`, `get_subagent_report`, `dismiss_subagent_report` |
 | Zamanlanmış görevler | `create_task`, `list_tasks`, `get_task`, `update_task`, `delete_task`, `get_task_run`, `dismiss_task_run` |
+
+Web arama, hava durumu, çeviri, yerel notlar ve Google Takvim/Kişiler/Gmail gibi araçlar artık çekirdeğe gömülü değil: her biri ayrı bir **isteğe bağlı araç paketi** olarak [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundan tek tek kurulur, böylece hiçbir kurulum bu araçların bağımlılıklarını/API anahtarlarını zorunlu kılmaz. Kurulum:
+
+```bash
+python -m toolbox.manager install <paket_id>
+```
+
+Katalogtaki paketler: `get_time`, `web_search` (Tavily), `weather` (OpenWeatherMap), `deepl_translate` (DeepL), `notes` (yerel not listesi), `google_auth` (paylaşılan Google OAuth, diğer üç Google paketi tarafından otomatik kurulur), `google_calendar`, `google_contacts`, `google_mail`. Her paket, gerekli API anahtarını/hesap listesini kurulum sırasında sorar, `.env`'e ya da paketin kendi ayar dosyasına yazar ve bir sağlık kontrolü çalıştırır. Diğer komutlar:
+
+```bash
+python -m toolbox.manager available     # katalogtaki tüm paketleri listele
+python -m toolbox.manager installed     # kurulu paketleri listele
+python -m toolbox.manager verify <id>   # bir paketin sağlık kontrolünü tekrar çalıştır
+python -m toolbox.manager uninstall <id>
+```
 
 ### Semantik bellek sistemi
 Rona sizinle ilgili bilgileri üç katmanda saklar: **deep** (kalıcı, tanımlayıcı gerçekler), **seasonal** (orta vadeli projeler/planlar) ve **short** (güncel konuşma bağlamı). Her anı bir kişiye bağlanabilir ya da genel/konu bazlı bırakılabilir. Anılar bir embedding modeliyle vektöre çevrilir ve `search_memories` ile anlamsal olarak (kelime eşleşmesi değil, anlam benzerliğiyle) aranır.
@@ -114,7 +125,7 @@ Rona Public Edition/
 - **Node.js 18 veya üzeri** ve npm (yalnızca web panelinin arayüzünü derlemek için gerekir; backend'i veya CLI'yi kullanmak için gerekmez)
 - **Git**
 - OpenAI API uyumlu bir LLM uç noktası ve API anahtarı (sohbetin çalışması için zorunlu)
-- İsteğe bağlı üçüncü parti anahtarlar: Tavily (web araması), DeepL (çeviri), OpenWeatherMap (hava durumu), bir Google Cloud OAuth istemci kimliği (Takvim/Kişiler/Gmail) ve bir Google Gemini API anahtarı (bellek aramasının embedding modeli için)
+- İsteğe bağlı: bir Google Gemini API anahtarı (bellek aramasının embedding modeli için). Tavily/DeepL/OpenWeatherMap anahtarları ve bir Google Cloud OAuth istemci kimliği yalnızca ilgili [Rona Tools](https://github.com/Tech-06/Rona-Tools) paketini (`web_search`/`deepl_translate`/`weather`/`google_*`) kurmak isterseniz gerekir -- kurulum sırasında `toolbox.manager` sorar
 
 ## Kurulum ve Çalıştırma
 
@@ -158,10 +169,10 @@ python create_db.py
 python run.py
 ```
 
-Backend artık `http://127.0.0.1:8000` adresinde çalışıyor. Google Takvim/Kişiler/Gmail araçlarını kullanacaksanız, Google Cloud Console'dan indirdiğiniz OAuth istemci dosyasını `backend\toolbox\tools\credentials.json` olarak yerleştirin ve her hesap için bir kez şunu çalıştırın (tarayıcı açılır, izin verirsiniz):
+Backend artık `http://127.0.0.1:8000` adresinde çalışıyor. Web arama, hava durumu, çeviri, notlar ve Google Takvim/Kişiler/Gmail gibi araçlar bu noktada henüz kurulu değildir -- her biri isteğe bağlıdır, bkz. [Araç kutusu (toolbox)](#araç-kutusu-toolbox). Google Takvim/Kişiler/Gmail'den birini kurmak istediğinizde `python -m toolbox.manager install google_calendar` (veya `google_contacts`/`google_mail`) size Google Cloud Console'dan indireceğiniz OAuth istemci dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın (tarayıcı açılır, izin verirsiniz):
 
 ```powershell
-python -m toolbox.tools.add_account <hesap_adi>
+python -m toolbox.custom.google_auth.add_account <hesap_adi>
 ```
 
 #### 4. CLI istemci
@@ -243,10 +254,10 @@ python create_db.py
 python run.py
 ```
 
-Backend `http://127.0.0.1:8000` adresinde çalışır. Google entegrasyonları için `credentials.json` dosyasını `backend/toolbox/tools/credentials.json` konumuna koyup her hesap için bir kez şunu çalıştırın:
+Backend `http://127.0.0.1:8000` adresinde çalışır. Google entegrasyonları isteğe bağlıdır: `python -m toolbox.manager install google_calendar` (veya `google_contacts`/`google_mail`) `credentials.json` dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın:
 
 ```bash
-python -m toolbox.tools.add_account <hesap_adi>
+python -m toolbox.custom.google_auth.add_account <hesap_adi>
 ```
 
 #### 4. CLI istemci
@@ -319,7 +330,7 @@ python create_db.py
 python run.py
 ```
 
-Google entegrasyonları için `credentials.json` dosyasını `backend/toolbox/tools/credentials.json` konumuna koyup her hesap için bir kez `python -m toolbox.tools.add_account <hesap_adi>` çalıştırın (bu adım masaüstü ortamlı bir oturumda, tarayıcı açılabilecek şekilde yapılmalıdır).
+Google entegrasyonları isteğe bağlıdır: ilgili paketi kurun (`python -m toolbox.manager install google_calendar` vb.), kurulum `credentials.json` dosyasının yolunu soracaktır. Ardından her hesap için bir kez `python -m toolbox.custom.google_auth.add_account <hesap_adi>` çalıştırın (bu adım masaüstü ortamlı bir oturumda, tarayıcı açılabilecek şekilde yapılmalıdır).
 
 #### 4. CLI istemci
 
@@ -393,14 +404,13 @@ Depoyu `~/rona` dışında bir yere klonladıysanız, kopyaladığınız `.servi
 | `SUBAGENT_MAX_ROUNDS`, `SUBAGENT_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONCURRENT`, `SUBAGENT_RETENTION_HOURS`, `SUBAGENT_LLM_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONTEXT_MESSAGES` | Hayır | bkz. `.env.example` | Alt ajan sisteminin tur/zaman aşımı/eşzamanlılık/saklama ayarları |
 | `TRIGGER_TIMEZONE` | Hayır | `UTC` | Zamanlanmış görevlerin varsayılan saat dilimi (IANA, ör. `Europe/Istanbul`) |
 | `TRIGGER_MAX_CONCURRENT`, `TRIGGER_MAX_ROUNDS`, `TRIGGER_LLM_TIMEOUT_SECONDS`, `TRIGGER_MAX_CONTEXT_MESSAGES` | Hayır | bkz. `.env.example` | Görev yürütücüsünün eşzamanlılık/tur/zaman aşımı ayarları |
-| `TAVILY_API_KEY` | Hayır | — | `web_search` aracı için |
-| `DEEPL_API_KEY` | Hayır | — | `translate_text` aracı için |
-| `OPENWEATHER_API_KEY` | Hayır | — | `get_weather` aracı için |
 | `GOOGLE_API_KEY` + `EMBEDDING_MODEL_NAME` | Hayır | — | Bellek sisteminin semantik arama embedding'i (Gemini) için |
 | `WEB_AUTOSTART` | Hayır | `false` | Backend açılırken web panelini otomatik başlatsın mı |
 | `WEB_CLIENT_DIR` | Hayır | `../web-client` | Web panelinin göreli klasör konumu (yalnızca `WEB_AUTOSTART=true` iken kullanılır) |
 
-Google Takvim/Kişiler/Gmail araçları ayrıca bir ortam değişkeni değil, doğrudan bir dosya olarak `backend/toolbox/tools/credentials.json` (Google Cloud Console'dan alınan OAuth istemci kimliği) gerektirir; her hesabın yetkilendirme jetonu `python -m toolbox.tools.add_account <hesap_adi>` çalıştırıldığında aynı klasöre `token_<hesap_adi>.json` olarak yazılır.
+`TAVILY_API_KEY`, `DEEPL_API_KEY`, `OPENWEATHER_API_KEY` gibi araca özel değişkenler bu dosyada tanımlı değildir -- ilgili [Rona Tools](https://github.com/Tech-06/Rona-Tools) paketini `python -m toolbox.manager install <paket_id>` ile kurduğunuzda soru olarak sorulur ve otomatik olarak `.env`'e eklenir.
+
+Google Takvim/Kişiler/Gmail paketleri de bir ortam değişkeni değil, doğrudan bir dosya olarak bir `credentials.json` (Google Cloud Console'dan alınan OAuth istemci kimliği) gerektirir; `google_calendar`/`google_contacts`/`google_mail` paketlerinden birini kurarken bu dosyanın yolu sorulur ve `backend/toolbox/custom/google_auth/credentials.json` olarak kopyalanır. Her hesabın yetkilendirme jetonu `python -m toolbox.custom.google_auth.add_account <hesap_adi>` çalıştırıldığında aynı klasöre `token_<hesap_adi>.json` olarak yazılır.
 
 ### `web-client/.env`
 
@@ -456,7 +466,7 @@ flowchart LR
   ```
 
   `await_confirmation` düğümü, LangGraph'ın `interrupt()` mekanizmasıyla yürütmeyi gerçekten durdurur ve konuşmayı checkpoint'e yazar; kullanıcının yanıtı geldiğinde kaldığı yerden devam eder.
-- **`toolbox/`** — `tools.json` içinde tanımlı araç şemaları, `toolbox/tools/` altında bunların Python uygulamaları, ve yerel verilerin (notlar, kişiler, anılar, görevler, alt ajan kayıtları) tutulduğu `rona.db` SQLite veritabanına erişim (`db.py`, `registry.py`).
+- **`toolbox/`** — çekirdek araçlar: `tools.json` içinde tanımlı şemalar, `toolbox/tools/` altında bunların Python uygulamaları, ve yerel verilerin (kişiler, anılar, görevler, alt ajan kayıtları) tutulduğu `rona.db` SQLite veritabanına erişim (`db.py`, `registry.py`). İsteğe bağlı araç paketleri `toolbox/custom/<paket_id>/` altına kurulur (`packages.py`) ve `registry.py` tarafından çekirdekle birleştirilir; kurulum/kaldırma/sağlık kontrolü `manager.py`'nin işi, paket kaynağından (yerel/git/https) çekme ise `sources.py`'nin (bkz. [Rona Tools](https://github.com/Tech-06/Rona-Tools)).
 - **`trigger/`** — `APScheduler` tabanlı zamanlayıcı (`scheduler.py`), görev tanımlarının doğrulanması ve kalıcılığı (`store.py`) ve tetiklendiğinde çalışan headless ajan (`executor.py`).
 - **`subagents/`** — arka plan görevlerini kendi tur limiti ve kendi araç alt kümesiyle çalıştıran asenkron çalıştırıcı (`runner.py`) ve durum kaydı (`store.py`).
 - **`prompts/`** — sistem promptu, sırasıyla `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `subagents.md`, `trigger.md` dosyalarının birleştirilmesiyle oluşur (bkz. [Kimliği ve Davranışı Özelleştirme](#kimliği-ve-davranışı-özelleştirme)).

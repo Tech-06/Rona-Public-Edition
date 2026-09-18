@@ -10,25 +10,20 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+import toolbox
 from app.config import Settings, get_settings
 from app.llm import chat_completion
 from app.streaming import drop_run
 from graph import CHECKPOINT_DB_PATH, conversations
 from graph.threads import get_lock
 from subagents import store as subagent_store
+from toolbox import envfile
+from toolbox import manager as toolbox_manager
+from toolbox import packages as toolbox_packages
 from toolbox.db import DB_PATH
 from toolbox.registry import iter_specs
-from toolbox.tools.calendar_tool import ALLOWED_ACCOUNTS as CALENDAR_ACCOUNTS
-from toolbox.tools.contacts_tool import ALLOWED_ACCOUNTS as CONTACTS_ACCOUNTS
-from toolbox.tools.deepl_translate import translate_text
-from toolbox.tools.get_weather import get_weather
-from toolbox.tools.google_auth import CREDENTIALS_FILE as GOOGLE_CREDENTIALS_FILE
-from toolbox.tools.google_auth import get_google_credentials, get_registered_accounts
-from toolbox.tools.mail_tool import ALLOWED_ACCOUNTS as MAIL_ACCOUNTS
 from toolbox.tools.mem_tool import get_memories
-from toolbox.tools.notes_tool import get_notes
 from toolbox.tools.people_tool import get_people
-from toolbox.tools.web_search import web_search
 from trigger import scheduler as trigger_scheduler
 from trigger import store as trigger_store
 
@@ -104,26 +99,38 @@ async def get_status():
     }
 
 
+def _package_status(manifest) -> dict[str, Any]:
+    """Config-completeness summary for one installed custom package.
+
+    Doesn't touch the network -- just checks whether every field the
+    package's manifest marks required already has a value (in .env or its
+    own config.json/file). Used by both /connections and /packages so
+    dashboard.py never has to know about any specific tool.
+    """
+    config_values = toolbox_packages.load_config_values(manifest)
+    missing = [
+        field.key
+        for field in manifest.config
+        if field.required and config_values.get(field.key) in (None, "")
+    ]
+    return {
+        "id": manifest.id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "kind": manifest.kind,
+        "description": manifest.description,
+        "provides": manifest.provides,
+        "requires": manifest.requires,
+        "configured": not missing,
+        "missing_config": missing,
+    }
+
+
 @router.get("/connections")
 async def get_connections():
-    registered = get_registered_accounts()["registered_accounts"]
-    google_accounts = []
-    for name in sorted({*CALENDAR_ACCOUNTS, *CONTACTS_ACCOUNTS, *MAIL_ACCOUNTS}):
-        google_accounts.append(
-            {
-                "account": name,
-                "token_present": name in registered,
-                "calendar": name in CALENDAR_ACCOUNTS,
-                "contacts": name in CONTACTS_ACCOUNTS,
-                "mail": name in MAIL_ACCOUNTS,
-            }
-        )
+    packages_status = [_package_status(m) for m in toolbox_packages.load_installed_manifests()]
     return {
-        "google_accounts": google_accounts,
-        "google_credentials_file_present": GOOGLE_CREDENTIALS_FILE.exists(),
-        "tavily_configured": bool(os.getenv("TAVILY_API_KEY")),
-        "deepl_configured": bool(os.getenv("DEEPL_API_KEY")),
-        "openweather_configured": bool(os.getenv("OPENWEATHER_API_KEY")),
+        "packages": packages_status,
         "gemini_embedding_configured": bool(os.getenv("GOOGLE_API_KEY"))
         and bool(os.getenv("EMBEDDING_MODEL_NAME")),
         "flash_configured": bool(
@@ -135,23 +142,12 @@ async def get_connections():
     }
 
 
-async def _probe_google(account: str) -> dict[str, Any]:
-    try:
-        await asyncio.to_thread(get_google_credentials, account, False)
-        return {"ok": True, "detail": "credentials valid"}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "detail": str(exc)}
-
-
 @router.post("/connections/probe")
 async def probe_connections():
-    registered = get_registered_accounts()["registered_accounts"]
-    google_results = {
-        name: await _probe_google(name) for name in registered
-    }
-    weather = await asyncio.to_thread(get_weather, "Istanbul")
-    translated = await asyncio.to_thread(translate_text, "merhaba", "EN-US")
-    search = await asyncio.to_thread(web_search, "test", 1)
+    package_results: dict[str, dict[str, Any]] = {}
+    for manifest in toolbox_packages.load_installed_manifests():
+        result = await asyncio.to_thread(toolbox_manager.run_health_check, manifest)
+        package_results[manifest.id] = {"ok": result.ok, "detail": result.detail}
     llm_ok = True
     llm_detail = "ok"
     try:
@@ -162,14 +158,17 @@ async def probe_connections():
         llm_ok = False
         llm_detail = str(exc)
     return {
-        "google": google_results,
-        "weather": {"ok": bool(weather.get("success")), "detail": weather.get("error", "ok")},
-        "translate": {
-            "ok": bool(translated.get("success")),
-            "detail": translated.get("error", "ok"),
-        },
-        "web_search": {"ok": bool(search.get("success")), "detail": search.get("error", "ok")},
+        "packages": package_results,
         "llm": {"ok": llm_ok, "detail": llm_detail},
+    }
+
+
+@router.get("/packages")
+async def list_packages():
+    manifests = toolbox_packages.load_installed_manifests()
+    return {
+        "packages": [_package_status(m) for m in manifests],
+        "warnings": toolbox.load_warnings(),
     }
 
 
@@ -185,18 +184,6 @@ async def read_config():
     for field in _SECRET_FIELDS:
         data.pop(field, None)
     return {"values": data, "editable": sorted(_EDITABLE_FIELDS)}
-
-
-def _read_env_file() -> dict[str, str]:
-    pairs: dict[str, str] = {}
-    if not ENV_PATH.exists():
-        return pairs
-    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-        if "=" not in line or line.lstrip().startswith("#"):
-            continue
-        key, _, value = line.partition("=")
-        pairs[key.strip()] = value
-    return pairs
 
 
 def _encode_env_value(value: Any) -> str:
@@ -220,44 +207,17 @@ def _validate_candidate(candidate: dict[str, str]) -> str | None:
     return None
 
 
-def _write_env_updates(updates: dict[str, str]) -> None:
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-    seen: set[str] = set()
-    new_lines: list[str] = []
-    for line in lines:
-        if "=" in line and not line.lstrip().startswith("#"):
-            key = line.partition("=")[0].strip()
-            if key in updates:
-                new_lines.append(f"{key}={updates[key]}")
-                seen.add(key)
-                continue
-        new_lines.append(line)
-    for key, value in updates.items():
-        if key not in seen:
-            new_lines.append(f"{key}={value}")
-    text = "\n".join(new_lines) + "\n"
-    if ENV_PATH.exists():
-        ENV_PATH.with_suffix(".bak").write_bytes(ENV_PATH.read_bytes())
-    tmp_path = ENV_PATH.with_suffix(".tmp")
-    tmp_path.write_text(text, encoding="utf-8")
-    os.replace(tmp_path, ENV_PATH)
-    try:
-        os.chmod(ENV_PATH, 0o600)
-    except OSError:
-        pass
-
-
 @router.put("/config")
 async def update_config(payload: dict[str, Any]):
     unknown = set(payload) - _EDITABLE_FIELDS
     if unknown:
         raise HTTPException(400, f"Not editable: {', '.join(sorted(unknown))}")
     updates = {field.upper(): _encode_env_value(value) for field, value in payload.items()}
-    candidate = {**_read_env_file(), **updates}
+    candidate = {**envfile.read_env_file(ENV_PATH), **updates}
     error = _validate_candidate(candidate)
     if error:
         raise HTTPException(400, error)
-    _write_env_updates(updates)
+    envfile.write_env_updates(ENV_PATH, updates)
     return {"restart_required": True}
 
 
@@ -336,7 +296,13 @@ async def get_subagent(run_id: str):
 
 @router.get("/data/notes")
 async def data_notes(limit: int = 50, offset: int = 0):
-    return get_notes(limit=limit, offset=offset)
+    if not toolbox_manager.is_installed("notes"):
+        return {"success": True, "notes": [], "installed": False}
+    from toolbox.custom.notes.notes_tool import get_notes
+
+    result = get_notes(limit=limit, offset=offset)
+    result["installed"] = True
+    return result
 
 
 @router.get("/data/people")

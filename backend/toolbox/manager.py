@@ -40,7 +40,8 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -78,7 +79,7 @@ class InstallCancelled(ManagerError):
 
 
 class HealthCheckFailed(ManagerError):
-    def __init__(self, detail: str, staged: "StagedPackage"):
+    def __init__(self, detail: str, staged: StagedPackage):
         super().__init__(detail)
         self.detail = detail
         self.staged = staged

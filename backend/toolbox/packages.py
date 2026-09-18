@@ -122,7 +122,7 @@ def load_manifest(pkg_dir: Path) -> PackageManifest:
         raise PackageLoadError(f"{pkg_dir}: invalid manifest.json: {exc}") from exc
     try:
         manifest = PackageManifest.model_validate(raw)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise PackageLoadError(f"{pkg_dir}: invalid manifest schema: {exc}") from exc
     if manifest.id != pkg_dir.name:
         raise PackageLoadError(
