@@ -1,5 +1,6 @@
 from langgraph.graph import END, START, StateGraph
 
+from graph.conversations import touch
 from graph.edges import route_after_agent
 from graph.nodes import (
     agent_node,
@@ -8,7 +9,7 @@ from graph.nodes import (
     tools_node,
 )
 from graph.state import RonaState
-from graph.threads import get_lock, purge_expired, touch
+from graph.threads import get_lock, purge_expired
 from toolbox.db import DB_PATH
 
 CHECKPOINT_DB_PATH = DB_PATH.parent / "rona_checkpoints.db"

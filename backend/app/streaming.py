@@ -81,6 +81,18 @@ def get_or_create_run(conversation_id: str) -> tuple[StreamRun, bool]:
     return run, True
 
 
+def drop_run(conversation_id: str) -> None:
+    """Discard a finished run's replay buffer immediately.
+
+    Without this, a conversation deleted right after it finishes streaming
+    stays replayable for up to STREAM_RUN_TTL_SECONDS: a reconnecting SSE
+    subscriber would replay its buffered "done" frame, and the client's
+    onDone handler would re-save the very conversation that was just
+    deleted, resurrecting it.
+    """
+    _runs.pop(conversation_id, None)
+
+
 def encode_frame(event_id: int, event_type: str, data: dict[str, Any]) -> str:
     body = json.dumps(data, ensure_ascii=False, default=str)
     return f"id: {event_id}\nevent: {event_type}\ndata: {body}\n\n"

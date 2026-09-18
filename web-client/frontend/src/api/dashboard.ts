@@ -113,6 +113,27 @@ export interface ServerStatusResponse {
   recent_log_lines: string[];
 }
 
+export interface ServerConversationSummary {
+  conversation_id: string;
+  last_active: string;
+  last_active_seconds_ago: number;
+  pinned: boolean;
+}
+
+export interface ServerConversationsResponse {
+  conversations: ServerConversationSummary[];
+  purged: string[];
+  ttl_seconds: number;
+  max_history_messages: number;
+}
+
+export interface ConversationPinResponse {
+  thread_id: string;
+  last_active: string;
+  pinned: boolean;
+  purged_at: string | null;
+}
+
 export const dashboardApi = {
   status: () => api.get<StatusResponse>("/api/status"),
   connections: () => api.get<ConnectionsResponse>("/api/connections"),
@@ -136,4 +157,11 @@ export const dashboardApi = {
   serverStatus: () => api.get<ServerStatusResponse>("/host/server"),
   serverAction: (action: "start" | "stop" | "restart") =>
     api.post<{ ok: boolean; detail: string }>(`/host/server/${action}`),
+  serverConversations: () => api.get<ServerConversationsResponse>("/api/conversations"),
+  setConversationPinned: (conversationId: string, pinned: boolean) =>
+    api.post<ConversationPinResponse>(`/api/conversations/${conversationId}/pin`, { pinned }),
+  deleteServerConversation: (conversationId: string) =>
+    api.del<{ deleted: boolean }>(`/api/conversations/${conversationId}`),
+  deleteAllServerConversations: () =>
+    api.del<{ deleted: number; skipped: number }>("/api/conversations"),
 };

@@ -56,4 +56,29 @@ export interface ConversationSummary {
   conversationId: string;
   title: string;
   updatedAt: number;
+  pinned: boolean;
+  folderId: string | null;
+  /** True once the user has explicitly renamed this conversation, so
+   * saveConversation() stops overwriting the title with the auto-derived
+   * first-message snippet on every turn. */
+  titleCustom: boolean;
 }
+
+export interface Folder {
+  id: string;
+  name: string;
+  createdAt: number;
+  collapsed: boolean;
+}
+
+export type SettingsSectionId =
+  | "appearance"
+  | "chats"
+  | "status"
+  | "connections"
+  | "advanced"
+  | "tools"
+  | "tasks"
+  | "subagents"
+  | "logs"
+  | "data";

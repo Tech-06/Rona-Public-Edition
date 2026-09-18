@@ -11,7 +11,7 @@ export function MessageBubble({ message, livePhase }: Props) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-sky-600/90 px-4 py-2.5 text-[15px] text-white">
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent/90 px-4 py-2.5 text-[15px] text-accent-fg sm:max-w-[75%]">
           {message.content}
         </div>
       </div>
@@ -20,7 +20,7 @@ export function MessageBubble({ message, livePhase }: Props) {
 
   return (
     <div className="flex justify-start">
-      <div className="flex max-w-[80%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-surface-border bg-surface-raised px-4 py-3">
+      <div className="flex max-w-[85%] flex-col gap-2 rounded-2xl rounded-bl-sm border border-line bg-panel px-4 py-3 sm:max-w-[80%]">
         {message.pending && (
           <ProgressIndicator phase={livePhase} steps={message.steps ?? []} live />
         )}
@@ -34,10 +34,10 @@ export function MessageBubble({ message, livePhase }: Props) {
               />
             )}
             {message.error ? (
-              <p className="text-sm text-rose-400">{message.error}</p>
+              <p className="text-sm text-danger-text">{message.error}</p>
             ) : (
               <div
-                className="prose-rona text-[15px] text-slate-100"
+                className="prose-rona text-[15px] text-fg"
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
               />
             )}
@@ -53,12 +53,12 @@ export function MessageBubble({ message, livePhase }: Props) {
 
 function PendingToolStrip({ toolCalls }: { toolCalls: ToolCallInfo[] }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+    <div className="flex flex-col gap-1.5 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2">
       {toolCalls.map((call, index) => (
-        <div key={index} className="text-xs text-amber-200">
+        <div key={index} className="text-xs text-warn-strong">
           <span className="font-semibold">{call.name}</span>
           {Object.keys(call.args).length > 0 && (
-            <span className="text-amber-300/80"> · {JSON.stringify(call.args)}</span>
+            <span className="text-warn-text/80"> · {JSON.stringify(call.args)}</span>
           )}
         </div>
       ))}

@@ -16,8 +16,8 @@ export function MessageList({ messages, livePhase }: Props) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-slate-500">
-        <p>Rona'ya bir şey sor.</p>
+      <div className="flex h-full flex-col items-center justify-center gap-6 px-4 text-center">
+        <p className="text-2xl font-semibold text-fg-soft sm:text-3xl">Bugün ne var aklında?</p>
       </div>
     );
   }

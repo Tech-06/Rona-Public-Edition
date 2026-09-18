@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import secrets
 import time
 import uuid
@@ -17,7 +18,14 @@ from app.dashboard import router as dashboard_router
 from app.logging_config import configure_file_logging
 from app.schemas import ChatRequest, ChatResponse, ToolCallInfo
 from app.streaming import StreamRun, encode_frame, get_or_create_run
-from graph import CHECKPOINT_DB_PATH, build_graph, get_lock, purge_expired, touch
+from graph import (
+    CHECKPOINT_DB_PATH,
+    build_graph,
+    conversations,
+    get_lock,
+    purge_expired,
+    touch,
+)
 from graph.state import replace_messages
 from subagents.store import cleanup_reported, reconcile_running
 from trigger import scheduler as trigger_scheduler
@@ -34,6 +42,28 @@ RECURSION_LIMIT_REPLY = (
 )
 
 STREAM_HEARTBEAT_SECONDS = 15
+
+
+async def _reconcile_conversation_registry(checkpointer: Any) -> None:
+    """Seed/prune the durable conversation registry from what actually
+    exists in rona_checkpoints.db, once at startup.
+
+    Reads through the checkpointer's own aiosqlite connection (no second
+    sqlite handle on that file) and never runs `adelete_thread` while
+    holding `checkpointer.lock` -- that lock is non-reentrant and
+    `adelete_thread` acquires it internally, so nesting would deadlock.
+    Registry bookkeeping must never block startup, so any failure here is
+    logged and swallowed.
+    """
+    try:
+        async with checkpointer.lock, checkpointer.conn.cursor() as cursor:
+            await cursor.execute("SELECT DISTINCT thread_id FROM checkpoints")
+            rows = await cursor.fetchall()
+        conversations.reconcile(str(row[0]) for row in rows)
+    except Exception:
+        logging.getLogger("uvicorn.error").exception(
+            "conversation registry reconcile failed"
+        )
 
 
 async def verify_bearer_token(request: Request) -> None:
@@ -56,6 +86,9 @@ async def lifespan(app: FastAPI):
     trigger_scheduler.start()
     async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH)) as checkpointer:
         await checkpointer.setup()
+        conversations.ensure_schema()
+        await _reconcile_conversation_registry(checkpointer)
+        conversations.sweep_tombstones()
         app.state.graph = build_graph(checkpointer)
         yield
         trigger_scheduler.shutdown()

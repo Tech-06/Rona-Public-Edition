@@ -27,22 +27,22 @@ export function ToolsPanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-slate-500">{tools.data.tools.length} araç kayıtlı</p>
+      <p className="text-xs text-fg-subtle">{tools.data.tools.length} araç kayıtlı</p>
       {groups.map(([group, items]) => (
         <Card key={group} title={group}>
           <div className="flex flex-col gap-1.5">
             {items.map((tool) => {
               const isExpanded = expanded === tool.name;
               return (
-                <div key={tool.name} className="rounded-lg border border-surface-border bg-surface">
+                <div key={tool.name} className="rounded-lg border border-line bg-app">
                   <button
                     type="button"
                     onClick={() => setExpanded(isExpanded ? null : tool.name)}
                     className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
                   >
                     <div>
-                      <p className="text-sm font-medium text-slate-200">{tool.name}</p>
-                      <p className="text-xs text-slate-500">{tool.description}</p>
+                      <p className="text-sm font-medium text-fg-soft">{tool.name}</p>
+                      <p className="text-xs text-fg-subtle">{tool.description}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {tool.background && <Badge tone="neutral">arka plan</Badge>}
@@ -50,7 +50,7 @@ export function ToolsPanel() {
                     </div>
                   </button>
                   {isExpanded && (
-                    <pre className="overflow-x-auto border-t border-surface-border px-3 py-2 text-xs text-slate-400">
+                    <pre className="overflow-x-auto border-t border-line px-3 py-2 text-xs text-fg-muted">
                       {JSON.stringify(tool.parameters, null, 2)}
                     </pre>
                   )}

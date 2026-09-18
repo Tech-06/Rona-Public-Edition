@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { dashboardApi } from "../../api/dashboard";
 import { usePoll } from "../../hooks/usePoll";
+import { RestartBanner } from "../settings/RestartBanner";
 import { Button, Card, ErrorState } from "./ui";
 
 const GROUPS: Array<{ title: string; fields: string[] }> = [
@@ -46,11 +47,13 @@ type FieldValue = string | number | boolean;
 
 export function ConfigPanel() {
   const config = usePoll(useCallback(() => dashboardApi.config(), []), null);
+  const server = usePoll(useCallback(() => dashboardApi.serverStatus(), []), null);
   const [draft, setDraft] = useState<Record<string, FieldValue>>({});
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     if (config.data) {
@@ -82,30 +85,37 @@ export function ConfigPanel() {
   }
 
   async function restartNow() {
-    await dashboardApi.serverAction("restart");
-    setRestartRequired(false);
+    setRestarting(true);
+    try {
+      await dashboardApi.serverAction("restart");
+      setRestartRequired(false);
+    } finally {
+      setRestarting(false);
+      server.refresh();
+    }
   }
 
   if (config.error) return <ErrorState message={config.error} />;
   if (!config.data) return null;
 
   const editable = new Set(config.data.editable);
+  const canAutoRestart = Boolean(
+    server.data && (server.data.tracked_process_alive || server.data.systemctl_available),
+  );
 
   return (
     <div className="flex flex-col gap-4">
-      {restartRequired && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <span>Değişikliklerin uygulanması için sunucunun yeniden başlatılması gerekiyor.</span>
-          <Button onClick={restartNow} variant="primary">
-            Şimdi yeniden başlat
-          </Button>
-        </div>
-      )}
+      <RestartBanner
+        visible={restartRequired}
+        onRestart={restartNow}
+        canAutoRestart={canAutoRestart}
+        restarting={restarting}
+      />
       {saveError && <ErrorState message={saveError} />}
 
       {GROUPS.map((group) => (
         <Card key={group.title} title={group.title}>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
             {group.fields.map((field) => (
               <FieldInput
                 key={field}
@@ -123,7 +133,7 @@ export function ConfigPanel() {
         <Button onClick={save} disabled={dirty.size === 0 || saving} variant="primary">
           {saving ? "Kaydediliyor..." : `Kaydet${dirty.size > 0 ? ` (${dirty.size})` : ""}`}
         </Button>
-        {dirty.size > 0 && <span className="text-xs text-slate-500">Kaydedilmemiş değişiklik var</span>}
+        {dirty.size > 0 && <span className="text-xs text-fg-subtle">Kaydedilmemiş değişiklik var</span>}
       </div>
     </div>
   );
@@ -145,8 +155,8 @@ function FieldInput({
   if (!editable) {
     return (
       <label className="flex flex-col gap-1">
-        <span className="text-xs capitalize text-slate-500">{label}</span>
-        <span className="rounded-lg border border-surface-border bg-surface px-2.5 py-1.5 text-sm text-slate-500">
+        <span className="text-xs capitalize text-fg-subtle">{label}</span>
+        <span className="rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg-subtle">
           {String(value ?? "—")}
         </span>
       </label>
@@ -155,13 +165,13 @@ function FieldInput({
 
   if (typeof value === "boolean") {
     return (
-      <label className="flex items-center justify-between gap-2 rounded-lg border border-surface-border bg-surface px-2.5 py-1.5">
-        <span className="text-xs capitalize text-slate-400">{label}</span>
+      <label className="flex items-center justify-between gap-2 rounded-lg border border-line bg-app px-2.5 py-1.5">
+        <span className="text-xs capitalize text-fg-muted">{label}</span>
         <input
           type="checkbox"
           checked={value}
           onChange={(event) => onChange(event.target.checked)}
-          className="h-4 w-4 accent-sky-500"
+          className="h-4 w-4 accent-[rgb(var(--accent))]"
         />
       </label>
     );
@@ -170,12 +180,12 @@ function FieldInput({
   if (typeof value === "number") {
     return (
       <label className="flex flex-col gap-1">
-        <span className="text-xs capitalize text-slate-500">{label}</span>
+        <span className="text-xs capitalize text-fg-subtle">{label}</span>
         <input
           type="number"
           value={value}
           onChange={(event) => onChange(Number(event.target.value))}
-          className="rounded-lg border border-surface-border bg-surface px-2.5 py-1.5 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+          className="rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
         />
       </label>
     );
@@ -183,12 +193,12 @@ function FieldInput({
 
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs capitalize text-slate-500">{label}</span>
+      <span className="text-xs capitalize text-fg-subtle">{label}</span>
       <input
         type="text"
         value={String(value ?? "")}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded-lg border border-surface-border bg-surface px-2.5 py-1.5 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+        className="rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
       />
     </label>
   );

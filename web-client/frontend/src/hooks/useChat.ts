@@ -13,6 +13,11 @@ export function useChat(initialConversationId: string | null, onConversationId?:
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     initialConversationId ? loadMessages(initialConversationId) : [],
   );
+  // Mirrors `messages` synchronously (unlike the state itself, which React
+  // only applies once it gets around to processing the update). onDone
+  // needs the up-to-date list *right now* to persist it before announcing
+  // the conversation id to the sidebar - see onDone below.
+  const messagesRef = useRef<ChatMessage[]>(messages);
   const [sending, setSending] = useState(false);
   const [livePhase, setLivePhase] = useState<string | null>(null);
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
@@ -38,7 +43,8 @@ export function useChat(initialConversationId: string | null, onConversationId?:
         steps: [],
       };
 
-      setMessages((current) => [...current, userMessage, assistantMessage]);
+      messagesRef.current = [...messagesRef.current, userMessage, assistantMessage];
+      setMessages(messagesRef.current);
       setAwaitingConfirmation(false);
       setSending(true);
       setLivePhase("Düşünülüyor");
@@ -49,11 +55,10 @@ export function useChat(initialConversationId: string | null, onConversationId?:
       const steps: StepRecord[] = [];
 
       function updateAssistant(patch: Partial<ChatMessage>) {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId ? { ...message, ...patch } : message,
-          ),
+        messagesRef.current = messagesRef.current.map((message) =>
+          message.id === assistantId ? { ...message, ...patch } : message,
         );
+        setMessages(messagesRef.current);
       }
 
       function handleProgress(event: ProgressEvent) {
@@ -91,8 +96,6 @@ export function useChat(initialConversationId: string | null, onConversationId?:
           onProgress: handleProgress,
           onDone: (result) => {
             const finalId = result.conversation_id;
-            setConversationId(finalId);
-            onConversationId?.(finalId);
             const totalDurationMs = Date.now() - startedAtRef.current;
             const finalized: ChatMessage = {
               ...assistantMessage,
@@ -103,14 +106,20 @@ export function useChat(initialConversationId: string | null, onConversationId?:
               awaitingConfirmation: result.status === "confirmation_required",
               toolCalls: result.tool_calls,
             };
-            setMessages((current) => {
-              const next = current.map((message) =>
-                message.id === assistantId ? finalized : message,
-              );
-              const firstUser = next.find((message) => message.role === "user");
-              saveConversation(finalId, firstUser ? firstUser.content.slice(0, 60) : "Yeni sohbet", next);
-              return next;
-            });
+            const next = messagesRef.current.map((message) =>
+              message.id === assistantId ? finalized : message,
+            );
+            const firstUser = next.find((message) => message.role === "user");
+            // Persist to storage BEFORE announcing the conversation id: the
+            // sidebar refreshes its list off the id-change callback below,
+            // and it must find the entry already in storage when it reads
+            // it, or a new chat only shows up in the list after a manual
+            // page reload.
+            saveConversation(finalId, firstUser ? firstUser.content.slice(0, 60) : "Yeni sohbet", next);
+            messagesRef.current = next;
+            setMessages(next);
+            setConversationId(finalId);
+            onConversationId?.(finalId);
             setAwaitingConfirmation(result.status === "confirmation_required");
             setSending(false);
             setLivePhase(null);

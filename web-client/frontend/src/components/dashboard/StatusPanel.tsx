@@ -57,31 +57,31 @@ export function StatusPanel() {
       >
         {server.error && <ErrorState message={server.error} />}
         {server.data && (
-          <div className="flex flex-col gap-2 text-sm text-slate-300">
+          <div className="flex flex-col gap-2 text-sm text-fg-soft">
             <div className="flex items-center gap-2">
               <Badge tone={server.data.backend_up ? "ok" : "bad"}>
                 {server.data.backend_up ? "Çalışıyor" : "Kapalı"}
               </Badge>
               {server.data.tracked_pid && (
-                <span className="text-xs text-slate-500">PID {server.data.tracked_pid}</span>
+                <span className="text-xs text-fg-subtle">PID {server.data.tracked_pid}</span>
               )}
               {server.data.systemctl_available && (
-                <span className="text-xs text-slate-500">systemd üzerinden yönetiliyor</span>
+                <span className="text-xs text-fg-subtle">systemd üzerinden yönetiliyor</span>
               )}
             </div>
-            {actionMessage && <p className="text-xs text-slate-400">{actionMessage}</p>}
+            {actionMessage && <p className="text-xs text-fg-muted">{actionMessage}</p>}
           </div>
         )}
       </Card>
 
       {status.error && <ErrorState message={status.error} />}
       {status.data && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
           <Metric label="Çalışma süresi" value={formatUptime(status.data.uptime_seconds)} />
           <Metric label="Model" value={status.data.flash_model} />
           <Metric label="Pro model" value={status.data.pro_configured ? "yapılandırıldı" : "yok"} />
           <Metric label="Zamanlayıcı" value={status.data.scheduler_running ? "çalışıyor" : "durdu"} />
-          <Metric label="Aktif sohbet" value={String(status.data.active_conversations)} />
+          <Metric label="Sohbet sayısı" value={String(status.data.active_conversations)} />
           <Metric label="Çalışan ajan" value={String(status.data.running_subagents)} />
           <Metric label="Çalışan görev" value={String(status.data.running_trigger_occurrences)} />
           <Metric label="Veritabanı" value={formatBytes(status.data.db_size_bytes)} />
@@ -95,9 +95,9 @@ export function StatusPanel() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-raised p-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-slate-200">{value}</p>
+    <div className="rounded-xl border border-line bg-panel p-3">
+      <p className="text-xs text-fg-subtle">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-fg-soft">{value}</p>
     </div>
   );
 }

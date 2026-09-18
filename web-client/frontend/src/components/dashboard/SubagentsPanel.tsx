@@ -37,18 +37,18 @@ export function SubagentsPanel() {
               className="flex w-full items-start justify-between gap-3 text-left"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm text-slate-200">{run.task}</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="truncate text-sm text-fg-soft">{run.task}</p>
+                <p className="mt-1 text-xs text-fg-subtle">
                   {run.tier} · {formatDate(run.created_at)}
                 </p>
               </div>
               <Badge tone={STATUS_TONE[run.status] ?? "neutral"}>{run.status}</Badge>
             </button>
             {isExpanded && (
-              <div className="mt-3 border-t border-surface-border pt-3 text-xs text-slate-400">
+              <div className="mt-3 border-t border-line pt-3 text-xs text-fg-muted">
                 {run.summary && <p className="mb-2">{run.summary}</p>}
-                {run.report && <p className="whitespace-pre-wrap text-slate-500">{run.report}</p>}
-                {run.error && <p className="text-rose-400">{run.error}</p>}
+                {run.report && <p className="whitespace-pre-wrap text-fg-subtle">{run.report}</p>}
+                {run.error && <p className="text-danger-text">{run.error}</p>}
               </div>
             )}
           </Card>
