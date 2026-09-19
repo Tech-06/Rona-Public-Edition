@@ -11,6 +11,7 @@ import logging
 import time
 from asyncio import Lock
 
+import i18n
 from graph import conversations
 
 logger = logging.getLogger("uvicorn.error")
@@ -72,7 +73,7 @@ async def purge_expired(ttl_seconds: int, checkpointer, *, force: bool = False) 
         except NotImplementedError:
             break
         except Exception:
-            logger.exception("conversation purge failed for %s", thread_id)
+            logger.exception(i18n.t("graph.log_purge_failed"), thread_id)
             continue
         conversations.mark_purged(thread_id)
         _locks.pop(thread_id, None)

@@ -35,6 +35,8 @@ from typing import Any, Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
+import i18n
+
 logger = logging.getLogger("uvicorn.error")
 
 # backend/toolbox/packages.py -> parents[1] == backend/
@@ -264,7 +266,7 @@ def load_installed_manifests() -> list[PackageManifest]:
         try:
             manifests.append(load_manifest(pkg_dir))
         except PackageLoadError as exc:
-            logger.warning("toolbox: skipping package in %s: %s", pkg_dir, exc)
+            logger.warning(i18n.t("toolbox.log_skip_package"), pkg_dir, exc)
     return manifests
 
 

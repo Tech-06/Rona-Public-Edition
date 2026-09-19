@@ -112,9 +112,8 @@ def test_run_turn_confirmation_required_matches_across_modes(monkeypatch):
     assert any(item["type"] == "confirm_start" for item in progress)
 
 
-def test_run_turn_recursion_limit_uses_the_documented_turkish_reply(monkeypatch):
-    monkeypatch.setattr(main_module.settings, "graph_recursion_limit", 3)
-    script = [
+def _recursion_limit_script():
+    return [
         {
             "role": "assistant",
             "content": None,
@@ -128,9 +127,26 @@ def test_run_turn_recursion_limit_uses_the_documented_turkish_reply(monkeypatch)
         }
         for i in range(50)
     ]
-    monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(script))
+
+
+def test_run_turn_recursion_limit_uses_the_documented_turkish_reply(monkeypatch):
+    monkeypatch.setattr(main_module.settings, "graph_recursion_limit", 3)
+    monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(_recursion_limit_script()))
     graph = build_graph(InMemorySaver())
     result = asyncio.run(_run_turn(graph, "test-parity-recursion", "kişileri getir"))
     assert result["status"] == "ok"
     assert "tur sınırına ulaştım" in result["reply"]
+    assert result["tool_calls"] is None
+
+
+def test_run_turn_recursion_limit_uses_the_english_reply_when_language_is_en(monkeypatch):
+    # LANGUAGE=en is read once per i18n.t() call (see i18n.py), so flipping
+    # it on the live, lru_cache'd Settings instance is enough -- no reload.
+    monkeypatch.setattr(main_module.settings, "language", "en")
+    monkeypatch.setattr(main_module.settings, "graph_recursion_limit", 3)
+    monkeypatch.setattr(nodes_module, "chat_completion", FakeLLM(_recursion_limit_script()))
+    graph = build_graph(InMemorySaver())
+    result = asyncio.run(_run_turn(graph, "test-parity-recursion-en", "get the people"))
+    assert result["status"] == "ok"
+    assert "hit the turn limit" in result["reply"]
     assert result["tool_calls"] is None

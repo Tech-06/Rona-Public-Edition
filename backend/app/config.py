@@ -6,6 +6,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+VALID_LANGUAGES = {"tr", "en"}
 
 
 class Settings(BaseSettings):
@@ -22,6 +23,12 @@ class Settings(BaseSettings):
     reload: bool = True
     log_level: str = "INFO"
     log_file: str = "rona.log"
+    # Rona's own speaking language (the persona prompt's directive), plus
+    # every backend-authored string a human actually sees: HTTPException
+    # details, stored task/subagent run outcomes, and log lines. See
+    # i18n.py's module docstring for what this deliberately does *not*
+    # cover (tool-facing error strings, forwarded exception text).
+    language: str = "tr"
 
     auth_token: str
 
@@ -97,6 +104,14 @@ class Settings(BaseSettings):
         normalized = value.upper()
         if normalized not in VALID_LOG_LEVELS:
             raise ValueError(f"invalid log level: {value!r}")
+        return normalized
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in VALID_LANGUAGES:
+            raise ValueError(f"invalid language: {value!r}")
         return normalized
 
 

@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import i18n
 from app.config import get_settings
 from app.llm import chat_completion
 from toolbox.registry import background_tool_names, get_tool, get_tool_schemas, has_tool
@@ -26,22 +27,29 @@ WRAP_UP_PROMPT = (
     "Give your final verdict JSON now based on what you already have."
 )
 
-REPORTER_SYSTEM_PROMPT = (
-    "You are the reporting layer of a scheduled task executor. Based on the task "
-    "and the executor's final message, produce the final task result. Return only "
-    'valid JSON as the response: {"summary": "...", "report": "..."} where '
-    "summary is 2 to 4 sentences capturing what was done (or what went wrong), "
-    "and report is the detailed, self-contained result covering all relevant "
-    "details, data and reasoning. Write both in the language the task was given "
-    "in. Both fields must contain real, informative content about this specific "
-    "task, never placeholder words. Example for a task that had to send a "
-    "greeting SMS: "
-    '{"summary": "The SMS was sent to Alex at 15:03 with the text '
-    "'Nasılsın?'. The first attempt hit a transient API error and succeeded on "
-    'attempt 2.", "report": "The task fired at 15:00 UTC. The '
-    "condition was checked first and held. The pre-approved send_sms call was "
-    'executed exactly as approved. The provider confirmed delivery at 15:03."}'
-)
+def _reporter_system_prompt() -> str:
+    # A function, not a module constant, so its one localized piece (the
+    # worked example's greeting) always reflects the current LANGUAGE --
+    # matters for tests that exercise both languages without reloading
+    # this module, and costs nothing extra since get_settings() is
+    # lru_cache'd.
+    greeting = i18n.t("prompt.example_greeting")
+    return (
+        "You are the reporting layer of a scheduled task executor. Based on the task "
+        "and the executor's final message, produce the final task result. Return only "
+        'valid JSON as the response: {"summary": "...", "report": "..."} where '
+        "summary is 2 to 4 sentences capturing what was done (or what went wrong), "
+        "and report is the detailed, self-contained result covering all relevant "
+        "details, data and reasoning. Write both in the language the task was given "
+        "in. Both fields must contain real, informative content about this specific "
+        "task, never placeholder words. Example for a task that had to send a "
+        "greeting SMS: "
+        '{"summary": "The SMS was sent to Alex at 15:03 with the text '
+        f"'{greeting}'. The first attempt hit a transient API error and succeeded on "
+        'attempt 2.", "report": "The task fired at 15:00 UTC. The '
+        "condition was checked first and held. The pre-approved send_sms call was "
+        'executed exactly as approved. The provider confirmed delivery at 15:03."}'
+    )
 
 PLACEHOLDER_VALUES = {"summary", "report", "...", "…", "placeholder", "text"}
 
@@ -289,7 +297,7 @@ async def _agent_loop(
                     stream=True,
                 )
                 logger.info(
-                    "[trigger] %s attempt %d round %d llm %.1fs",
+                    i18n.t("trigger.log_round"),
                     run_id[:8],
                     attempt,
                     rounds + 1,
@@ -335,7 +343,7 @@ async def _agent_loop(
             None,
             "",
             action_ok,
-            f"The run timed out after {task['timeout_minutes']} minutes.",
+            i18n.t("trigger.outcome_timeout", minutes=task["timeout_minutes"]),
             False,
         )
     except Exception as exc:  # noqa: BLE001
@@ -362,7 +370,7 @@ async def _report(
     try:
         message = await chat_completion(
             [
-                {"role": "system", "content": REPORTER_SYSTEM_PROMPT},
+                {"role": "system", "content": _reporter_system_prompt()},
                 {"role": "user", "content": user_content},
             ],
             run_id,
@@ -373,18 +381,18 @@ async def _report(
         parsed = _parse_report_json(message.get("content") or "")
         if parsed is not None:
             logger.info(
-                "[trigger] %s report ok (summary %d chars)",
+                i18n.t("trigger.log_report_ok"),
                 run_id[:8],
                 len(parsed["summary"]),
             )
             return parsed
         logger.warning(
-            "[trigger] %s report fallback, raw reporter content: %r",
+            i18n.t("trigger.log_report_fallback"),
             run_id[:8],
             (message.get("content") or "")[:200],
         )
     except Exception as exc:  # noqa: BLE001
-        logger.error("[trigger] %s reporter failed: %s", run_id[:8], exc)
+        logger.error(i18n.t("trigger.log_reporter_failed"), run_id[:8], exc)
     fallback_summary = " ".join(final_message.split()[:80])
     return {"summary": fallback_summary, "report": final_message}
 
@@ -412,17 +420,17 @@ async def _run_attempt(
         if verdict["outcome"] == "condition_not_met":
             return {
                 "kind": "retry",
-                "error": "The condition was not met.",
+                "error": i18n.t("trigger.outcome_condition_not_met"),
                 "message": message,
             }
         return {
             "kind": "retry",
-            "error": message or "The task reported failure.",
+            "error": message or i18n.t("trigger.outcome_reported_failure"),
             "message": message,
         }
     if action_ok:
         fallback_message = raw_content.strip() or (
-            f"The action was executed, but the run ended abnormally: {loop_error}"
+            i18n.t("trigger.outcome_abnormal_end", loop_error=loop_error)
         )
         report_result = await _report(
             run_id, task, fallback_message, capped, abnormal_end=loop_error
@@ -432,7 +440,7 @@ async def _run_attempt(
             "summary": report_result["summary"],
             "report": report_result["report"],
         }
-    error = loop_error or "The executor returned an empty or invalid final message."
+    error = loop_error or i18n.t("trigger.outcome_empty_message")
     return {"kind": "retry", "error": error, "message": raw_content}
 
 
@@ -440,7 +448,7 @@ async def _execute_occurrence(run_id: str, task_id: str) -> None:
     try:
         task = store.get_task(task_id)
         if task is None or task["status"] != "active":
-            store.fail_run(run_id, "The task was not active when the run started.")
+            store.fail_run(run_id, i18n.t("trigger.outcome_not_active"))
             return
         max_attempts = max(1, task["max_retries"] + 1)
         last: dict[str, Any] | None = None
@@ -449,7 +457,7 @@ async def _execute_occurrence(run_id: str, task_id: str) -> None:
             if current is None:
                 return
             if current["status"] != "active":
-                store.fail_run(run_id, "The task was deactivated during execution.")
+                store.fail_run(run_id, i18n.t("trigger.outcome_deactivated"))
                 return
             task = current
             if attempt > 1:
@@ -464,11 +472,11 @@ async def _execute_occurrence(run_id: str, task_id: str) -> None:
                 store.complete_run(run_id, result["summary"], result["report"])
                 if not task["is_recurring"]:
                     store.set_task_status(task_id, "passive")
-                logger.info("[trigger] %s completed (attempt %d)", run_id[:8], attempt)
+                logger.info(i18n.t("trigger.log_completed"), run_id[:8], attempt)
                 return
             last = result
             logger.warning(
-                "[trigger] %s attempt %d failed: %s",
+                i18n.t("trigger.log_attempt_failed"),
                 run_id[:8],
                 attempt,
                 result["error"],
@@ -482,19 +490,15 @@ async def _execute_occurrence(run_id: str, task_id: str) -> None:
             )
             if not task["is_recurring"]:
                 store.set_task_status(task_id, "passive")
-            logger.error(
-                "[trigger] %s failed after %d attempts", run_id[:8], max_attempts
-            )
+            logger.error(i18n.t("trigger.log_failed_after_attempts"), run_id[:8], max_attempts)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001
         try:
             store.fail_run(run_id, str(exc))
         except Exception as store_exc:  # noqa: BLE001
-            logger.error(
-                "[trigger] %s could not persist failure: %s", run_id[:8], store_exc
-            )
-        logger.error("[trigger] %s failed: %s", run_id[:8], exc)
+            logger.error(i18n.t("trigger.log_persist_failure_failed"), run_id[:8], store_exc)
+        logger.error(i18n.t("trigger.log_failed"), run_id[:8], exc)
     finally:
         _tasks.pop(run_id, None)
         _active_task_ids.discard(task_id)
@@ -504,18 +508,15 @@ async def fire(task_id: str) -> None:
     try:
         task = store.get_task(task_id)
         if task is None or task["status"] != "active":
-            logger.info("[trigger] %s fire skipped (task not active)", task_id[:8])
+            logger.info(i18n.t("trigger.log_fire_skipped_inactive"), task_id[:8])
             return
         if task_id in _active_task_ids:
-            logger.warning(
-                "[trigger] %s fire skipped (previous occurrence still running)",
-                task_id[:8],
-            )
+            logger.warning(i18n.t("trigger.log_fire_skipped_running"), task_id[:8])
             return
         run_id = str(uuid.uuid4())
         store.create_run(run_id, task_id)
         _active_task_ids.add(task_id)
         _tasks[run_id] = asyncio.create_task(_execute_occurrence(run_id, task_id))
-        logger.info("[trigger] %s fired: %s", run_id[:8], task["name"])
+        logger.info(i18n.t("trigger.log_fired"), run_id[:8], task["name"])
     except Exception as exc:  # noqa: BLE001
-        logger.error("[trigger] fire failed for %s: %s", task_id[:8], exc)
+        logger.error(i18n.t("trigger.log_fire_failed"), task_id[:8], exc)

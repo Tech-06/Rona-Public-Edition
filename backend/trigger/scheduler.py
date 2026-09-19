@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
+import i18n
 from app.config import get_settings
 from trigger import executor, store
 
@@ -272,18 +273,16 @@ def _on_job_missed(event) -> None:
         if task["is_recurring"]:
             return
         store.finalize_past_one_shot(task_id)
-        logger.warning("[trigger] %s missed: %s", task_id[:8], task["name"])
+        logger.warning(i18n.t("trigger.log_missed"), task_id[:8], task["name"])
     except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "[trigger] missed-event handling failed for %s: %s", task_id[:8], exc
-        )
+        logger.error(i18n.t("trigger.log_missed_event_failed"), task_id[:8], exc)
 
 
 def register_all_from_db() -> int:
     try:
         tasks = store.list_tasks("active")
     except FileNotFoundError:
-        logger.info("[trigger] database not found, no tasks registered")
+        logger.info(i18n.t("trigger.log_db_not_found"))
         return 0
     registered = 0
     for task in tasks:
@@ -291,7 +290,7 @@ def register_all_from_db() -> int:
             next_run = register_task(task)
         except Exception as exc:  # noqa: BLE001
             logger.error(
-                "[trigger] failed to register %s (%s): %s",
+                i18n.t("trigger.log_register_failed"),
                 task["id"][:8],
                 task["name"],
                 exc,
@@ -299,7 +298,7 @@ def register_all_from_db() -> int:
             continue
         if next_run is not None:
             registered += 1
-    logger.info("[trigger] %d active task(s) scheduled", registered)
+    logger.info(i18n.t("trigger.log_scheduled_count"), registered)
     return registered
 
 

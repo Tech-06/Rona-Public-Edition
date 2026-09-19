@@ -13,6 +13,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
+import i18n
 from app.config import get_settings
 from app.dashboard import router as dashboard_router
 from app.logging_config import configure_file_logging
@@ -35,12 +36,6 @@ settings = get_settings()
 
 started_at = time.time()
 
-RECURSION_LIMIT_REPLY = (
-    "Bu istek beklenenden çok daha fazla araç adımı gerektirdi ve "
-    "tur sınırına ulaştım. İsteği biraz daraltabilir misin, ya da "
-    "nereden devam etmemi istediğini söyle."
-)
-
 STREAM_HEARTBEAT_SECONDS = 15
 
 
@@ -61,9 +56,7 @@ async def _reconcile_conversation_registry(checkpointer: Any) -> None:
             rows = await cursor.fetchall()
         conversations.reconcile(str(row[0]) for row in rows)
     except Exception:
-        logging.getLogger("uvicorn.error").exception(
-            "conversation registry reconcile failed"
-        )
+        logging.getLogger("uvicorn.error").exception(i18n.t("main.log_reconcile_failed"))
 
 
 async def verify_bearer_token(request: Request) -> None:
@@ -73,7 +66,7 @@ async def verify_bearer_token(request: Request) -> None:
     ):
         raise HTTPException(
             status_code=401,
-            detail="Invalid or missing bearer token",
+            detail=i18n.t("main.auth_invalid_token"),
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -210,7 +203,7 @@ async def _run_turn(
                 elif mode == "values":
                     final_values = payload
         except GraphRecursionError:
-            return {"status": "ok", "reply": RECURSION_LIMIT_REPLY, "tool_calls": None}
+            return {"status": "ok", "reply": i18n.t("main.recursion_limit_reply"), "tool_calls": None}
         if interrupt_payload is not None:
             return {
                 "status": "confirmation_required",
@@ -233,7 +226,7 @@ async def chat(chat_request: ChatRequest, http_request: Request) -> ChatResponse
     try:
         result = await _run_turn(graph, conversation_id, chat_request.message)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Model call failed: {exc}")
+        raise HTTPException(status_code=502, detail=i18n.t("main.model_call_failed", exc=exc))
     return ChatResponse(
         reply=result["reply"],
         model=settings.flash_model,
@@ -253,7 +246,7 @@ async def _stream_worker(
             run.publish(
                 "error",
                 {
-                    "detail": f"Model call failed: {exc}",
+                    "detail": i18n.t("main.model_call_failed", exc=exc),
                     "conversation_id": conversation_id,
                 },
             )

@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+import i18n
 from toolbox import packages
 from toolbox.packages import PackageLoadError, PackageManifest
 
@@ -104,7 +105,7 @@ def _load_tool_entry(item: dict[str, Any], *, origin: str) -> tuple[str, ToolEnt
     except Exception as exc:
         if is_core:
             raise ValueError(f"toolbox manifest: failed to load core tool: {exc}") from exc
-        logger.warning("toolbox: skipping tool from package '%s': %s", origin, exc)
+        logger.warning(i18n.t("toolbox.log_skip_tool"), origin, exc)
         return None
     return spec.name, ToolEntry(spec, fn)
 

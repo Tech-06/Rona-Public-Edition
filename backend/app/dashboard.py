@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+import i18n
 import toolbox
 from app.config import Settings, get_settings
 from app.llm import chat_completion
@@ -55,6 +56,7 @@ _SECRET_FIELDS = {
 
 _EDITABLE_FIELDS = {
     "log_level",
+    "language",
     "reload",
     "flash_model",
     "flash_model_url",
@@ -218,7 +220,7 @@ def _validate_candidate(candidate: dict[str, str]) -> str | None:
 async def update_config(payload: dict[str, Any]):
     unknown = set(payload) - _EDITABLE_FIELDS
     if unknown:
-        raise HTTPException(400, f"Not editable: {', '.join(sorted(unknown))}")
+        raise HTTPException(400, i18n.t("dashboard.not_editable", names=", ".join(sorted(unknown))))
     updates = {field.upper(): _encode_env_value(value) for field, value in payload.items()}
     candidate = {**envfile.read_env_file(ENV_PATH), **updates}
     error = _validate_candidate(candidate)
@@ -245,7 +247,7 @@ async def list_tasks(status: str = "all", limit: int = 100):
 async def get_task(task_id: str):
     task = trigger_store.get_task(task_id)
     if task is None:
-        raise HTTPException(404, "Task not found")
+        raise HTTPException(404, i18n.t("dashboard.task_not_found"))
     next_run = trigger_scheduler.next_run_map().get(task_id)
     task["next_run"] = next_run.isoformat() if next_run else None
     return task
@@ -267,7 +269,7 @@ async def set_task_status(task_id: str, payload: TaskStatusUpdate):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     if not changed:
-        raise HTTPException(404, "Task not found")
+        raise HTTPException(404, i18n.t("dashboard.task_not_found"))
     task = trigger_store.get_task(task_id)
     if payload.status == "active":
         trigger_scheduler.register_task(task)
@@ -281,7 +283,7 @@ async def delete_task(task_id: str):
     trigger_scheduler.unregister_task(task_id)
     changed = trigger_store.delete_task(task_id)
     if not changed:
-        raise HTTPException(404, "Task not found")
+        raise HTTPException(404, i18n.t("dashboard.task_not_found"))
     return {"deleted": True}
 
 
@@ -297,7 +299,7 @@ async def list_subagents(status: str = "all", limit: int = 20):
 async def get_subagent(run_id: str):
     run = subagent_store.get_run(run_id)
     if run is None:
-        raise HTTPException(404, "Run not found")
+        raise HTTPException(404, i18n.t("dashboard.run_not_found"))
     return run
 
 
@@ -321,7 +323,7 @@ async def list_runs(
     once merged and re-sorted.
     """
     if kind not in _RUN_KINDS:
-        raise HTTPException(400, f"invalid kind: {kind}")
+        raise HTTPException(400, i18n.t("dashboard.invalid_kind", kind=kind))
 
     fetch_limit = limit * 2 if kind == "all" else limit
     runs: list[dict[str, Any]] = []
@@ -350,7 +352,7 @@ async def get_run_detail(run_id: str):
     run = subagent_store.get_run(run_id)
     if run is not None:
         return {**run, "kind": "subagent"}
-    raise HTTPException(404, "Run not found")
+    raise HTTPException(404, i18n.t("dashboard.run_not_found"))
 
 
 @router.delete("/runs/{run_id}")
@@ -358,18 +360,18 @@ async def delete_run(run_id: str):
     task_run = trigger_store.get_run(run_id)
     if task_run is not None:
         if not task_run["reported"]:
-            raise HTTPException(409, "Run has not been reported to the user yet")
+            raise HTTPException(409, i18n.t("dashboard.run_not_reported"))
         trigger_store.delete_run(run_id)
         return {"deleted": True}
 
     subagent_run = subagent_store.get_run(run_id)
     if subagent_run is not None:
         if not subagent_run["reported"]:
-            raise HTTPException(409, "Run has not been reported to the user yet")
+            raise HTTPException(409, i18n.t("dashboard.run_not_reported"))
         subagent_store.delete_run(run_id)
         return {"deleted": True}
 
-    raise HTTPException(404, "Run not found")
+    raise HTTPException(404, i18n.t("dashboard.run_not_found"))
 
 
 @router.get("/data/notes")
@@ -401,6 +403,11 @@ async def data_memories(
     )
 
 
+# The next several endpoints forward `result["error"]` from
+# toolbox/tools/mem_tool.py verbatim. Those functions are dual-use --
+# also registered as LLM tools -- so their error strings stay English
+# everywhere they're used, including here, rather than going through
+# i18n.t(): see i18n.py's module docstring.
 @router.get("/data/memories/search")
 async def search_memories_endpoint(
     q: str,
@@ -520,7 +527,7 @@ def _get_checkpointer(request: Request):
     graph = getattr(request.app.state, "graph", None)
     checkpointer = getattr(graph, "checkpointer", None)
     if checkpointer is None:
-        raise HTTPException(503, "Graph is not ready")
+        raise HTTPException(503, i18n.t("dashboard.graph_not_ready"))
     return checkpointer
 
 
@@ -531,7 +538,7 @@ async def delete_conversation(conversation_id: str, request: Request):
     try:
         await asyncio.wait_for(lock.acquire(), timeout=5.0)
     except asyncio.TimeoutError:
-        raise HTTPException(409, "Conversation is busy")
+        raise HTTPException(409, i18n.t("dashboard.conversation_busy"))
     try:
         delete = getattr(checkpointer, "adelete_thread", None)
         if delete is not None:

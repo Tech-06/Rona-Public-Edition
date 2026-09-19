@@ -65,6 +65,21 @@ def test_update_config_appends_previously_absent_editable_key(client):
     assert "WEB_AUTOSTART=true" in env_path.read_text(encoding="utf-8").splitlines()
 
 
+def test_update_config_writes_language(client):
+    test_client, env_path = client
+    response = test_client.put("/api/config", json={"language": "en"})
+    assert response.status_code == 200
+    assert "LANGUAGE=en" in env_path.read_text(encoding="utf-8")
+
+
+def test_update_config_rejects_invalid_language(client):
+    test_client, env_path = client
+    original = env_path.read_text(encoding="utf-8")
+    response = test_client.put("/api/config", json={"language": "fr"})
+    assert response.status_code == 400
+    assert env_path.read_text(encoding="utf-8") == original
+
+
 def test_read_config_excludes_secret_fields(client):
     test_client, _ = client
     response = test_client.get("/api/config")

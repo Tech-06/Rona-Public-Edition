@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import i18n
 from app.config import get_settings
 from app.llm import chat_completion
 from subagents import store
@@ -124,7 +125,7 @@ async def _agent_loop(
             stream=True,
         )
         logger.info(
-            "[subagent] %s round %d llm %.1fs",
+            i18n.t("subagent.log_round"),
             run_id[:8],
             rounds + 1,
             time.monotonic() - started,
@@ -208,26 +209,26 @@ async def _execute_run(run_id: str, task: str, tier: str) -> None:
                 run_id, task, tier, _allowed_tool_names()
             )
         if not final_content.strip():
-            raise ValueError("The subagent model returned an empty final message.")
+            raise ValueError(i18n.t("subagent.outcome_empty_message"))
         result = await _report(run_id, task, tier, final_content, capped)
         store.complete_run(run_id, result["summary"], result["report"])
-        logger.info("[subagent] %s completed (%s)", run_id[:8], tier)
+        logger.info(i18n.t("subagent.log_completed"), run_id[:8], tier)
     except asyncio.CancelledError:
-        store.fail_run(run_id, "Task was cancelled before completion.")
+        store.fail_run(run_id, i18n.t("subagent.outcome_cancelled"))
         raise
     except TimeoutError:
         store.fail_run(
             run_id,
-            f"Task timed out after {settings.subagent_timeout_seconds} seconds.",
+            i18n.t("subagent.outcome_timeout", seconds=settings.subagent_timeout_seconds),
         )
-        logger.warning("[subagent] %s timed out (%s)", run_id[:8], tier)
+        logger.warning(i18n.t("subagent.log_timed_out"), run_id[:8], tier)
     except Exception as exc:  # noqa: BLE001
         store.fail_run(run_id, str(exc))
-        logger.error("[subagent] %s failed (%s): %s", run_id[:8], tier, exc)
+        logger.error(i18n.t("subagent.log_failed"), run_id[:8], tier, exc)
     finally:
         _tasks.pop(run_id, None)
 
 
 def spawn(run_id: str, task: str, tier: str) -> None:
     _tasks[run_id] = asyncio.create_task(_execute_run(run_id, task, tier))
-    logger.info("[subagent] %s started (%s)", run_id[:8], tier)
+    logger.info(i18n.t("subagent.log_started"), run_id[:8], tier)
