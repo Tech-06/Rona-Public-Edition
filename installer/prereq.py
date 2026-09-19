@@ -9,7 +9,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 
-from installer import ui
+from installer import i18n, ui
 
 _WINGET_IDS = {"node": "OpenJS.NodeJS.LTS", "git": "Git.Git"}
 _APT_PACKAGES = {"node": ["nodejs", "npm"], "git": ["git"]}
@@ -51,30 +51,27 @@ def ensure_prerequisite(
 
     command = install_command(os_name, pkg_manager, package)
     if command is None:
-        ui.error(f"{name} bulunamadı ve otomatik kurulum için bir paket yöneticisi tespit edilemedi.")
-        ui.info(f"{name} kurulumunu elle yap, ardından scripti tekrar çalıştır.")
+        ui.error(i18n.t("prereq.no_package_manager", name=name))
+        ui.info(i18n.t("prereq.install_manually", name=name))
         return False
 
-    ui.warn(f"{name} bulunamadı.")
-    ui.info(f"Şu komut çalıştırılacak: {' '.join(command)}")
-    if not auto_yes and not ui.confirm(f"{name} kurulsun mu?", default=True):
-        ui.info("Vazgeçildi.")
+    ui.warn(i18n.t("prereq.not_found", name=name))
+    ui.info(i18n.t("prereq.will_run", command=" ".join(command)))
+    if not auto_yes and not ui.confirm(i18n.t("prereq.confirm_install", name=name), default=True):
+        ui.info(i18n.t("common.cancelled"))
         return False
 
     try:
         result = subprocess.run(command, check=False)
     except (OSError, subprocess.SubprocessError) as exc:
-        ui.error(f"{name} kurulumu başarısız oldu: {exc}")
+        ui.error(i18n.t("prereq.install_failed_exc", name=name, exc=exc))
         return False
     if result.returncode != 0:
-        ui.error(f"{name} kurulumu başarısız oldu (çıkış kodu {result.returncode}).")
+        ui.error(i18n.t("prereq.install_failed_code", name=name, code=result.returncode))
         return False
 
-    ui.ok(f"{name} kuruldu.")
+    ui.ok(i18n.t("prereq.installed_ok", name=name))
     if shutil.which(package) is None:
-        ui.warn(
-            f"{name} kuruldu ama bu oturumda PATH'te henüz görünmüyor. "
-            "Yeni bir terminal açıp scripti tekrar çalıştır."
-        )
+        ui.warn(i18n.t("prereq.installed_not_on_path", name=name))
         return False
     return True

@@ -57,3 +57,17 @@ def ensure_auth_token(root: Path, *, install_web: bool) -> str:
     if install_web:
         envio.write_env_updates(web_env, {"AUTH_TOKEN": token})
     return token
+
+
+def ensure_language(root: Path, language: str, *, install_backend: bool, install_web: bool) -> None:
+    """Write this run's chosen language into each installed component's
+    own .env -- LANGUAGE for the backend, UI_LANGUAGE for the web
+    dashboard -- so each keeps speaking it after this run without needing
+    `rona edit lang` right away. Only touches a component that's actually
+    part of this run; unlike AUTH_TOKEN, there's nothing to keep in sync
+    between the two, so each is just a plain write.
+    """
+    if install_backend:
+        envio.write_env_updates(root / "backend" / ".env", {"LANGUAGE": language})
+    if install_web:
+        envio.write_env_updates(root / "web-client" / ".env", {"UI_LANGUAGE": language})

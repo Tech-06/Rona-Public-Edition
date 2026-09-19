@@ -1,6 +1,7 @@
 import io
 from types import SimpleNamespace
 
+import pytest
 from installer import main as main_module
 from installer.steps import backend as backend_step
 from installer.steps import cli as cli_step
@@ -118,7 +119,9 @@ def test_main_reports_failure_when_a_step_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(cli_step, "install", lambda root_, *, reinstall: True)
     monkeypatch.setattr(backend_step, "install", lambda root_, *, reinstall: False)
 
-    exit_code = main_module.main(["--components", "cli,backend"])
+    # --lang avoids the interactive language question (asked before
+    # anything else now) so this stays a non-interactive test.
+    exit_code = main_module.main(["--components", "cli,backend", "--lang", "tr"])
 
     assert exit_code == 1
     assert main_module.state.read_state() is None
@@ -129,7 +132,68 @@ def test_main_rejects_python_below_minimum(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(main_module, "REPO_ROOT", root)
     monkeypatch.setattr(main_module.detect, "python_version", lambda: (3, 9, 0))
 
-    exit_code = main_module.main(["--components", "cli"])
+    exit_code = main_module.main(["--components", "cli", "--lang", "tr"])
 
     assert exit_code == 1
     assert "3.11" in capsys.readouterr().err
+
+
+def test_main_lang_flag_writes_it_to_both_envs_and_state(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    monkeypatch.setattr(main_module, "REPO_ROOT", root)
+    monkeypatch.setattr(main_module.state, "state_file", lambda: tmp_path / "home" / ".rona" / "config.json")
+    monkeypatch.setattr(main_module.detect, "python_version", lambda: (3, 12, 0))
+    monkeypatch.setattr(main_module.detect, "git_available", lambda: True)
+    monkeypatch.setattr(main_module.detect, "node_version", lambda: (20, 0, 0))
+    monkeypatch.setattr(cli_step, "install", lambda root_, *, reinstall: True)
+    monkeypatch.setattr(backend_step, "install", lambda root_, *, reinstall: True)
+    monkeypatch.setattr(web_step, "install", lambda root_, *, reinstall: True)
+    (root / "backend" / ".env").write_text("", encoding="utf-8")
+    (root / "web-client" / ".env").write_text("", encoding="utf-8")
+
+    exit_code = main_module.main(["--yes", "--lang", "en"])
+
+    assert exit_code == 0
+    assert envio.read_env_file(root / "backend" / ".env")["LANGUAGE"] == "en"
+    assert envio.read_env_file(root / "web-client" / ".env")["UI_LANGUAGE"] == "en"
+    assert main_module.state.read_state()["language"] == "en"
+
+
+def test_main_yes_without_lang_defaults_to_tr_without_prompting(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    monkeypatch.setattr(main_module, "REPO_ROOT", root)
+    monkeypatch.setattr(main_module.state, "state_file", lambda: tmp_path / "home" / ".rona" / "config.json")
+    monkeypatch.setattr(main_module.detect, "python_version", lambda: (3, 12, 0))
+    monkeypatch.setattr(main_module.detect, "git_available", lambda: True)
+    monkeypatch.setattr(main_module.detect, "node_version", lambda: (20, 0, 0))
+    monkeypatch.setattr(cli_step, "install", lambda root_, *, reinstall: True)
+    monkeypatch.setattr(backend_step, "install", lambda root_, *, reinstall: True)
+    monkeypatch.setattr(web_step, "install", lambda root_, *, reinstall: True)
+
+    def _fail_if_called(prompt=""):
+        raise AssertionError("input() should not be called with --yes and no --lang")
+
+    monkeypatch.setattr("builtins.input", _fail_if_called)
+    (root / "backend" / ".env").write_text("", encoding="utf-8")
+    (root / "web-client" / ".env").write_text("", encoding="utf-8")
+
+    exit_code = main_module.main(["--yes"])
+
+    assert exit_code == 0
+    assert envio.read_env_file(root / "backend" / ".env")["LANGUAGE"] == "tr"
+
+
+def test_main_interactive_without_lang_asks_once(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    monkeypatch.setattr(main_module, "REPO_ROOT", root)
+    monkeypatch.setattr(main_module.state, "state_file", lambda: tmp_path / "home" / ".rona" / "config.json")
+    monkeypatch.setattr(main_module.detect, "python_version", lambda: (3, 9, 0))  # bail out early
+
+    responses = iter(["2"])  # English
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(responses))
+
+    exit_code = main_module.main([])
+
+    assert exit_code == 1  # bailed on the Python-version check, after asking
+    with pytest.raises(StopIteration):
+        next(responses)  # the language question was the only input() call

@@ -35,8 +35,10 @@ find_python() {
 
 PYTHON="$(find_python || true)"
 
+# Shown in both languages -- the installer hasn't had a chance to ask which
+# one yet (that question, and everything after it, is Python's job).
 if [ -z "$PYTHON" ]; then
-    echo "Python 3.11 ya da üstü bulunamadı."
+    echo "Python 3.11+ not found. / Python 3.11 ya da üstü bulunamadı."
     OS_NAME="$(uname -s)"
     INSTALL_CMD=""
     if [ "$OS_NAME" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
@@ -48,17 +50,20 @@ if [ -z "$PYTHON" ]; then
     elif command -v pacman >/dev/null 2>&1; then
         INSTALL_CMD="sudo pacman -S --noconfirm python"
     else
+        echo "No supported package manager found. Install Python 3.11+ and run the script again."
         echo "Desteklenen bir paket yöneticisi bulunamadı. Python 3.11+ kurup scripti tekrar çalıştır."
         exit 1
     fi
+    echo "This command will run: $INSTALL_CMD"
     echo "Şu komut çalıştırılacak: $INSTALL_CMD"
-    read -r -p "Onaylıyor musun? [e/H] " answer
+    read -r -p "Continue? / Onaylıyor musun? [y/e, N/H] " answer
     case "$answer" in
-        [eE]*) eval "$INSTALL_CMD" ;;
-        *) echo "Vazgeçildi."; exit 1 ;;
+        [yYeE]*) eval "$INSTALL_CMD" ;;
+        *) echo "Cancelled. / Vazgeçildi."; exit 1 ;;
     esac
     PYTHON="$(find_python || true)"
     if [ -z "$PYTHON" ]; then
+        echo "Python was installed but not found on PATH. Open a new terminal and try again."
         echo "Python kuruldu ama PATH'te bulunamadı. Yeni bir terminal açıp tekrar dene."
         exit 1
     fi

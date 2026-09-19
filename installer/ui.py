@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import sys
 
+from installer import i18n
+
 _NO_COLOR = not sys.stdout.isatty()
 _RESET = "\033[0m"
 _COLORS = {
@@ -47,7 +49,7 @@ def info(message: str = "") -> None:
 
 
 def confirm(prompt: str, default: bool = False) -> bool:
-    suffix = "[E/h]" if default else "[e/H]"
+    suffix = i18n.t("ui.confirm_default_yes_suffix" if default else "ui.confirm_default_no_suffix")
     try:
         answer = input(f"{prompt} {suffix} ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -55,7 +57,8 @@ def confirm(prompt: str, default: bool = False) -> bool:
         return False
     if not answer:
         return default
-    return answer in ("e", "evet", "y", "yes")
+    yes_words = i18n.t("ui.confirm_yes_words").split(",")
+    return answer in yes_words
 
 
 def select_components(options: list[tuple[str, str, bool, str]]) -> list[str]:
@@ -68,7 +71,7 @@ def select_components(options: list[tuple[str, str, bool, str]]) -> list[str]:
     selected = {opt_id for opt_id, _, default, _ in options if default}
     while True:
         print(flush=True)
-        info("Kurulacak bileşenleri seç (numara yaz + Enter: seç/kaldır, boş satır: onayla)")
+        info(i18n.t("ui.select_components_prompt"))
         for index, (opt_id, label, _default, note) in enumerate(options, start=1):
             mark = "x" if opt_id in selected else " "
             suffix = f"  ({note})" if note else ""

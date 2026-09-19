@@ -21,14 +21,21 @@ from typing import Any
 
 from rona_cli import envio, providers
 
-from installer import ui
+from installer import i18n, ui
 
-_MODEL_FIELDS = {
-    "name": "Model adı",
-    "url": "API taban URL'si",
-    "key": "API anahtarı",
-    "headers": "Ek HTTP başlıkları (JSON, boş = yok)",
-}
+
+def _model_fields() -> dict[str, str]:
+    # A function, not a module constant: the language for this run isn't
+    # known yet at import time (see installer.i18n's module docstring),
+    # but it is by the time run() -- and therefore this -- gets called.
+    return {
+        "name": i18n.t("wizard.field_name"),
+        "url": i18n.t("wizard.field_url"),
+        "key": i18n.t("wizard.field_key"),
+        "headers": i18n.t("wizard.field_headers"),
+    }
+
+
 _MODEL_SECRET_FIELDS = {"key"}
 
 FLASH_ENV_MAP = {
@@ -44,7 +51,10 @@ PRO_ENV_MAP = {
     "headers": "PRO_MODEL_HEADERS",
 }
 
-_EMBEDDING_FIELDS = {"key": "Google API anahtarı", "name": "Embedding model adı"}
+def _embedding_fields() -> dict[str, str]:
+    return {"key": i18n.t("wizard.embedding_field_key"), "name": i18n.t("wizard.embedding_field_name")}
+
+
 _EMBEDDING_SECRET_FIELDS = {"key"}
 EMBEDDING_ENV_MAP = {"key": "GOOGLE_API_KEY", "name": "EMBEDDING_MODEL_NAME"}
 
@@ -53,7 +63,7 @@ _SKIP_WORDS = {"s", "skip", "atla"}
 
 def _mask(value: str) -> str:
     if not value:
-        return "(boş)"
+        return i18n.t("common.empty")
     if len(value) <= 4:
         return "*" * len(value)
     return f"{'*' * (len(value) - 4)}{value[-4:]}"
@@ -76,7 +86,7 @@ def _prompt_fields(
     """
     collected: dict[str, str] = {}
     for key, label in fields.items():
-        shown = _mask(current.get(key, "")) if key in secret_fields else (current.get(key) or "(boş)")
+        shown = _mask(current.get(key, "")) if key in secret_fields else (current.get(key) or i18n.t("common.empty"))
         raw = _read_field(f"  {label} [{shown}]: ", secret=key in secret_fields).strip()
         if raw.lower() in _SKIP_WORDS:
             return None
@@ -98,7 +108,7 @@ def _ask_choice(options: list[str]) -> int:
             return len(options) - 1
         if raw.isdigit() and 1 <= int(raw) <= len(options):
             return int(raw) - 1
-        ui.warn("Geçersiz seçim.")
+        ui.warn(i18n.t("wizard.invalid_choice"))
 
 
 def _test_chat(candidate: dict[str, str]) -> tuple[bool, str]:
@@ -126,8 +136,8 @@ def _run_block(
 ) -> dict[str, str] | None:
     """Returns the values to save, or None if the block ends up skipped."""
     ui.step(title)
-    hint = "gerekli ama" if required else "opsiyonel;"
-    ui.info(f"Bu adım {hint} istersen 's' yazarak atlayabilirsin.")
+    hint = i18n.t("wizard.required_hint" if required else "wizard.optional_hint")
+    ui.info(i18n.t("wizard.step_hint", hint=hint))
 
     working_current = dict(current)
     while True:
@@ -140,11 +150,13 @@ def _run_block(
 
         ok, detail = test_fn(candidate)
         if ok:
-            ui.ok("Test başarılı.")
+            ui.ok(i18n.t("wizard.test_ok"))
             return candidate
 
-        ui.warn(f"Test başarısız: {detail}")
-        choice = _ask_choice(["Tekrar gir", "Yine de kaydet", "Atla"])
+        ui.warn(i18n.t("wizard.test_failed", detail=detail))
+        choice = _ask_choice(
+            [i18n.t("wizard.choice_retry"), i18n.t("wizard.choice_save_anyway"), i18n.t("wizard.choice_skip")]
+        )
         if choice == 0:
             working_current = candidate
             continue
@@ -180,33 +192,35 @@ def run(root: Path, *, backend_in_scope: bool) -> None:
     backend_env = root / "backend" / ".env"
     env = envio.read_env_file(backend_env)
 
-    ui.step("Yapılandırma sihirbazı")
-    ui.info(
-        "Şimdi Flash/Pro/embedding model ayarlarını gireceğiz. "
-        "Her adımda 's' yazarak o adımı atlayabilirsin."
-    )
+    ui.step(i18n.t("wizard.title"))
+    ui.info(i18n.t("wizard.intro"))
 
     skipped: list[str] = []
 
     flash_current = {key: env.get(env_key, "") for key, env_key in FLASH_ENV_MAP.items()}
     flash_result = _run_block(
-        "Flash model", _MODEL_FIELDS, _MODEL_SECRET_FIELDS, flash_current, required=True, test_fn=_test_chat
+        i18n.t("wizard.section_flash"),
+        _model_fields(),
+        _MODEL_SECRET_FIELDS,
+        flash_current,
+        required=True,
+        test_fn=_test_chat,
     )
     if flash_result is not None:
         _write_block(backend_env, FLASH_ENV_MAP, flash_result)
     else:
         skipped.append("flash")
 
-    ui.step("Pro model")
+    ui.step(i18n.t("wizard.pro_heading"))
     pro_result: dict[str, Any] | None = None
-    if flash_result and ui.confirm("Flash ile aynı ayarlar kullanılsın mı?", default=False):
+    if flash_result and ui.confirm(i18n.t("wizard.pro_same_as_flash"), default=False):
         pro_result = dict(flash_result)
-        ui.ok("Pro, Flash ile aynı ayarlanacak.")
+        ui.ok(i18n.t("wizard.pro_same_ok"))
     else:
         pro_current = {key: env.get(env_key, "") for key, env_key in PRO_ENV_MAP.items()}
         pro_result = _run_block(
-            "Pro model (opsiyonel)",
-            _MODEL_FIELDS,
+            i18n.t("wizard.section_pro"),
+            _model_fields(),
             _MODEL_SECRET_FIELDS,
             pro_current,
             required=False,
@@ -219,8 +233,8 @@ def run(root: Path, *, backend_in_scope: bool) -> None:
 
     embedding_current = {key: env.get(env_key, "") for key, env_key in EMBEDDING_ENV_MAP.items()}
     embedding_result = _run_block(
-        "Embedding (hafıza için, opsiyonel)",
-        _EMBEDDING_FIELDS,
+        i18n.t("wizard.section_embedding"),
+        _embedding_fields(),
         _EMBEDDING_SECRET_FIELDS,
         embedding_current,
         required=False,
@@ -231,16 +245,16 @@ def run(root: Path, *, backend_in_scope: bool) -> None:
     else:
         skipped.append("embedding")
 
-    ui.step("Yapılandırma özeti")
+    ui.step(i18n.t("wizard.summary_title"))
     if "flash" in skipped:
-        ui.warn("Flash atlandı -- doldurulmadan backend başlamaz: `rona edit model flash`")
+        ui.warn(i18n.t("wizard.summary_flash_skipped"))
     else:
-        ui.ok("Flash ayarlandı.")
+        ui.ok(i18n.t("wizard.summary_flash_ok"))
     if "pro" in skipped:
-        ui.info("Pro atlandı (opsiyonel): `rona edit model pro`")
+        ui.info(i18n.t("wizard.summary_pro_skipped"))
     else:
-        ui.ok("Pro ayarlandı.")
+        ui.ok(i18n.t("wizard.summary_pro_ok"))
     if "embedding" in skipped:
-        ui.info("Embedding atlandı (opsiyonel, hafıza aracı için gerekli): `rona edit model embedding`")
+        ui.info(i18n.t("wizard.summary_embedding_skipped"))
     else:
-        ui.ok("Embedding ayarlandı.")
+        ui.ok(i18n.t("wizard.summary_embedding_ok"))

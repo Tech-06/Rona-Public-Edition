@@ -31,25 +31,29 @@ function Find-Python {
     return $null
 }
 
+# Shown in both languages -- the installer hasn't had a chance to ask which
+# one yet (that question, and everything after it, is Python's job).
 $python = Find-Python
 if (-not $python) {
-    Write-Host "Python 3.11 ya da üstü bulunamadı."
+    Write-Host "Python 3.11+ not found. / Python 3.11 ya da üstü bulunamadı."
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "winget not found either. Install Python 3.11+ from https://python.org and run this script again."
         Write-Host "winget de bulunamadı. https://python.org adresinden Python 3.11+ kur ve bu scripti tekrar çalıştır."
         exit 1
     }
-    $answer = Read-Host "winget ile Python 3.12 kurulsun mu? [e/H]"
-    if ($answer -notmatch "^[eE]") {
-        Write-Host "Vazgeçildi."
+    $answer = Read-Host "Install Python 3.12 via winget? / winget ile Python 3.12 kurulsun mu? [y/e, N/H]"
+    if ($answer -notmatch "^[yYeE]") {
+        Write-Host "Cancelled. / Vazgeçildi."
         exit 1
     }
     winget install --id Python.Python.3.12 -e --source winget
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Python kurulumu başarısız oldu."
+        Write-Host "Python installation failed. / Python kurulumu başarısız oldu."
         exit 1
     }
     $python = Find-Python
     if (-not $python) {
+        Write-Host "Python was installed but doesn't appear on PATH in this session. Open a new terminal and run the script again."
         Write-Host "Python kuruldu ama bu oturumda PATH'te görünmüyor. Yeni bir terminal açıp scripti tekrar çalıştır."
         exit 1
     }

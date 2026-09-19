@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from installer import ui
+from installer import i18n, ui
 
 
 def setup(cli_venv_dir: Path, *, auto_yes: bool) -> None:
@@ -92,16 +92,16 @@ def _add_to_user_path_windows(bin_dir: Path) -> None:
 def _setup_windows(cli_venv_dir: Path) -> None:
     scripts_dir = cli_venv_dir / "Scripts"
     if not (scripts_dir / "rona.exe").is_file():
-        ui.warn("rona.exe bulunamadı, PATH kurulumu atlandı.")
+        ui.warn(i18n.t("pathsetup.windows_exe_missing"))
         return
 
     bin_dir = _write_windows_shim(scripts_dir)
     if _is_on_user_path_windows(bin_dir):
-        ui.ok(f"rona zaten PATH'te ({bin_dir}).")
+        ui.ok(i18n.t("pathsetup.already_on_path", bin_dir=bin_dir))
         return
 
     _add_to_user_path_windows(bin_dir)
-    ui.ok(f"rona PATH'e eklendi ({bin_dir}). Değişikliğin geçmesi için yeni bir terminal aç.")
+    ui.ok(i18n.t("pathsetup.windows_added", bin_dir=bin_dir))
 
 
 # ---- macOS / Linux ------------------------------------------------------
@@ -144,23 +144,23 @@ def _rc_file_for_shell() -> Path:
 def _setup_posix(cli_venv_dir: Path, *, auto_yes: bool) -> None:
     bin_dir = _write_posix_shim(cli_venv_dir)
     if bin_dir is None:
-        ui.warn("rona betiği bulunamadı, PATH kurulumu atlandı.")
+        ui.warn(i18n.t("pathsetup.posix_script_missing"))
         return
 
     if _is_on_path(bin_dir):
-        ui.ok(f"rona zaten PATH'te ({bin_dir}).")
+        ui.ok(i18n.t("pathsetup.already_on_path", bin_dir=bin_dir))
         return
 
     rc_file = _rc_file_for_shell()
     line = 'export PATH="$HOME/.local/bin:$PATH"'
-    ui.warn(f"{bin_dir} PATH'te değil.")
-    ui.info(f"Şu satır {rc_file} dosyasına eklenecek:")
+    ui.warn(i18n.t("pathsetup.posix_not_on_path", bin_dir=bin_dir))
+    ui.info(i18n.t("pathsetup.posix_will_add_line", rc_file=rc_file))
     ui.info(f"  {line}")
 
-    if not auto_yes and not ui.confirm("Eklensin mi?", default=True):
-        ui.info(f"Elle eklemek istersen: {line}")
+    if not auto_yes and not ui.confirm(i18n.t("pathsetup.posix_confirm_add"), default=True):
+        ui.info(i18n.t("pathsetup.posix_manual_hint", line=line))
         return
 
     with rc_file.open("a", encoding="utf-8") as handle:
         handle.write(f"\n# Added by the Rona installer\n{line}\n")
-    ui.ok(f"{rc_file} güncellendi. Geçmesi için yeni bir terminal aç ya da `source {rc_file}` çalıştır.")
+    ui.ok(i18n.t("pathsetup.posix_rc_updated", rc_file=rc_file))
