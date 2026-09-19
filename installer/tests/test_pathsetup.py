@@ -240,3 +240,138 @@ def test_setup_dispatches_to_posix(tmp_path, monkeypatch):
     monkeypatch.setattr(pathsetup, "_setup_posix", lambda venv_dir, *, auto_yes: calls.append((venv_dir, auto_yes)))
     pathsetup.setup(tmp_path, auto_yes=False)
     assert calls == [(tmp_path, False)]
+
+
+# ---- remove() ---------------------------------------------------------------
+
+
+def test_remove_dispatches_to_windows(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pathsetup.sys, "platform", "win32")
+    monkeypatch.setattr(pathsetup, "_remove_windows", lambda: calls.append("win"))
+    pathsetup.remove(auto_yes=True)
+    assert calls == ["win"]
+
+
+def test_remove_dispatches_to_posix(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pathsetup.sys, "platform", "linux")
+    monkeypatch.setattr(pathsetup, "_remove_posix", lambda *, auto_yes: calls.append(auto_yes))
+    pathsetup.remove(auto_yes=False)
+    assert calls == [False]
+
+
+def test_remove_windows_deletes_shim_and_path_entry(tmp_path, monkeypatch, capsys):
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    (fake_bin_dir / "rona.cmd").write_text("", encoding="utf-8")
+    monkeypatch.setattr(pathsetup, "_windows_bin_dir", lambda: fake_bin_dir)
+    monkeypatch.setattr(pathsetup, "_read_user_path_windows", lambda: f"C:\\Other;{fake_bin_dir};C:\\Another")
+    written = {}
+    monkeypatch.setattr(pathsetup, "_write_user_path_windows", lambda value: written.setdefault("value", value))
+    monkeypatch.setattr(pathsetup, "_broadcast_environment_change", lambda: None)
+
+    pathsetup._remove_windows()
+
+    assert not (fake_bin_dir / "rona.cmd").is_file()
+    assert not fake_bin_dir.is_dir()  # emptied dir is cleaned up too
+    assert written["value"] == "C:\\Other;C:\\Another"
+    assert "kaldırıldı" in capsys.readouterr().out
+
+
+def test_remove_windows_leaves_unrelated_path_entries_alone(tmp_path, monkeypatch):
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    monkeypatch.setattr(pathsetup, "_windows_bin_dir", lambda: fake_bin_dir)
+    monkeypatch.setattr(pathsetup, "_read_user_path_windows", lambda: "C:\\Only\\Other")
+    write_calls = []
+    monkeypatch.setattr(pathsetup, "_write_user_path_windows", lambda value: write_calls.append(value))
+
+    pathsetup._remove_windows()
+
+    assert write_calls == []  # nothing to remove -- must not touch PATH at all
+
+
+def test_remove_posix_deletes_shim_and_confirmed_rc_block(tmp_path, monkeypatch, capsys):
+    fake_bin_dir = tmp_path / "home" / ".local" / "bin"
+    fake_bin_dir.mkdir(parents=True)
+    (fake_bin_dir / "rona").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    rc_file = tmp_path / "home" / ".profile"
+    rc_file.write_text(
+        'export SOMETHING=1\n\n# Added by the Rona installer\nexport PATH="$HOME/.local/bin:$PATH"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pathsetup, "_posix_bin_dir", lambda: fake_bin_dir)
+    monkeypatch.setattr(pathsetup, "_rc_file_for_shell", lambda: rc_file)
+    monkeypatch.setattr(pathsetup.ui, "confirm", lambda *a, **k: True)
+
+    pathsetup._remove_posix(auto_yes=False)
+
+    assert not (fake_bin_dir / "rona").is_file()
+    content = rc_file.read_text(encoding="utf-8")
+    assert "Added by the Rona installer" not in content
+    assert "export SOMETHING=1" in content  # unrelated lines survive
+    assert "kaldırıldı" in capsys.readouterr().out
+
+
+def test_remove_posix_declines_rc_edit_leaves_it_untouched(tmp_path, monkeypatch):
+    fake_bin_dir = tmp_path / "home" / ".local" / "bin"
+    fake_bin_dir.mkdir(parents=True)
+    rc_file = tmp_path / "home" / ".profile"
+    original = '# Added by the Rona installer\nexport PATH="$HOME/.local/bin:$PATH"\n'
+    rc_file.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(pathsetup, "_posix_bin_dir", lambda: fake_bin_dir)
+    monkeypatch.setattr(pathsetup, "_rc_file_for_shell", lambda: rc_file)
+    monkeypatch.setattr(pathsetup.ui, "confirm", lambda *a, **k: False)
+
+    pathsetup._remove_posix(auto_yes=False)
+
+    assert rc_file.read_text(encoding="utf-8") == original
+
+
+def test_remove_posix_auto_yes_skips_confirmation(tmp_path, monkeypatch):
+    fake_bin_dir = tmp_path / "home" / ".local" / "bin"
+    fake_bin_dir.mkdir(parents=True)
+    rc_file = tmp_path / "home" / ".profile"
+    rc_file.write_text(
+        '\n# Added by the Rona installer\nexport PATH="$HOME/.local/bin:$PATH"\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(pathsetup, "_posix_bin_dir", lambda: fake_bin_dir)
+    monkeypatch.setattr(pathsetup, "_rc_file_for_shell", lambda: rc_file)
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("confirm() should not be called when auto_yes=True")
+
+    monkeypatch.setattr(pathsetup.ui, "confirm", _fail_if_called)
+
+    pathsetup._remove_posix(auto_yes=True)
+
+    assert "Added by the Rona installer" not in rc_file.read_text(encoding="utf-8")
+
+
+def test_remove_posix_no_rc_block_present_is_a_noop(tmp_path, monkeypatch):
+    fake_bin_dir = tmp_path / "home" / ".local" / "bin"
+    fake_bin_dir.mkdir(parents=True)
+    rc_file = tmp_path / "home" / ".profile"
+    original = "export SOMETHING=1\n"
+    rc_file.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(pathsetup, "_posix_bin_dir", lambda: fake_bin_dir)
+    monkeypatch.setattr(pathsetup, "_rc_file_for_shell", lambda: rc_file)
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("confirm() should not be called when there's nothing to remove")
+
+    monkeypatch.setattr(pathsetup.ui, "confirm", _fail_if_called)
+
+    pathsetup._remove_posix(auto_yes=False)
+
+    assert rc_file.read_text(encoding="utf-8") == original
+
+
+def test_remove_posix_missing_shim_and_rc_file_is_a_noop(tmp_path, monkeypatch):
+    fake_bin_dir = tmp_path / "home" / ".local" / "bin"
+    fake_bin_dir.mkdir(parents=True)
+    monkeypatch.setattr(pathsetup, "_posix_bin_dir", lambda: fake_bin_dir)
+    monkeypatch.setattr(pathsetup, "_rc_file_for_shell", lambda: tmp_path / "home" / ".profile")
+
+    pathsetup._remove_posix(auto_yes=True)  # must not raise

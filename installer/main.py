@@ -37,6 +37,7 @@ from rona_cli import envio
 from installer import detect, envgen, i18n, pathsetup, prereq, state, ui, wizard
 from installer.steps import backend as backend_step
 from installer.steps import cli as cli_step
+from installer.steps import tools as tools_step
 from installer.steps import web as web_step
 
 MIN_PYTHON = (3, 11)
@@ -196,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     interactive = not args.yes and not args.json
     if interactive and results.get("backend"):
         wizard.run(REPO_ROOT, backend_in_scope=True)
+        tools_step.run(REPO_ROOT)
 
     if all_ok:
         state.write_state(

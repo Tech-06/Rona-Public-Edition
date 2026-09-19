@@ -82,6 +82,13 @@ STRINGS: dict[str, str] = {
     "pathsetup.posix_rc_updated": (
         "{rc_file} updated. Open a new terminal, or run `source {rc_file}`, for the change to take effect."
     ),
+    "pathsetup.windows_removed": "rona removed from PATH ({bin_dir}).",
+    "pathsetup.windows_not_on_path": "rona wasn't on PATH anyway ({bin_dir}).",
+    "pathsetup.posix_shim_removed": "rona script removed ({shim_path}).",
+    "pathsetup.posix_shim_not_found": "rona script was already gone ({shim_path}).",
+    "pathsetup.posix_confirm_remove_rc": "Remove the line added to {rc_file}?",
+    "pathsetup.posix_rc_left_untouched": "{rc_file} left untouched.",
+    "pathsetup.posix_rc_cleaned": "Removed from {rc_file}.",
     # -- wizard.py -----------------------------------------------------------------
     "wizard.field_name": "Model name",
     "wizard.field_url": "API base URL",
@@ -116,4 +123,38 @@ STRINGS: dict[str, str] = {
     "wizard.summary_pro_ok": "Pro configured.",
     "wizard.summary_embedding_skipped": "Embedding skipped (optional, needed for the memory tool): `rona edit model embedding`",
     "wizard.summary_embedding_ok": "Embedding configured.",
+    # -- steps/tools.py -----------------------------------------------------------
+    "tools_step.title": "Optional tool packages",
+    "tools_step.git_missing": (
+        "git not found, skipping tool package installation "
+        "(you can install one later with `rona tools install <id>`)."
+    ),
+    "tools_step.catalog_unreachable": "Could not reach the tool package catalog, skipping this step.",
+    "tools_step.none_selected": "No packages selected.",
+    "tools_step.installing": "Installing {id}...",
+    "tools_step.installed_summary": "Installed packages: {ids}",
+    "tools_step.failed_summary": "Packages that failed to install: {ids}",
+    # -- uninstall.py (new) -----------------------------------------------------------
+    "uninstall.item_environments": "Environments (virtual envs, node_modules, built dashboard)",
+    "uninstall.item_path": "PATH integration (the rona command)",
+    "uninstall.item_state": "Install state (~/.rona/config.json)",
+    "uninstall.item_user_data": "User data (.env files, database, log)",
+    "uninstall.item_tool_packages": "Installed tool packages",
+    "uninstall.item_runtime": "Runtime artifacts (pid, lock, log files)",
+    "uninstall.title": "Rona uninstall",
+    "uninstall.nothing_found": "Nothing found to remove.",
+    "uninstall.process_running": "{label} appears to be running (pid {pid}).",
+    "uninstall.confirm_stop": "Stop {label}?",
+    "uninstall.process_stopped": "{label} stopped.",
+    "uninstall.items_required": "In non-interactive mode, use --items to specify what to remove.",
+    "uninstall.unknown_items": "Unknown item(s): {names}",
+    "uninstall.none_selected": "Nothing selected, exiting.",
+    "uninstall.user_data_warning": (
+        "User data includes API keys, memories, people and tasks, "
+        "and will be deleted irreversibly."
+    ),
+    "uninstall.confirm_user_data": "Really delete user data?",
+    "uninstall.user_data_kept": "User data kept.",
+    "uninstall.done": "Removed: {items}",
+    "uninstall.repo_kept_hint": "This folder (the repo) was not deleted; remove it by hand to clear the rest.",
 }

@@ -84,6 +84,13 @@ STRINGS: dict[str, str] = {
     "pathsetup.posix_rc_updated": (
         "{rc_file} güncellendi. Geçmesi için yeni bir terminal aç ya da `source {rc_file}` çalıştır."
     ),
+    "pathsetup.windows_removed": "rona PATH'ten kaldırıldı ({bin_dir}).",
+    "pathsetup.windows_not_on_path": "rona zaten PATH'te değildi ({bin_dir}).",
+    "pathsetup.posix_shim_removed": "rona betiği kaldırıldı ({shim_path}).",
+    "pathsetup.posix_shim_not_found": "rona betiği zaten yoktu ({shim_path}).",
+    "pathsetup.posix_confirm_remove_rc": "{rc_file} dosyasına eklenen satır kaldırılsın mı?",
+    "pathsetup.posix_rc_left_untouched": "{rc_file} dosyasına dokunulmadı.",
+    "pathsetup.posix_rc_cleaned": "{rc_file} dosyasından kaldırıldı.",
     # -- wizard.py -----------------------------------------------------------------
     "wizard.field_name": "Model adı",
     "wizard.field_url": "API taban URL'si",
@@ -118,4 +125,38 @@ STRINGS: dict[str, str] = {
     "wizard.summary_pro_ok": "Pro ayarlandı.",
     "wizard.summary_embedding_skipped": "Embedding atlandı (opsiyonel, hafıza aracı için gerekli): `rona edit model embedding`",
     "wizard.summary_embedding_ok": "Embedding ayarlandı.",
+    # -- steps/tools.py -----------------------------------------------------------
+    "tools_step.title": "İsteğe bağlı araç paketleri",
+    "tools_step.git_missing": (
+        "git bulunamadı, araç paketi kurulumu atlandı "
+        "(sonra `rona tools install <id>` ile kurabilirsin)."
+    ),
+    "tools_step.catalog_unreachable": "Araç paketi kataloğuna ulaşılamadı, bu adım atlandı.",
+    "tools_step.none_selected": "Hiçbir paket seçilmedi.",
+    "tools_step.installing": "{id} kuruluyor...",
+    "tools_step.installed_summary": "Kurulan paketler: {ids}",
+    "tools_step.failed_summary": "Kurulamayan paketler: {ids}",
+    # -- uninstall.py (new) -----------------------------------------------------------
+    "uninstall.item_environments": "Ortamlar (sanal ortamlar, node_modules, derlenen panel)",
+    "uninstall.item_path": "PATH entegrasyonu (rona komutu)",
+    "uninstall.item_state": "Kurulum durumu (~/.rona/config.json)",
+    "uninstall.item_user_data": "Kullanıcı verisi (.env dosyaları, veritabanı, log)",
+    "uninstall.item_tool_packages": "Kurulu araç paketleri",
+    "uninstall.item_runtime": "Çalışma artıkları (pid, lock, log dosyaları)",
+    "uninstall.title": "Rona kaldırma",
+    "uninstall.nothing_found": "Kaldırılacak bir şey bulunamadı.",
+    "uninstall.process_running": "{label} çalışıyor görünüyor (pid {pid}).",
+    "uninstall.confirm_stop": "{label} durdurulsun mu?",
+    "uninstall.process_stopped": "{label} durduruldu.",
+    "uninstall.items_required": "Etkileşimsiz modda --items ile neyin kaldırılacağını belirt.",
+    "uninstall.unknown_items": "Bilinmeyen öğe(ler): {names}",
+    "uninstall.none_selected": "Hiçbir şey seçilmedi, çıkılıyor.",
+    "uninstall.user_data_warning": (
+        "Kullanıcı verisi API anahtarlarını, anıları, kişileri ve görevleri içerir "
+        "ve geri alınamaz şekilde silinecek."
+    ),
+    "uninstall.confirm_user_data": "Kullanıcı verisi gerçekten silinsin mi?",
+    "uninstall.user_data_kept": "Kullanıcı verisi korundu.",
+    "uninstall.done": "Kaldırıldı: {items}",
+    "uninstall.repo_kept_hint": "Bu klasör (repo) silinmedi; kalanı kaldırmak için elle sil.",
 }
