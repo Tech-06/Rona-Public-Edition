@@ -156,6 +156,50 @@ def test_log_tail_parses_level_and_grep():
     assert callable(args.func)
 
 
+def test_tools_requires_a_subcommand():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["tools"])
+
+
+def test_tools_list_parses():
+    args = build_parser().parse_args(["tools", "list"])
+    assert args.command == "tools"
+    assert args.tools_command == "list"
+    assert callable(args.func)
+
+
+def test_tools_install_parses_all_flags():
+    args = build_parser().parse_args(
+        [
+            "tools",
+            "install",
+            "web_search",
+            "--source",
+            "local:/tmp/catalog",
+            "--set",
+            "web_search.api_key=abc",
+            "--yes",
+            "--keep-on-health-failure",
+        ]
+    )
+    assert args.package_id == "web_search"
+    assert args.source == "local:/tmp/catalog"
+    assert args.set == ["web_search.api_key=abc"]
+    assert args.yes is True
+    assert args.keep_on_health_failure is True
+
+
+def test_tools_uninstall_parses_force_flag():
+    args = build_parser().parse_args(["tools", "uninstall", "web_search", "--force"])
+    assert args.package_id == "web_search"
+    assert args.force is True
+
+
+def test_tools_verify_takes_a_package_id():
+    args = build_parser().parse_args(["tools", "verify", "get_time"])
+    assert args.package_id == "get_time"
+
+
 def test_log_show_and_del_take_an_id():
     args = build_parser().parse_args(["log", "show", "r1"])
     assert args.id == "r1"

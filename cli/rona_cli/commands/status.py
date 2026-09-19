@@ -82,6 +82,7 @@ def _run(args: argparse.Namespace) -> int:
         ui.info(i18n.t("status.packages_installed", count=len(packages), packages=", ".join(packages)))
     else:
         ui.info(i18n.t("status.no_packages"))
+    ui.info(i18n.t("status.tools_hint"))
 
     return 0
 

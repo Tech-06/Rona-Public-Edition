@@ -51,6 +51,7 @@ STRINGS: dict[str, str] = {
     "status.web_stopped": "Web      stopped  ({detail})",
     "status.packages_installed": "Installed tool packages ({count}): {packages}",
     "status.no_packages": "No tool packages installed.",
+    "status.tools_hint": "For details: `rona tools list`",
     "status.help": "Show backend, web and tool package status",
     # -- commands/server.py -------------------------------------------------------
     "server.no_auth_token": "AUTH_TOKEN is not set",
@@ -180,4 +181,18 @@ STRINGS: dict[str, str] = {
     "lang.current_cli": "CLI     : {lang}",
     "lang.set_ok": "Language set to {language} ({changed}).",
     "lang.restart_hint": "Run `rona server restart` and `rona web restart` for the change to take effect.",
+    # -- commands/tools.py (new) ----------------------------------------------------
+    "tools.help_group": "Manage tool packages",
+    "tools.help_list": "List installed tool packages",
+    "tools.help_available": "List packages in the catalog",
+    "tools.help_install": "Install a tool package",
+    "tools.help_uninstall": "Uninstall a tool package",
+    "tools.help_verify": "Re-run a package's health check",
+    "tools.help_source_flag": "catalog source (local:/git:/https:)",
+    "tools.help_set_flag": "pre-supply a config value (repeatable)",
+    "tools.help_keep_flag": "install even if the health check fails",
+    "tools.help_force_flag": "uninstall even if other packages depend on it",
+    "tools.none_installed": "No tool packages installed.",
+    "tools.catalog_empty": "No packages in the catalog.",
+    "tools.manager_no_output": "No response from toolbox.manager.",
 }

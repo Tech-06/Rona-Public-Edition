@@ -51,6 +51,7 @@ STRINGS: dict[str, str] = {
     "status.web_stopped": "Web      çalışmıyor  ({detail})",
     "status.packages_installed": "Kurulu araç paketleri ({count}): {packages}",
     "status.no_packages": "Kurulu araç paketi yok.",
+    "status.tools_hint": "Ayrıntılar için: `rona tools list`",
     "status.help": "Backend, web ve araç paketlerinin durumunu göster",
     # -- commands/server.py -------------------------------------------------------
     "server.no_auth_token": "AUTH_TOKEN ayarlanmamış",
@@ -180,4 +181,18 @@ STRINGS: dict[str, str] = {
     "lang.current_cli": "CLI     : {lang}",
     "lang.set_ok": "Dil {language} olarak ayarlandı ({changed}).",
     "lang.restart_hint": "Değişikliğin geçmesi için `rona server restart` ve `rona web restart` çalıştır.",
+    # -- commands/tools.py (new) ----------------------------------------------------
+    "tools.help_group": "Araç paketlerini yönet",
+    "tools.help_list": "Kurulu araç paketlerini listele",
+    "tools.help_available": "Katalogdaki paketleri listele",
+    "tools.help_install": "Bir araç paketini kur",
+    "tools.help_uninstall": "Bir araç paketini kaldır",
+    "tools.help_verify": "Bir paketin sağlık kontrolünü tekrar çalıştır",
+    "tools.help_source_flag": "katalog kaynağı (local:/git:/https:)",
+    "tools.help_set_flag": "yapılandırma değeri önceden ver (tekrarlanabilir)",
+    "tools.help_keep_flag": "sağlık kontrolü başarısız olsa bile kur",
+    "tools.help_force_flag": "başka paketler buna bağımlı olsa bile kaldır",
+    "tools.none_installed": "Kurulu araç paketi yok.",
+    "tools.catalog_empty": "Katalogda paket yok.",
+    "tools.manager_no_output": "toolbox.manager'dan yanıt alınamadı.",
 }
