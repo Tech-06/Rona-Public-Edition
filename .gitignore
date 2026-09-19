@@ -48,8 +48,6 @@ backend/rona.db-shm
 backend/rona_checkpoints.db
 backend/rona_checkpoints.db-wal
 backend/rona_checkpoints.db-shm
-backend/toolbox/tools/credentials.json
-backend/toolbox/tools/token_*.json
 backend/backend_spawn.log
 # Written by `rona server start` (see cli/) when it spawns the backend
 # itself instead of delegating to systemd.
@@ -59,12 +57,30 @@ backend/rona.pid
 cli/.venv/
 cli/rona_cli.egg-info/
 
-# Installed custom tool packages (fetched on demand by toolbox.manager from
-# the separate Rona Tools repo) and their local lockfile/config -- not part
-# of the template, regenerated per install.
+# --- Optional tool packages ---------------------------------------------
+# Core tools live in this repository (toolbox/tools/ + toolbox/tools.json).
+# Optional ones deliberately do not: toolbox.manager fetches them on demand
+# from the separate Rona Tools catalog (github.com/Tech-06/Rona-Tools) and
+# installs them here. Everything under custom/ is therefore per-machine
+# state that must never enter a commit -- the downloaded package source,
+# the config.json the installer wrote, the credentials/tokens a package
+# stored, and installed.json, which records what *this* machine has.
+# Installing a package must leave `git status` clean.
 backend/toolbox/custom/*
+# ...except the two files that keep this an importable package in a fresh
+# clone. registry.py imports installed tools as `toolbox.custom.<id>`, so
+# the folder has to survive a checkout even with nothing installed.
 !backend/toolbox/custom/__init__.py
 !backend/toolbox/custom/.gitkeep
+
+# Credentials a tool package stores next to its own code (google_auth writes
+# both). Name-based on purpose: this guarantee then holds independently of
+# the directory rules above, so a future negation there can't expose them.
+# The ** also still covers the pre-split location, toolbox/tools/ -- an
+# installation upgraded from an older Rona keeps its Google files there and
+# they are not migrated automatically (see the upgrade note in README.md).
+backend/toolbox/**/credentials.json
+backend/toolbox/**/token_*.json
 
 # Web client
 web-client/node_modules/
