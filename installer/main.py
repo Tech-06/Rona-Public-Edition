@@ -34,7 +34,7 @@ def _ensure_utf8_streams() -> None:
 
 from rona_cli import envio
 
-from installer import detect, envgen, prereq, state, ui, wizard
+from installer import detect, envgen, pathsetup, prereq, state, ui, wizard
 from installer.steps import backend as backend_step
 from installer.steps import cli as cli_step
 from installer.steps import web as web_step
@@ -134,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
     results: dict[str, bool] = {}
     if "cli" in selected:
         results["cli"] = cli_step.install(REPO_ROOT, reinstall=installed_dict["cli"])
+        if results["cli"]:
+            pathsetup.setup(REPO_ROOT / "cli" / ".venv", auto_yes=args.yes or args.json)
     if "backend" in selected:
         results["backend"] = backend_step.install(REPO_ROOT, reinstall=installed_dict["backend"])
     if "web" in selected:
