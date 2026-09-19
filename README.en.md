@@ -61,6 +61,8 @@ python -m toolbox.manager verify <id>   # re-run a package's health check
 python -m toolbox.manager uninstall <id>
 ```
 
+> **Upgrading from an older Rona version:** `get_time`, `web_search`, `get_weather`, `translate_text`, notes, and the Google Calendar/Contacts/Gmail tools moved out of the core with this update and disappeared from the model's tool list. Install the package back (see above) to get one back. Your notes are untouched in `rona.db`'s `notes` table and show up immediately once you install the `notes` package. Your Google `credentials.json`/`token_<account>.json` files stay at their old location (`backend/toolbox/tools/`) and are not moved automatically -- when installing `google_auth`, point it at `credentials.json` again and re-authorize each account with `python -m toolbox.custom.google_auth.add_account <account_name>` (or copy the old token files into `backend/toolbox/custom/google_auth/` yourself to skip re-authorizing).
+
 ### Semantic memory system
 Rona stores information about you in three layers: **deep** (durable, defining facts), **seasonal** (mid-term projects and plans), and **short** (current conversation context). Each memory can be linked to a specific person or left general/topical. Memories are embedded into vectors and searched semantically with `search_memories` — by meaning, not keyword matching.
 

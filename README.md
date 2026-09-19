@@ -61,6 +61,8 @@ python -m toolbox.manager verify <id>   # bir paketin sağlık kontrolünü tekr
 python -m toolbox.manager uninstall <id>
 ```
 
+> **Daha önceki bir Rona sürümünden güncelliyorsanız:** `get_time`, `web_search`, `get_weather`, `translate_text`, notlar ve Google Takvim/Kişiler/Gmail araçları bu güncellemeyle çekirdekten kalktı ve modelin kullanabilir listesinden kayboldu. Geri almak için ilgili paketi kurmanız yeterli (yukarıya bakın). Notlarınız `rona.db` içindeki `notes` tablosunda olduğu gibi durur, `notes` paketini kurduğunuzda hemen görünür. Google credentials.json/`token_<hesap>.json` dosyalarınız ise eski konumda (`backend/toolbox/tools/`) kalır ve otomatik taşınmaz -- `google_auth` paketini kurarken `credentials.json`'ı yeniden seçin ve her hesap için `python -m toolbox.custom.google_auth.add_account <hesap_adi>` ile tekrar yetkilendirin (eski token dosyalarını elle `backend/toolbox/custom/google_auth/` klasörüne kopyalarsanız yeniden yetkilendirmeye gerek kalmaz).
+
 ### Semantik bellek sistemi
 Rona sizinle ilgili bilgileri üç katmanda saklar: **deep** (kalıcı, tanımlayıcı gerçekler), **seasonal** (orta vadeli projeler/planlar) ve **short** (güncel konuşma bağlamı). Her anı bir kişiye bağlanabilir ya da genel/konu bazlı bırakılabilir. Anılar bir embedding modeliyle vektöre çevrilir ve `search_memories` ile anlamsal olarak (kelime eşleşmesi değil, anlam benzerliğiyle) aranır.
 
