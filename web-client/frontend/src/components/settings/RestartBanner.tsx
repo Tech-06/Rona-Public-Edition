@@ -1,3 +1,4 @@
+import { useT } from "../LanguageProvider";
 import { Button } from "../dashboard/ui";
 
 interface Props {
@@ -15,18 +16,17 @@ interface Props {
  * gates whether we offer the button at all instead of showing a button
  * that fails. */
 export function RestartBanner({ visible, onRestart, canAutoRestart, restarting }: Props) {
+  const t = useT();
   if (!visible) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-warn-text">
-      <span>Değişikliklerin uygulanması için sunucunun yeniden başlatılması gerekiyor.</span>
+      <span>{t("restart.required_message")}</span>
       {canAutoRestart ? (
         <Button onClick={onRestart} variant="primary" disabled={restarting}>
-          {restarting ? "Yeniden başlatılıyor..." : "Şimdi yeniden başlat"}
+          {restarting ? t("restart.restarting") : t("restart.restart_now")}
         </Button>
       ) : (
-        <span className="text-xs text-warn-text/80">
-          Otomatik yeniden başlatma kullanılamıyor — backend'i elle yeniden başlat (python run.py).
-        </span>
+        <span className="text-xs text-warn-text/80">{t("restart.manual_required")}</span>
       )}
     </div>
   );

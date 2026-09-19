@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { SettingsSectionId } from "../../types";
+import { useT } from "../LanguageProvider";
 import { ChevronLeftIcon, XIcon } from "../ui/icons";
 import { DEFAULT_SETTINGS_SECTION, findSection, SETTINGS_SECTIONS } from "./sections";
 import { SettingsRail } from "./SettingsRail";
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function SettingsModal({ open, onClose, initialSection }: Props) {
+  const t = useT();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(
     () => initialSection ?? readLastSection(),
@@ -75,7 +77,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-0 sm:p-4">
       <button
         type="button"
-        aria-label="Kapat"
+        aria-label={t("settings.close")}
         onClick={onClose}
         className="absolute inset-0 cursor-default"
       />
@@ -83,16 +85,16 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Ayarlar"
+        aria-label={t("settings.modal_title")}
         tabIndex={-1}
         className="relative flex h-full w-full flex-col overflow-hidden bg-panel text-fg shadow-2xl outline-none sm:h-[85vh] sm:max-h-[720px] sm:w-full sm:max-w-5xl sm:rounded-2xl sm:border sm:border-line"
       >
         <div className="hidden items-center justify-between border-b border-line px-5 py-3 md:flex">
-          <h2 className="text-sm font-semibold text-fg">Ayarlar</h2>
+          <h2 className="text-sm font-semibold text-fg">{t("settings.modal_title")}</h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Kapat"
+            aria-label={t("settings.close")}
             className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-elevated hover:text-fg-soft"
           >
             <XIcon className="h-4 w-4" />
@@ -107,15 +109,15 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
               className="flex items-center gap-1 text-sm text-fg-muted"
             >
               <ChevronLeftIcon className="h-4 w-4" />
-              Ayarlar
+              {t("settings.modal_title")}
             </button>
           ) : (
-            <h2 className="text-sm font-semibold text-fg">Ayarlar</h2>
+            <h2 className="text-sm font-semibold text-fg">{t("settings.modal_title")}</h2>
           )}
           <button
             type="button"
             onClick={onClose}
-            aria-label="Kapat"
+            aria-label={t("settings.close")}
             className="rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-elevated hover:text-fg-soft"
           >
             <XIcon className="h-4 w-4" />
@@ -139,7 +141,7 @@ export function SettingsModal({ open, onClose, initialSection }: Props) {
             >
               {!isDesktop && (
                 <h3 className="px-4 pt-3 text-xs font-medium uppercase tracking-wide text-fg-subtle">
-                  {section.label}
+                  {t(section.labelKey)}
                 </h3>
               )}
               <div

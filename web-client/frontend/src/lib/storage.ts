@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { ChatMessage, ConversationSummary, Folder } from "../types";
 
 const INDEX_KEY = "rona:conversations";
@@ -23,7 +24,7 @@ type StoredConversation = Partial<ConversationSummary> & { conversationId: strin
 function normalize(entry: StoredConversation): ConversationSummary {
   return {
     conversationId: entry.conversationId,
-    title: entry.title ?? "Sohbet",
+    title: entry.title ?? t("row.untitled_chat"),
     updatedAt: entry.updatedAt ?? Date.now(),
     pinned: entry.pinned ?? false,
     folderId: entry.folderId ?? null,
@@ -186,7 +187,7 @@ function writeFolders(folders: Folder[]): void {
 export function createFolder(name: string): Folder {
   const folder: Folder = {
     id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name: name.trim() || "Yeni klasör",
+    name: name.trim() || t("sidebar.new_folder"),
     createdAt: Date.now(),
     collapsed: false,
   };

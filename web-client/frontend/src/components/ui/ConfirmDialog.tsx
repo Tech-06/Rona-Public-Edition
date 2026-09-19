@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { useT } from "../LanguageProvider";
 import { Button } from "../dashboard/ui";
 
 interface Props {
@@ -21,12 +22,15 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Sil",
-  cancelLabel = "Vazgeç",
+  confirmLabel,
+  cancelLabel,
   danger = true,
   onConfirm,
   onCancel,
 }: Props) {
+  const t = useT();
+  const resolvedConfirmLabel = confirmLabel ?? t("common.delete");
+  const resolvedCancelLabel = cancelLabel ?? t("common.cancel");
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, open, onCancel);
 
@@ -45,7 +49,7 @@ export function ConfirmDialog({
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
       <button
         type="button"
-        aria-label={cancelLabel}
+        aria-label={resolvedCancelLabel}
         onClick={onCancel}
         className="absolute inset-0 cursor-default"
       />
@@ -60,9 +64,9 @@ export function ConfirmDialog({
         <p className="text-sm font-semibold text-fg">{title}</p>
         {description && <p className="text-xs text-fg-subtle">{description}</p>}
         <div className="mt-1 flex justify-end gap-2">
-          <Button onClick={onCancel}>{cancelLabel}</Button>
+          <Button onClick={onCancel}>{resolvedCancelLabel}</Button>
           <Button onClick={onConfirm} variant={danger ? "danger" : "primary"}>
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </Button>
         </div>
       </div>

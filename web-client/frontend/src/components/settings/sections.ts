@@ -1,4 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
+import type { TranslationKey } from "../../lib/i18n";
 import type { SettingsSectionId } from "../../types";
 import { ConfigPanel } from "../dashboard/ConfigPanel";
 import { ConnectionsPanel } from "../dashboard/ConnectionsPanel";
@@ -25,7 +26,7 @@ import { ChatsSection } from "./ChatsSection";
 
 export interface SettingsSection {
   id: SettingsSectionId;
-  label: string;
+  labelKey: TranslationKey;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   component: ComponentType;
   /** The section manages its own internal scrolling (Logs has a
@@ -43,16 +44,16 @@ export interface SettingsSection {
 // deliberately relabelled "Gelişmiş" here: the whole modal is now "Ayarlar",
 // so a second, identically-named entry inside it would be confusing.
 export const SETTINGS_SECTIONS: SettingsSection[] = [
-  { id: "appearance", label: "Görünüm", icon: PaletteIcon, component: AppearanceSection },
-  { id: "chats", label: "Sohbetler", icon: ChatBubbleIcon, component: ChatsSection },
-  { id: "status", label: "Durum", icon: ActivityIcon, component: StatusPanel },
-  { id: "connections", label: "Bağlantılar", icon: PlugIcon, component: ConnectionsPanel },
-  { id: "advanced", label: "Gelişmiş", icon: SlidersIcon, component: ConfigPanel },
-  { id: "tools", label: "Araçlar", icon: WrenchIcon, component: ToolsPanel },
-  { id: "tasks", label: "Görevler", icon: CalendarClockIcon, component: TasksPanel },
-  { id: "subagents", label: "Ajanlar", icon: BotIcon, component: SubagentsPanel },
-  { id: "logs", label: "Loglar", icon: TerminalIcon, component: LogsPanel, selfScrolling: true },
-  { id: "data", label: "Veri", icon: DatabaseIcon, component: DataPanel },
+  { id: "appearance", labelKey: "settings.section_appearance", icon: PaletteIcon, component: AppearanceSection },
+  { id: "chats", labelKey: "settings.section_chats", icon: ChatBubbleIcon, component: ChatsSection },
+  { id: "status", labelKey: "settings.section_status", icon: ActivityIcon, component: StatusPanel },
+  { id: "connections", labelKey: "settings.section_connections", icon: PlugIcon, component: ConnectionsPanel },
+  { id: "advanced", labelKey: "settings.section_advanced", icon: SlidersIcon, component: ConfigPanel },
+  { id: "tools", labelKey: "settings.section_tools", icon: WrenchIcon, component: ToolsPanel },
+  { id: "tasks", labelKey: "settings.section_tasks", icon: CalendarClockIcon, component: TasksPanel },
+  { id: "subagents", labelKey: "settings.section_subagents", icon: BotIcon, component: SubagentsPanel },
+  { id: "logs", labelKey: "settings.section_logs", icon: TerminalIcon, component: LogsPanel, selfScrolling: true },
+  { id: "data", labelKey: "settings.section_data", icon: DatabaseIcon, component: DataPanel },
 ];
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "chats";

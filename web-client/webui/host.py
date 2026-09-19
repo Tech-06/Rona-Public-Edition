@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from webui import db, proxy
+from webui import db, i18n, proxy
 from webui.config import get_settings
 
 settings = get_settings()
@@ -47,9 +47,9 @@ def _run_systemctl(action: str) -> dict[str, Any]:
 async def _spawn_backend() -> dict[str, Any]:
     global _backend_process
     if not BACKEND_DIR.is_dir():
-        return {"ok": False, "detail": f"Backend directory not found: {BACKEND_DIR}"}
+        return {"ok": False, "detail": i18n.t("webui.backend_dir_not_found", backend_dir=BACKEND_DIR)}
     if _backend_process is not None and _backend_process.poll() is None:
-        return {"ok": False, "detail": "Backend already tracked as running"}
+        return {"ok": False, "detail": i18n.t("webui.already_running")}
     log_file = SPAWN_LOG_PATH.open("a", encoding="utf-8")
     kwargs: dict[str, Any] = {"cwd": BACKEND_DIR, "stdout": log_file, "stderr": log_file}
     if sys.platform == "win32":
@@ -59,17 +59,17 @@ async def _spawn_backend() -> dict[str, Any]:
     _backend_process = subprocess.Popen([sys.executable, "run.py"], **kwargs)  # noqa: ASYNC220
     await asyncio.sleep(1.5)
     if _backend_process.poll() is not None:
-        detail = f"Backend exited immediately (code {_backend_process.returncode})"
+        detail = i18n.t("webui.exited_immediately", code=_backend_process.returncode)
         detail += "; " + "; ".join(_tail_lines(SPAWN_LOG_PATH, 5))
         _backend_process = None
         return {"ok": False, "detail": detail}
-    return {"ok": True, "detail": f"Started PID {_backend_process.pid}"}
+    return {"ok": True, "detail": i18n.t("webui.started_pid", pid=_backend_process.pid)}
 
 
 def _kill_backend() -> dict[str, Any]:
     global _backend_process
     if _backend_process is None or _backend_process.poll() is not None:
-        return {"ok": False, "detail": "No backend process tracked by this web server"}
+        return {"ok": False, "detail": i18n.t("webui.not_tracked")}
     if sys.platform == "win32":
         subprocess.run(
             ["taskkill", "/PID", str(_backend_process.pid), "/T", "/F"],
@@ -79,7 +79,7 @@ def _kill_backend() -> dict[str, Any]:
     else:
         _backend_process.terminate()
     _backend_process = None
-    return {"ok": True, "detail": "Stop requested"}
+    return {"ok": True, "detail": i18n.t("webui.stop_requested")}
 
 
 def _tail_lines(path: Path, count: int) -> list[str]:
@@ -117,7 +117,7 @@ def _check_restart_rate_limit() -> None:
     global _last_restart_at
     now = time.monotonic()
     if now - _last_restart_at < RESTART_MIN_INTERVAL_SECONDS:
-        raise HTTPException(429, "Restart requested too soon; wait a few seconds")
+        raise HTTPException(429, i18n.t("webui.restart_too_soon"))
     _last_restart_at = now
 
 

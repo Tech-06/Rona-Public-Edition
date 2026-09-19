@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { dashboardApi } from "../../api/dashboard";
 import { usePoll } from "../../hooks/usePoll";
+import { useT } from "../LanguageProvider";
 import { Badge, Button, Card, ErrorState } from "./ui";
 
 function formatBytes(bytes: number | null): string {
@@ -10,18 +11,19 @@ function formatBytes(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatUptime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours} sa ${minutes} dk`;
-  return `${minutes} dk`;
-}
-
 export function StatusPanel() {
+  const t = useT();
   const status = usePoll(useCallback(() => dashboardApi.status(), []), 5000);
   const server = usePoll(useCallback(() => dashboardApi.serverStatus(), []), 5000);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+
+  function formatUptime(seconds: number): string {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) return t("status.hours_minutes", { hours, minutes });
+    return t("status.minutes", { minutes });
+  }
 
   async function runAction(action: "start" | "stop" | "restart") {
     setActing(true);
@@ -30,7 +32,7 @@ export function StatusPanel() {
       const result = await dashboardApi.serverAction(action);
       setActionMessage(result.detail);
     } catch (err) {
-      setActionMessage(err instanceof Error ? err.message : "İşlem başarısız oldu");
+      setActionMessage(err instanceof Error ? err.message : t("common.action_failed"));
     } finally {
       setActing(false);
       server.refresh();
@@ -44,13 +46,13 @@ export function StatusPanel() {
         actions={
           <div className="flex gap-2">
             <Button onClick={() => runAction("start")} disabled={acting}>
-              Başlat
+              {t("status.start")}
             </Button>
             <Button onClick={() => runAction("restart")} disabled={acting} variant="primary">
-              Yeniden başlat
+              {t("status.restart")}
             </Button>
             <Button onClick={() => runAction("stop")} disabled={acting} variant="danger">
-              Durdur
+              {t("status.stop")}
             </Button>
           </div>
         }
@@ -60,13 +62,13 @@ export function StatusPanel() {
           <div className="flex flex-col gap-2 text-sm text-fg-soft">
             <div className="flex items-center gap-2">
               <Badge tone={server.data.backend_up ? "ok" : "bad"}>
-                {server.data.backend_up ? "Çalışıyor" : "Kapalı"}
+                {server.data.backend_up ? t("status.running_badge") : t("status.stopped_badge")}
               </Badge>
               {server.data.tracked_pid && (
                 <span className="text-xs text-fg-subtle">PID {server.data.tracked_pid}</span>
               )}
               {server.data.systemctl_available && (
-                <span className="text-xs text-fg-subtle">systemd üzerinden yönetiliyor</span>
+                <span className="text-xs text-fg-subtle">{t("status.managed_by_systemd")}</span>
               )}
             </div>
             {actionMessage && <p className="text-xs text-fg-muted">{actionMessage}</p>}
@@ -77,16 +79,22 @@ export function StatusPanel() {
       {status.error && <ErrorState message={status.error} />}
       {status.data && (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
-          <Metric label="Çalışma süresi" value={formatUptime(status.data.uptime_seconds)} />
-          <Metric label="Model" value={status.data.flash_model} />
-          <Metric label="Pro model" value={status.data.pro_configured ? "yapılandırıldı" : "yok"} />
-          <Metric label="Zamanlayıcı" value={status.data.scheduler_running ? "çalışıyor" : "durdu"} />
-          <Metric label="Sohbet sayısı" value={String(status.data.active_conversations)} />
-          <Metric label="Çalışan ajan" value={String(status.data.running_subagents)} />
-          <Metric label="Çalışan görev" value={String(status.data.running_trigger_occurrences)} />
-          <Metric label="Veritabanı" value={formatBytes(status.data.db_size_bytes)} />
-          <Metric label="Sohbet geçmişi" value={formatBytes(status.data.checkpoint_db_size_bytes)} />
-          <Metric label="Log dosyası" value={formatBytes(status.data.log_size_bytes)} />
+          <Metric label={t("status.uptime")} value={formatUptime(status.data.uptime_seconds)} />
+          <Metric label={t("status.model")} value={status.data.flash_model} />
+          <Metric
+            label={t("status.pro_model")}
+            value={status.data.pro_configured ? t("common.configured") : t("status.not_configured")}
+          />
+          <Metric
+            label={t("status.scheduler")}
+            value={status.data.scheduler_running ? t("status.scheduler_running") : t("status.scheduler_stopped")}
+          />
+          <Metric label={t("status.active_conversations")} value={String(status.data.active_conversations)} />
+          <Metric label={t("status.running_agents")} value={String(status.data.running_subagents)} />
+          <Metric label={t("status.running_tasks")} value={String(status.data.running_trigger_occurrences)} />
+          <Metric label={t("status.database")} value={formatBytes(status.data.db_size_bytes)} />
+          <Metric label={t("status.chat_history")} value={formatBytes(status.data.checkpoint_db_size_bytes)} />
+          <Metric label={t("status.log_file")} value={formatBytes(status.data.log_size_bytes)} />
         </div>
       )}
     </div>

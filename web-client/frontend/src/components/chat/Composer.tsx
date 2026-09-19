@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
+import { useT } from "../LanguageProvider";
 import { ArrowUpIcon, CheckIcon, XIcon } from "../ui/icons";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function Composer({ onSend, disabled, awaitingConfirmation, onApprove, onReject }: Props) {
+  const t = useT();
   const [value, setValue] = useState("");
 
   function submit() {
@@ -46,7 +48,7 @@ export function Composer({ onSend, disabled, awaitingConfirmation, onApprove, on
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder={awaitingConfirmation ? "Onaylıyor musun? Yanıtını yaz..." : ""}
+            placeholder={awaitingConfirmation ? t("composer.confirm_placeholder") : ""}
             className="max-h-40 flex-1 resize-none bg-transparent py-1 text-[16px] text-fg placeholder:text-fg-subtle focus:outline-none sm:text-[15px]"
           />
           {showConfirmActions ? (
@@ -55,7 +57,7 @@ export function Composer({ onSend, disabled, awaitingConfirmation, onApprove, on
                 type="button"
                 onClick={onApprove}
                 disabled={disabled}
-                aria-label="Onayla"
+                aria-label={t("composer.approve")}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-ok text-accent-fg transition-colors hover:bg-ok-hover disabled:opacity-40"
               >
                 <CheckIcon className="h-4 w-4" />
@@ -64,7 +66,7 @@ export function Composer({ onSend, disabled, awaitingConfirmation, onApprove, on
                 type="button"
                 onClick={onReject}
                 disabled={disabled}
-                aria-label="Reddet"
+                aria-label={t("composer.reject")}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-strong text-accent-fg transition-colors hover:bg-danger-hover disabled:opacity-40"
               >
                 <XIcon className="h-4 w-4" />
@@ -75,7 +77,7 @@ export function Composer({ onSend, disabled, awaitingConfirmation, onApprove, on
               type="button"
               onClick={submit}
               disabled={!canSend}
-              aria-label="Gönder"
+              aria-label={t("composer.send")}
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors ${
                 canSend ? "bg-accent text-accent-fg hover:bg-accent-hover" : "bg-elevated text-fg-faint"
               }`}

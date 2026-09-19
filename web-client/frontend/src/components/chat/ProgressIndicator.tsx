@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toolLabel } from "../../lib/toolLabels";
 import type { StepRecord } from "../../types";
+import { useT } from "../LanguageProvider";
 
 const STATUS_DOT: Record<StepRecord["status"], string> = {
   running: "bg-accent-hover animate-pulseDot",
@@ -11,10 +12,10 @@ const STATUS_DOT: Record<StepRecord["status"], string> = {
   bad_args: "bg-danger",
 };
 
-function formatDuration(ms: number | null | undefined): string {
+function formatDuration(ms: number | null | undefined, t: ReturnType<typeof useT>): string {
   if (ms === null || ms === undefined) return "";
   if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} sn`;
+  return t("progress.duration_seconds", { value: (ms / 1000).toFixed(1) });
 }
 
 interface Props {
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
 
   if (live) {
@@ -36,7 +38,7 @@ export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props
             <span className="h-1.5 w-1.5 rounded-full bg-accent-hover animate-pulseDot [animation-delay:-0.15s]" />
             <span className="h-1.5 w-1.5 rounded-full bg-accent-hover animate-pulseDot" />
           </span>
-          <span className="shimmer-text font-medium">{phase ?? "Düşünülüyor"}</span>
+          <span className="shimmer-text font-medium">{phase ?? t("tool.thinking")}</span>
         </div>
         {steps.length > 0 && <StepTimeline steps={steps} />}
       </div>
@@ -45,7 +47,7 @@ export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props
 
   if (steps.length === 0) return null;
 
-  const durationLabel = formatDuration(totalDurationMs);
+  const durationLabel = formatDuration(totalDurationMs, t);
 
   return (
     <div>
@@ -55,7 +57,8 @@ export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props
         className="inline-flex items-center gap-1.5 rounded-full border border-line bg-app px-2.5 py-1 text-xs text-fg-muted transition-colors hover:text-fg-soft"
       >
         <span>
-          {steps.length} adım{durationLabel ? ` · ${durationLabel}` : ""}
+          {t("progress.steps_count", { count: steps.length })}
+          {durationLabel ? ` · ${durationLabel}` : ""}
         </span>
         <span className={`transition-transform ${expanded ? "rotate-180" : ""}`}>⌄</span>
       </button>
@@ -69,6 +72,7 @@ export function ProgressIndicator({ phase, steps, live, totalDurationMs }: Props
 }
 
 function StepTimeline({ steps }: { steps: StepRecord[] }) {
+  const t = useT();
   return (
     <ul className="flex flex-col gap-1.5 border-l border-line pl-3 text-xs text-fg-muted">
       {steps.map((step) => (
@@ -76,7 +80,7 @@ function StepTimeline({ steps }: { steps: StepRecord[] }) {
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[step.status]}`} />
           <span className="text-fg-soft">{toolLabel(step.name, step.args)}</span>
           {step.durationMs !== null && (
-            <span className="text-fg-subtle">{formatDuration(step.durationMs)}</span>
+            <span className="text-fg-subtle">{formatDuration(step.durationMs, t)}</span>
           )}
         </li>
       ))}

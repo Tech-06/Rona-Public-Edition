@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../LanguageProvider";
 import { Card } from "./ui";
 
 const MAX_LINES = 500;
 
 export function LogsPanel() {
+  const t = useT();
   const [lines, setLines] = useState<string[]>([]);
   const [level, setLevel] = useState("");
   const [query, setQuery] = useState("");
@@ -41,7 +43,7 @@ export function LogsPanel() {
             onChange={(event) => setLevel(event.target.value)}
             className="rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg-soft"
           >
-            <option value="">Tüm seviyeler</option>
+            <option value="">{t("logs.all_levels")}</option>
             <option value="INFO">INFO</option>
             <option value="WARNING">WARNING</option>
             <option value="ERROR">ERROR</option>
@@ -50,14 +52,14 @@ export function LogsPanel() {
             type="text"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ara..."
+            placeholder={t("logs.search_placeholder")}
             className="flex-1 rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg-soft focus:border-accent focus:outline-none"
           />
           <span className={`h-2 w-2 rounded-full ${connected ? "bg-ok-hover" : "bg-fg-faint"}`} />
         </div>
       </Card>
       <div className="flex-1 overflow-y-auto rounded-xl border border-line bg-code p-3 font-mono text-xs text-fg-soft">
-        {lines.length === 0 && <p className="text-fg-faint">Henüz log yok.</p>}
+        {lines.length === 0 && <p className="text-fg-faint">{t("logs.no_logs")}</p>}
         {lines.map((line, index) => (
           <div key={index} className="whitespace-pre-wrap break-all">
             {line}

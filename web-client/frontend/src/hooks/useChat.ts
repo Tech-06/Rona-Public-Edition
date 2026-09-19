@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { streamChat } from "../api/sse";
+import { useT } from "../components/LanguageProvider";
 import { loadMessages, saveConversation } from "../lib/storage";
 import { agentPhaseLabel, confirmPhaseLabel, toolLabel } from "../lib/toolLabels";
 import type { ChatMessage, ProgressEvent, StepRecord } from "../types";
@@ -9,6 +10,7 @@ function makeId(): string {
 }
 
 export function useChat(initialConversationId: string | null, onConversationId?: (id: string) => void) {
+  const t = useT();
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId);
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     initialConversationId ? loadMessages(initialConversationId) : [],
@@ -47,7 +49,7 @@ export function useChat(initialConversationId: string | null, onConversationId?:
       setMessages(messagesRef.current);
       setAwaitingConfirmation(false);
       setSending(true);
-      setLivePhase("Düşünülüyor");
+      setLivePhase(t("tool.thinking"));
       startedAtRef.current = Date.now();
 
       const controller = new AbortController();
@@ -115,7 +117,7 @@ export function useChat(initialConversationId: string | null, onConversationId?:
             // and it must find the entry already in storage when it reads
             // it, or a new chat only shows up in the list after a manual
             // page reload.
-            saveConversation(finalId, firstUser ? firstUser.content.slice(0, 60) : "Yeni sohbet", next);
+            saveConversation(finalId, firstUser ? firstUser.content.slice(0, 60) : t("sidebar.new_chat"), next);
             messagesRef.current = next;
             setMessages(next);
             setConversationId(finalId);
@@ -136,8 +138,8 @@ export function useChat(initialConversationId: string | null, onConversationId?:
     [conversationId, onConversationId, sending],
   );
 
-  const approve = useCallback(() => send("evet, onaylıyorum"), [send]);
-  const reject = useCallback(() => send("hayır, iptal et"), [send]);
+  const approve = useCallback(() => send(t("chat.approve_text")), [send, t]);
+  const reject = useCallback(() => send(t("chat.reject_text")), [send, t]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();

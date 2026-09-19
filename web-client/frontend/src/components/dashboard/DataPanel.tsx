@@ -1,17 +1,20 @@
 import { useCallback, useState } from "react";
 import { dashboardApi } from "../../api/dashboard";
 import { usePoll } from "../../hooks/usePoll";
+import type { TranslationKey } from "../../lib/i18n";
+import { useT } from "../LanguageProvider";
 import { Card, EmptyState, ErrorState } from "./ui";
 
 type Tab = "notes" | "people" | "memories";
 
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "notes", label: "Notlar" },
-  { id: "people", label: "Kişiler" },
-  { id: "memories", label: "Hafıza" },
+const TABS: Array<{ id: Tab; labelKey: TranslationKey }> = [
+  { id: "notes", labelKey: "data.tab_notes" },
+  { id: "people", labelKey: "data.tab_people" },
+  { id: "memories", labelKey: "data.tab_memories" },
 ];
 
 export function DataPanel() {
+  const t = useT();
   const [tab, setTab] = useState<Tab>("notes");
 
   return (
@@ -28,7 +31,7 @@ export function DataPanel() {
                 : "border border-line text-fg-muted hover:text-fg-soft"
             }`}
           >
-            {item.label}
+            {t(item.labelKey)}
           </button>
         ))}
       </div>
@@ -40,20 +43,21 @@ export function DataPanel() {
 }
 
 function NotesTab() {
+  const t = useT();
   const notes = usePoll(useCallback(() => dashboardApi.notes(), []), null);
   if (notes.error) return <ErrorState message={notes.error} />;
   if (!notes.data) return null;
   if (!notes.data.installed) {
     return (
       <EmptyState>
-        Not aracı kurulu değil. Eklemek için:{" "}
+        {t("data.notes_not_installed")}{" "}
         <code className="rounded bg-app px-1 py-0.5 text-xs">
           python -m toolbox.manager install notes
         </code>
       </EmptyState>
     );
   }
-  if (notes.data.notes.length === 0) return <EmptyState>Not yok.</EmptyState>;
+  if (notes.data.notes.length === 0) return <EmptyState>{t("data.no_notes")}</EmptyState>;
   return (
     <div className="flex flex-col gap-2">
       {notes.data.notes.map((note) => (
@@ -68,10 +72,11 @@ function NotesTab() {
 }
 
 function PeopleTab() {
+  const t = useT();
   const people = usePoll(useCallback(() => dashboardApi.people(), []), null);
   if (people.error) return <ErrorState message={people.error} />;
   if (!people.data) return null;
-  if (people.data.people.length === 0) return <EmptyState>Kişi yok.</EmptyState>;
+  if (people.data.people.length === 0) return <EmptyState>{t("data.no_people")}</EmptyState>;
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2">
       {people.data.people.map((person) => (
@@ -91,10 +96,11 @@ function PeopleTab() {
 }
 
 function MemoriesTab() {
+  const t = useT();
   const memories = usePoll(useCallback(() => dashboardApi.memories(), []), null);
   if (memories.error) return <ErrorState message={memories.error} />;
   if (!memories.data) return null;
-  if (memories.data.memories.length === 0) return <EmptyState>Hafıza kaydı yok.</EmptyState>;
+  if (memories.data.memories.length === 0) return <EmptyState>{t("data.no_memories")}</EmptyState>;
   return (
     <div className="flex flex-col gap-2">
       {memories.data.memories.map((memory) => (

@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import type { ChatResult, ProgressEvent } from "../types";
 
 interface SseFrame {
@@ -42,7 +43,7 @@ export async function streamChat(
     signal,
   });
   if (!response.ok || !response.body) {
-    let detail = response.statusText || "İstek başarısız oldu.";
+    let detail = response.statusText || t("sse.request_failed");
     try {
       const body = await response.json();
       detail = body.detail ?? detail;
@@ -91,7 +92,7 @@ function dispatchFrame(frame: SseFrame, handlers: StreamHandlers): void {
     } else if (frame.event === "done") {
       handlers.onDone?.(payload as ChatResult);
     } else if (frame.event === "error") {
-      handlers.onError?.(payload.detail ?? "Bilinmeyen hata.");
+      handlers.onError?.(payload.detail ?? t("sse.unknown_error"));
     }
   } catch {
     // malformed frame, ignore

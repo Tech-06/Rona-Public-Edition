@@ -4,6 +4,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+VALID_UI_LANGUAGES = {"tr", "en"}
 
 
 class Settings(BaseSettings):
@@ -24,6 +25,12 @@ class Settings(BaseSettings):
     )
 
     log_level: str = "INFO"
+    # The dashboard's default language: the SPA's initial <html lang> and
+    # window.__RONA_LANG__ (see webui/server.py's SPA fallback), and the
+    # language of this BFF's own user-facing strings (webui/i18n.py). A
+    # viewer's own choice, saved in their browser, overrides this without
+    # touching the setting -- see AppearanceSection.tsx on the frontend.
+    ui_language: str = "tr"
 
     auth_token: str
 
@@ -41,6 +48,14 @@ class Settings(BaseSettings):
         normalized = value.upper()
         if normalized not in VALID_LOG_LEVELS:
             raise ValueError(f"invalid log level: {value!r}")
+        return normalized
+
+    @field_validator("ui_language")
+    @classmethod
+    def validate_ui_language(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in VALID_UI_LANGUAGES:
+            raise ValueError(f"invalid ui_language: {value!r}")
         return normalized
 
 

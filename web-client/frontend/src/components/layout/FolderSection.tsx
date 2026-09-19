@@ -8,6 +8,7 @@ import {
   setFolderCollapsed,
 } from "../../lib/storage";
 import type { ConversationSummary, Folder } from "../../types";
+import { useT } from "../LanguageProvider";
 import { ChevronRightIcon, FolderMinusIcon, MoreHorizontalIcon, PencilIcon } from "../ui/icons";
 import { Menu, MenuItem, MenuSeparator } from "../ui/Menu";
 import { ConversationRow } from "./ConversationRow";
@@ -43,6 +44,7 @@ export function FolderSection({
   onRequestDeleteConversation,
   onAnnounce,
 }: Props) {
+  const t = useT();
   const folderTriggerRef = useRef<HTMLButtonElement>(null);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
@@ -51,7 +53,7 @@ export function FolderSection({
   const { isOver, handlers } = useDropTarget((conversationId) => {
     setConversationFolder(conversationId, folder.id);
     notifyConversationsChanged();
-    onAnnounce(`Sohbet "${folder.name}" klasörüne taşındı.`);
+    onAnnounce(t("row.moved_to_folder", { folder: folder.name }));
   });
 
   function commitRenameFolder() {
@@ -108,7 +110,7 @@ export function FolderSection({
             event.stopPropagation();
             setFolderMenuOpen(true);
           }}
-          aria-label="Klasör menüsü"
+          aria-label={t("folder.menu_label")}
           className={`shrink-0 rounded-md px-1.5 py-1 text-fg-faint opacity-0 transition-opacity hover:text-fg-soft focus-visible:opacity-100 group-hover:opacity-100 ${
             folderMenuOpen ? "opacity-100" : ""
           }`}
@@ -117,7 +119,7 @@ export function FolderSection({
         </button>
         <Menu open={folderMenuOpen} onClose={() => setFolderMenuOpen(false)} anchorRef={folderTriggerRef}>
           <MenuItem
-            label="Yeniden adlandır"
+            label={t("row.rename")}
             icon={<PencilIcon className="h-4 w-4" />}
             onSelect={() => {
               setFolderMenuOpen(false);
@@ -127,21 +129,23 @@ export function FolderSection({
           />
           <MenuSeparator />
           <MenuItem
-            label="Klasörü sil"
+            label={t("folder.delete")}
             icon={<FolderMinusIcon className="h-4 w-4" />}
             danger
             onSelect={() => {
               setFolderMenuOpen(false);
               deleteFolder(folder.id);
               notifyConversationsChanged();
-              onAnnounce(`"${folder.name}" klasörü silindi, sohbetler klasörsüz listeye taşındı.`);
+              onAnnounce(t("folder.deleted_announcement", { name: folder.name }));
             }}
           />
         </Menu>
       </div>
       {!folder.collapsed && (
         <div className="ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
-          {conversations.length === 0 && <p className="px-2.5 py-1 text-xs text-fg-faint">Boş klasör.</p>}
+          {conversations.length === 0 && (
+            <p className="px-2.5 py-1 text-xs text-fg-faint">{t("folder.empty")}</p>
+          )}
           {conversations.map((conversation) => (
             <ConversationRow
               key={conversation.conversationId}

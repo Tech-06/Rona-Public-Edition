@@ -1,46 +1,47 @@
+import { t, type TranslationKey } from "./i18n";
 import type { ProgressEvent } from "../types";
 
-const TOOL_LABELS: Record<string, string> = {
-  get_time: "Saat kontrol ediliyor",
-  web_search: "Webde aranıyor",
-  web_scraper: "Sayfa okunuyor",
-  get_weather: "Hava durumu alınıyor",
-  translate_text: "Çevriliyor",
-  get_events: "Takvim kontrol ediliyor",
-  add_event: "Takvime ekleniyor",
-  edit_event: "Takvim güncelleniyor",
-  delete_event: "Takvimden siliniyor",
-  get_contacts: "Kişiler taranıyor",
-  add_contact: "Kişi ekleniyor",
-  edit_contact: "Kişi güncelleniyor",
-  delete_contact: "Kişi siliniyor",
-  send_email: "E-posta gönderiliyor",
-  get_recent_emails: "E-postalar taranıyor",
-  add_note: "Not kaydediliyor",
-  get_notes: "Notlara bakılıyor",
-  edit_note: "Not güncelleniyor",
-  delete_note: "Not siliniyor",
-  add_person: "Kişi ekleniyor",
-  get_people: "Kişiler taranıyor",
-  edit_person: "Kişi güncelleniyor",
-  delete_person: "Kişi siliniyor",
-  search_person: "Kişi aranıyor",
-  add_memory: "Hafızaya yazılıyor",
-  get_memories: "Hafızada araştırılıyor",
-  edit_memory: "Hafıza güncelleniyor",
-  delete_memory: "Hafızadan siliniyor",
-  search_memories: "Hafızada araştırılıyor",
-  start_subagent: "Arka plan ajanı başlatılıyor",
-  list_subagents: "Arka plan ajanları kontrol ediliyor",
-  get_subagent_report: "Ajan raporu alınıyor",
-  dismiss_subagent_report: "Ajan raporu kapatılıyor",
-  create_task: "Görev planlanıyor",
-  list_tasks: "Zamanlanmış görevler kontrol ediliyor",
-  get_task: "Görev kontrol ediliyor",
-  update_task: "Görev güncelleniyor",
-  delete_task: "Görev siliniyor",
-  get_task_run: "Görev sonucu kontrol ediliyor",
-  dismiss_task_run: "Görev bildirimi kapatılıyor",
+const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
+  get_time: "tool.get_time",
+  web_search: "tool.web_search",
+  web_scraper: "tool.web_scraper",
+  get_weather: "tool.get_weather",
+  translate_text: "tool.translate_text",
+  get_events: "tool.get_events",
+  add_event: "tool.add_event",
+  edit_event: "tool.edit_event",
+  delete_event: "tool.delete_event",
+  get_contacts: "tool.get_contacts",
+  add_contact: "tool.add_contact",
+  edit_contact: "tool.edit_contact",
+  delete_contact: "tool.delete_contact",
+  send_email: "tool.send_email",
+  get_recent_emails: "tool.get_recent_emails",
+  add_note: "tool.add_note",
+  get_notes: "tool.get_notes",
+  edit_note: "tool.edit_note",
+  delete_note: "tool.delete_note",
+  add_person: "tool.add_person",
+  get_people: "tool.get_people",
+  edit_person: "tool.edit_person",
+  delete_person: "tool.delete_person",
+  search_person: "tool.search_person",
+  add_memory: "tool.add_memory",
+  get_memories: "tool.get_memories",
+  edit_memory: "tool.edit_memory",
+  delete_memory: "tool.delete_memory",
+  search_memories: "tool.search_memories",
+  start_subagent: "tool.start_subagent",
+  list_subagents: "tool.list_subagents",
+  get_subagent_report: "tool.get_subagent_report",
+  dismiss_subagent_report: "tool.dismiss_subagent_report",
+  create_task: "tool.create_task",
+  list_tasks: "tool.list_tasks",
+  get_task: "tool.get_task",
+  update_task: "tool.update_task",
+  delete_task: "tool.delete_task",
+  get_task_run: "tool.get_task_run",
+  dismiss_task_run: "tool.dismiss_task_run",
 };
 
 function truncate(value: string, max = 40): string {
@@ -68,17 +69,23 @@ function detail(name: string, args?: Record<string, unknown>): string | null {
   return null;
 }
 
+// A plain module, not a component/hook -- no render cycle of its own to
+// subscribe to language changes with. Only ever called from inside a
+// component that already re-renders on a locale switch (ProgressIndicator,
+// MessageList), so reading the active locale at call time (via t() from
+// lib/i18n, not useT()) is enough -- see LanguageProvider.tsx's own note.
 export function toolLabel(name: string, args?: Record<string, unknown>): string {
-  const base = TOOL_LABELS[name] ?? `${name} çalıştırılıyor`;
+  const key = TOOL_LABEL_KEYS[name];
+  const base = key ? t(key) : t("tool.fallback_running", { name });
   const extra = detail(name, args);
   return extra ? `${base}: “${extra}”` : base;
 }
 
 export function agentPhaseLabel(event: ProgressEvent): string {
-  if (event.hint === "followup") return "Sonuçlar değerlendiriliyor";
-  return "Düşünülüyor";
+  if (event.hint === "followup") return t("tool.evaluating_results");
+  return t("tool.thinking");
 }
 
 export function confirmPhaseLabel(): string {
-  return "Onay için hazırlanıyor";
+  return t("tool.preparing_confirmation");
 }

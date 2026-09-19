@@ -8,6 +8,7 @@ import {
   setConversationPinned,
 } from "../../lib/storage";
 import type { ConversationSummary, Folder } from "../../types";
+import { useT } from "../LanguageProvider";
 import { FolderIcon, MoreHorizontalIcon, PencilIcon, PinIcon, PinOffIcon, Trash2Icon } from "../ui/icons";
 import { Menu, MenuItem, MenuSeparator } from "../ui/Menu";
 
@@ -44,6 +45,7 @@ export function ConversationRow({
   onRequestDelete,
   onAnnounce,
 }: Props) {
+  const t = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [showFolderList, setShowFolderList] = useState(false);
   const [draftTitle, setDraftTitle] = useState(conversation.title);
@@ -85,18 +87,22 @@ export function ConversationRow({
     onCloseMenu();
     try {
       await dashboardApi.setConversationPinned(conversation.conversationId, nextPinned);
-      onAnnounce(nextPinned ? "Sohbet sabitlendi." : "Sabitleme kaldırıldı.");
+      onAnnounce(nextPinned ? t("row.pinned") : t("row.unpinned"));
     } catch {
       setConversationPinned(conversation.conversationId, !nextPinned);
       notifyConversationsChanged();
-      onAnnounce("Sabitleme sunucuya kaydedilemedi, geri alındı.");
+      onAnnounce(t("row.pin_save_failed"));
     }
   }
 
   function moveToFolder(folderId: string | null, folderName: string | null) {
     setConversationFolder(conversation.conversationId, folderId);
     notifyConversationsChanged();
-    onAnnounce(folderName ? `Sohbet "${folderName}" klasörüne taşındı.` : "Sohbet klasörden çıkarıldı.");
+    onAnnounce(
+      folderName
+        ? t("row.moved_to_folder", { folder: folderName })
+        : t("sidebar.conversation_removed_from_folder"),
+    );
     onCloseMenu();
   }
 
@@ -136,7 +142,7 @@ export function ConversationRow({
         }`}
       >
         {conversation.pinned && <PinIcon className="h-3 w-3 shrink-0 text-fg-faint" />}
-        <span className="truncate">{conversation.title || "Sohbet"}</span>
+        <span className="truncate">{conversation.title || t("row.untitled_chat")}</span>
       </button>
       <button
         ref={triggerRef}
@@ -146,8 +152,8 @@ export function ConversationRow({
           event.stopPropagation();
           openMenu();
         }}
-        title="Sohbet menüsü"
-        aria-label="Sohbet menüsü"
+        title={t("row.chat_menu")}
+        aria-label={t("row.chat_menu")}
         className={`shrink-0 rounded-md px-1.5 py-1 text-fg-faint opacity-0 transition-opacity hover:text-fg-soft focus-visible:opacity-100 group-hover:opacity-100 ${
           isMenuOpen ? "opacity-100" : ""
         }`}
@@ -159,7 +165,7 @@ export function ConversationRow({
         {!showFolderList ? (
           <>
             <MenuItem
-              label="Yeniden adlandır"
+              label={t("row.rename")}
               icon={<PencilIcon className="h-4 w-4" />}
               onSelect={() => {
                 setDraftTitle(conversation.title);
@@ -168,18 +174,18 @@ export function ConversationRow({
               }}
             />
             <MenuItem
-              label={conversation.pinned ? "Sabitlemeyi kaldır" : "Sabitle"}
+              label={conversation.pinned ? t("row.unpin") : t("row.pin")}
               icon={conversation.pinned ? <PinOffIcon className="h-4 w-4" /> : <PinIcon className="h-4 w-4" />}
               onSelect={togglePin}
             />
             <MenuItem
-              label="Klasöre taşı"
+              label={t("row.move_to_folder")}
               icon={<FolderIcon className="h-4 w-4" />}
               onSelect={() => setShowFolderList(true)}
             />
             <MenuSeparator />
             <MenuItem
-              label="Sil"
+              label={t("common.delete")}
               icon={<Trash2Icon className="h-4 w-4" />}
               danger
               onSelect={() => {
@@ -191,9 +197,11 @@ export function ConversationRow({
         ) : (
           <>
             {conversation.folderId && (
-              <MenuItem label="Klasörden çıkar" onSelect={() => moveToFolder(null, null)} />
+              <MenuItem label={t("row.remove_from_folder")} onSelect={() => moveToFolder(null, null)} />
             )}
-            {folders.length === 0 && <p className="px-3 py-1.5 text-xs text-fg-subtle">Henüz klasör yok.</p>}
+            {folders.length === 0 && (
+              <p className="px-3 py-1.5 text-xs text-fg-subtle">{t("row.no_folders_yet")}</p>
+            )}
             {folders.map((folder) => (
               <MenuItem
                 key={folder.id}

@@ -6,10 +6,12 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { useConversationSync } from "./hooks/useConversationSync";
 import { useMediaQuery } from "./hooks/useMediaQuery";
+import { useT } from "./components/LanguageProvider";
 import { deleteConversation, loadIndex, onConversationsChanged } from "./lib/storage";
 import type { ConversationSummary } from "./types";
 
 export default function App() {
+  const t = useT();
   const [chatKey, setChatKey] = useState(0);
   const [initialConversationId, setInitialConversationId] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -122,7 +124,7 @@ export default function App() {
       {drawerOpen && (
         <button
           type="button"
-          aria-label="Kenar çubuğunu kapat"
+          aria-label={t("app.close_sidebar")}
           onClick={() => setDrawerOpen(false)}
           className="fixed inset-0 z-30 bg-black/50 md:hidden"
         />

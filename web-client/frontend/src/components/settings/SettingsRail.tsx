@@ -1,4 +1,5 @@
 import type { SettingsSectionId } from "../../types";
+import { useT } from "../LanguageProvider";
 import { SETTINGS_SECTIONS } from "./sections";
 
 interface Props {
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function SettingsRail({ active, onSelect, className = "" }: Props) {
+  const t = useT();
   return (
     <nav className={`flex flex-col gap-0.5 ${className}`}>
       {SETTINGS_SECTIONS.map((section) => {
@@ -24,7 +26,7 @@ export function SettingsRail({ active, onSelect, className = "" }: Props) {
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" />
-            <span className="truncate">{section.label}</span>
+            <span className="truncate">{t(section.labelKey)}</span>
           </button>
         );
       })}

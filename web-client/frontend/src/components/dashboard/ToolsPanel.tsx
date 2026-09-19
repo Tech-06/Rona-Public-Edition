@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { dashboardApi, type ToolSpecResponse } from "../../api/dashboard";
 import { usePoll } from "../../hooks/usePoll";
+import { useT } from "../LanguageProvider";
 import { Badge, Card, ErrorState } from "./ui";
 
 function groupLabel(module: string): string {
@@ -9,6 +10,7 @@ function groupLabel(module: string): string {
 }
 
 export function ToolsPanel() {
+  const t = useT();
   const tools = usePoll(useCallback(() => dashboardApi.tools(), []), null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -27,7 +29,7 @@ export function ToolsPanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-fg-subtle">{tools.data.tools.length} araç kayıtlı</p>
+      <p className="text-xs text-fg-subtle">{t("tools.registered_count", { count: tools.data.tools.length })}</p>
       {groups.map(([group, items]) => (
         <Card key={group} title={group}>
           <div className="flex flex-col gap-1.5">
@@ -45,8 +47,10 @@ export function ToolsPanel() {
                       <p className="text-xs text-fg-subtle">{tool.description}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
-                      {tool.background && <Badge tone="neutral">arka plan</Badge>}
-                      {tool.requires_confirmation !== false && <Badge tone="warn">onay gerekir</Badge>}
+                      {tool.background && <Badge tone="neutral">{t("tools.background_badge")}</Badge>}
+                      {tool.requires_confirmation !== false && (
+                        <Badge tone="warn">{t("tools.requires_confirmation_badge")}</Badge>
+                      )}
                     </div>
                   </button>
                   {isExpanded && (

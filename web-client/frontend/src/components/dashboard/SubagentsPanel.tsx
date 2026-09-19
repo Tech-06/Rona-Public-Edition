@@ -1,12 +1,8 @@
 import { useCallback, useState } from "react";
 import { dashboardApi } from "../../api/dashboard";
 import { usePoll } from "../../hooks/usePoll";
+import { useLanguage, useT } from "../LanguageProvider";
 import { Badge, Card, EmptyState, ErrorState } from "./ui";
-
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("tr-TR");
-}
 
 const STATUS_TONE: Record<string, "ok" | "bad" | "neutral"> = {
   completed: "ok",
@@ -15,14 +11,21 @@ const STATUS_TONE: Record<string, "ok" | "bad" | "neutral"> = {
 };
 
 export function SubagentsPanel() {
+  const t = useT();
+  const { locale } = useLanguage();
   const subagents = usePoll(useCallback(() => dashboardApi.subagents(), []), 8000);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  function formatDate(value: string | null): string {
+    if (!value) return "—";
+    return new Date(value).toLocaleString(locale === "tr" ? "tr-TR" : "en-US");
+  }
 
   if (subagents.error) return <ErrorState message={subagents.error} />;
   if (!subagents.data) return null;
 
   if (subagents.data.runs.length === 0) {
-    return <EmptyState>Arka plan ajan çalışması yok.</EmptyState>;
+    return <EmptyState>{t("subagents.no_runs")}</EmptyState>;
   }
 
   return (

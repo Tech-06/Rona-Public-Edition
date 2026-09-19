@@ -8,6 +8,7 @@ import {
   setConversationFolder,
 } from "../../lib/storage";
 import type { ConversationSummary, Folder } from "../../types";
+import { useT } from "../LanguageProvider";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { FolderPlusIcon, GearIcon } from "../ui/icons";
 import { ConversationRow } from "./ConversationRow";
@@ -36,6 +37,7 @@ export function Sidebar({
   onOpenSettings,
   backendUp,
 }: Props) {
+  const t = useT();
   const [folders, setFolders] = useState<Folder[]>(() => loadFolders());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -69,7 +71,7 @@ export function Sidebar({
   const { isOver: unfiledIsOver, handlers: unfiledHandlers } = useDropTarget((conversationId) => {
     setConversationFolder(conversationId, null);
     notifyConversationsChanged();
-    setAnnouncement("Sohbet klasörden çıkarıldı.");
+    setAnnouncement(t("sidebar.conversation_removed_from_folder"));
   });
 
   function commitCreateFolder() {
@@ -119,7 +121,13 @@ export function Sidebar({
           className={`ml-auto h-2 w-2 rounded-full ${
             backendUp === null ? "bg-fg-faint" : backendUp ? "bg-ok-hover" : "bg-danger"
           }`}
-          title={backendUp === null ? "Kontrol ediliyor" : backendUp ? "Backend açık" : "Backend kapalı"}
+          title={
+            backendUp === null
+              ? t("sidebar.backend_checking")
+              : backendUp
+                ? t("sidebar.backend_up")
+                : t("sidebar.backend_down")
+          }
         />
       </div>
 
@@ -133,7 +141,7 @@ export function Sidebar({
               : "border-line text-fg-soft hover:bg-elevated"
           }`}
         >
-          + Yeni sohbet
+          + {t("sidebar.new_chat")}
         </button>
       </div>
 
@@ -141,7 +149,7 @@ export function Sidebar({
         {pinned.length > 0 && (
           <div className="mb-3">
             <p className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-fg-subtle">
-              Sabitlenenler
+              {t("sidebar.pinned_heading")}
             </p>
             <div className="flex flex-col gap-0.5">
               {pinned.map((conversation) => (
@@ -167,7 +175,9 @@ export function Sidebar({
 
         {folders.length > 0 && (
           <div className="mb-3">
-            <p className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-fg-subtle">Klasörler</p>
+            <p className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-fg-subtle">
+              {t("sidebar.folders_heading")}
+            </p>
             <div className="flex flex-col gap-0.5">
               {folders.map((folder) => (
                 <FolderSection
@@ -193,15 +203,17 @@ export function Sidebar({
 
         <div>
           <div className="flex items-center justify-between px-1 pb-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Sohbetler</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
+              {t("sidebar.chats_heading")}
+            </p>
             <button
               type="button"
               onClick={() => {
                 setCreatingFolder(true);
                 setNewFolderName("");
               }}
-              title="Yeni klasör"
-              aria-label="Yeni klasör"
+              title={t("sidebar.new_folder")}
+              aria-label={t("sidebar.new_folder")}
               className="rounded-md p-1 text-fg-faint transition-colors hover:bg-elevated hover:text-fg-soft"
             >
               <FolderPlusIcon className="h-3.5 w-3.5" />
@@ -215,7 +227,7 @@ export function Sidebar({
                 onChange={(event) => setNewFolderName(event.target.value)}
                 onKeyDown={handleNewFolderKeyDown}
                 onBlur={commitCreateFolder}
-                placeholder="Klasör adı"
+                placeholder={t("sidebar.folder_name_placeholder")}
                 className="w-full rounded-lg border border-accent bg-app px-2.5 py-1.5 text-sm text-fg focus:outline-none"
               />
             </div>
@@ -244,7 +256,7 @@ export function Sidebar({
               />
             ))}
             {conversations.length === 0 && (
-              <p className="px-2.5 py-1.5 text-xs text-fg-faint">Henüz sohbet yok.</p>
+              <p className="px-2.5 py-1.5 text-xs text-fg-faint">{t("sidebar.no_chats_yet")}</p>
             )}
           </div>
         </div>
@@ -261,14 +273,14 @@ export function Sidebar({
           className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm text-fg-muted transition-colors hover:bg-elevated hover:text-fg-soft"
         >
           <GearIcon className="h-4 w-4 shrink-0" />
-          Ayarlar
+          {t("settings.modal_title")}
         </button>
       </div>
 
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title="Sohbeti sil"
-        description="Bu sohbet kalıcı olarak silinecek. Bu işlem geri alınamaz."
+        title={t("sidebar.delete_chat_title")}
+        description={t("sidebar.delete_chat_description")}
         onCancel={() => setPendingDeleteId(null)}
         onConfirm={confirmDelete}
       />

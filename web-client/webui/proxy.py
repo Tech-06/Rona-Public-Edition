@@ -4,6 +4,7 @@ import httpx
 from fastapi import Request
 from fastapi.responses import Response, StreamingResponse
 
+from webui import i18n
 from webui.config import get_settings
 
 settings = get_settings()
@@ -78,9 +79,9 @@ async def proxy_request(request: Request, backend_path: str) -> Response:
     try:
         response = await client.send(upstream, stream=True)
     except httpx.ConnectError:
-        return _error_response(502, "Backend is not reachable")
+        return _error_response(502, i18n.t("webui.backend_unreachable"))
     except httpx.TimeoutException:
-        return _error_response(504, "Backend request timed out")
+        return _error_response(504, i18n.t("webui.backend_timeout"))
 
     media_type = response.headers.get("content-type", "")
     response_headers = _response_headers(response)
@@ -125,4 +126,4 @@ async def backend_health() -> dict[str, Any]:
         return {"up": False, "detail": str(exc)}
     if response.status_code == 200:
         return {"up": True, "detail": response.json()}
-    return {"up": False, "detail": f"status {response.status_code}"}
+    return {"up": False, "detail": i18n.t("webui.backend_status_code", code=response.status_code)}

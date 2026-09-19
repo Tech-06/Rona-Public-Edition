@@ -1,14 +1,15 @@
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from webui import host, proxy
+from webui import host, i18n, proxy
 from webui.config import get_settings
 from webui.logging_config import configure_file_logging
 
@@ -26,11 +27,43 @@ class CsrfGuardMiddleware(BaseHTTPMiddleware):
         if request.method not in _SAFE_METHODS:
             content_type = request.headers.get("content-type", "")
             if "application/json" not in content_type:
-                return JSONResponse({"detail": "Unsupported content type"}, status_code=415)
+                return JSONResponse({"detail": i18n.t("webui.unsupported_content_type")}, status_code=415)
             fetch_site = request.headers.get("sec-fetch-site")
             if fetch_site not in (None, "same-origin", "none"):
-                return JSONResponse({"detail": "Cross-site request blocked"}, status_code=403)
+                return JSONResponse({"detail": i18n.t("webui.cross_site_blocked")}, status_code=403)
         return await call_next(request)
+
+
+_INDEX_HTML_LANG_RE = re.compile(r'<html lang="[^"]*">')
+_index_html_cache: str | None = None
+
+
+def _localized_index_html() -> str | None:
+    """The built SPA's index.html with its default language baked in:
+    ``<html lang="...">`` (the initial, pre-hydration value; the SPA's own
+    LanguageProvider corrects it once mounted, the same way it already
+    does for the dark/light class) and a ``window.__RONA_LANG__`` the
+    LanguageProvider reads as its fallback when the viewer's browser has
+    no stored preference yet. UI_LANGUAGE doesn't change without a
+    restart (Settings is lru_cache'd), so this is computed once and
+    reused for the rest of the process's life rather than re-read and
+    re-substituted on every request.
+    """
+    global _index_html_cache
+    if _index_html_cache is None:
+        index_path = DIST_DIR / "index.html"
+        if not index_path.is_file():
+            return None
+        content = index_path.read_text(encoding="utf-8")
+        language = get_settings().ui_language
+        content = _INDEX_HTML_LANG_RE.sub(f'<html lang="{language}">', content, count=1)
+        content = content.replace(
+            "<head>",
+            f'<head>\n    <script>window.__RONA_LANG__ = "{language}";</script>',
+            1,
+        )
+        _index_html_cache = content
+    return _index_html_cache
 
 
 @asynccontextmanager
@@ -78,10 +111,10 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str):
-            index = DIST_DIR / "index.html"
-            if index.is_file():
-                return FileResponse(index)
-            return JSONResponse({"detail": "Frontend not built"}, status_code=404)
+            content = _localized_index_html()
+            if content is not None:
+                return HTMLResponse(content)
+            return JSONResponse({"detail": i18n.t("webui.frontend_not_built")}, status_code=404)
 
     return app
 

@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { dashboardApi } from "../../api/dashboard";
 import { usePoll } from "../../hooks/usePoll";
+import type { TranslationKey } from "../../lib/i18n";
+import { useT } from "../LanguageProvider";
 import { RestartBanner } from "../settings/RestartBanner";
 import { Button, Card, ErrorState } from "./ui";
 
-const GROUPS: Array<{ title: string; fields: string[] }> = [
-  { title: "Genel", fields: ["log_level", "reload"] },
-  { title: "Model", fields: ["flash_model", "flash_model_url", "pro_model", "pro_model_url"] },
+const GROUPS: Array<{ titleKey: TranslationKey; fields: string[] }> = [
+  { titleKey: "config.group_general", fields: ["log_level", "reload"] },
   {
-    title: "Sohbet",
+    titleKey: "config.group_model",
+    fields: ["flash_model", "flash_model_url", "pro_model", "pro_model_url"],
+  },
+  {
+    titleKey: "config.group_chat",
     fields: [
       "conversation_ttl_seconds",
       "max_history_messages",
@@ -17,7 +22,7 @@ const GROUPS: Array<{ title: string; fields: string[] }> = [
     ],
   },
   {
-    title: "Arka plan ajanları",
+    titleKey: "config.group_subagents",
     fields: [
       "subagent_max_rounds",
       "subagent_timeout_seconds",
@@ -28,7 +33,7 @@ const GROUPS: Array<{ title: string; fields: string[] }> = [
     ],
   },
   {
-    title: "Zamanlanmış görevler",
+    titleKey: "config.group_tasks",
     fields: [
       "trigger_timezone",
       "trigger_max_concurrent",
@@ -38,7 +43,7 @@ const GROUPS: Array<{ title: string; fields: string[] }> = [
     ],
   },
   {
-    title: "Web arayüzü",
+    titleKey: "config.group_web",
     fields: ["web_autostart", "web_client_dir"],
   },
 ];
@@ -46,6 +51,7 @@ const GROUPS: Array<{ title: string; fields: string[] }> = [
 type FieldValue = string | number | boolean;
 
 export function ConfigPanel() {
+  const t = useT();
   const config = usePoll(useCallback(() => dashboardApi.config(), []), null);
   const server = usePoll(useCallback(() => dashboardApi.serverStatus(), []), null);
   const [draft, setDraft] = useState<Record<string, FieldValue>>({});
@@ -78,7 +84,7 @@ export function ConfigPanel() {
       setRestartRequired(result.restart_required);
       setDirty(new Set());
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Kaydedilemedi");
+      setSaveError(err instanceof Error ? err.message : t("common.save_failed"));
     } finally {
       setSaving(false);
     }
@@ -114,7 +120,7 @@ export function ConfigPanel() {
       {saveError && <ErrorState message={saveError} />}
 
       {GROUPS.map((group) => (
-        <Card key={group.title} title={group.title}>
+        <Card key={group.titleKey} title={t(group.titleKey)}>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
             {group.fields.map((field) => (
               <FieldInput
@@ -131,9 +137,9 @@ export function ConfigPanel() {
 
       <div className="flex items-center gap-3">
         <Button onClick={save} disabled={dirty.size === 0 || saving} variant="primary">
-          {saving ? "Kaydediliyor..." : `Kaydet${dirty.size > 0 ? ` (${dirty.size})` : ""}`}
+          {saving ? t("common.saving") : `${t("chats.save")}${dirty.size > 0 ? ` (${dirty.size})` : ""}`}
         </Button>
-        {dirty.size > 0 && <span className="text-xs text-fg-subtle">Kaydedilmemiş değişiklik var</span>}
+        {dirty.size > 0 && <span className="text-xs text-fg-subtle">{t("chats.unsaved_changes")}</span>}
       </div>
     </div>
   );
