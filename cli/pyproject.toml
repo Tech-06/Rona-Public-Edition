@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rona-cli"
+version = "0.1.0"
+description = "Terminal management tool for a Rona installation (start/stop/status/logs/config)."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+rona = "rona_cli.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rona_cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88

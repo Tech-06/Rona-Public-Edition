@@ -1,0 +1,72 @@
+"""Minimal stdlib HTTP client for the Rona backend and web-client APIs.
+
+No third-party dependencies on purpose -- the CLI must keep working even
+right after a fresh install, before anything beyond the stdlib is available.
+"""
+
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
+from typing import Any
+
+
+class ApiError(RuntimeError):
+    """Raised for any HTTP-level failure: refused connection, timeout, non-2xx."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+
+@dataclass
+class Client:
+    base_url: str
+    token: str | None = None
+    timeout: float = 10.0
+    extra_headers: dict[str, str] = field(default_factory=dict)
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        headers.update(self.extra_headers)
+        return headers
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: Any = None,
+        timeout: float | None = None,
+    ) -> Any:
+        url = f"{self.base_url.rstrip('/')}{path}"
+        data = None
+        if payload is not None:
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method=method, headers=self._headers())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+                body = resp.read()
+                return json.loads(body) if body else None
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ApiError(f"HTTP {exc.code}: {detail}", status=exc.code) from exc
+        except urllib.error.URLError as exc:
+            raise ApiError(f"bağlantı kurulamadı: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise ApiError("istek zaman aşımına uğradı") from exc
+
+    def get(self, path: str, timeout: float | None = None) -> Any:
+        return self.request("GET", path, timeout=timeout)
+
+    def post(self, path: str, payload: Any = None, timeout: float | None = None) -> Any:
+        return self.request("POST", path, payload=payload if payload is not None else {}, timeout=timeout)
+
+    def put(self, path: str, payload: Any = None, timeout: float | None = None) -> Any:
+        return self.request("PUT", path, payload=payload if payload is not None else {}, timeout=timeout)
+
+    def delete(self, path: str, timeout: float | None = None) -> Any:
+        return self.request("DELETE", path, payload={}, timeout=timeout)

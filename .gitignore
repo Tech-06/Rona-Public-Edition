@@ -51,6 +51,13 @@ backend/rona_checkpoints.db-shm
 backend/toolbox/tools/credentials.json
 backend/toolbox/tools/token_*.json
 backend/backend_spawn.log
+# Written by `rona server start` (see cli/) when it spawns the backend
+# itself instead of delegating to systemd.
+backend/rona.pid
+
+# rona CLI (cli/)
+cli/.venv/
+cli/rona_cli.egg-info/
 
 # Installed custom tool packages (fetched on demand by toolbox.manager from
 # the separate Rona Tools repo) and their local lockfile/config -- not part
