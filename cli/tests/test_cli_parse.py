@@ -63,6 +63,105 @@ def test_unknown_subcommand_errors(capsys):
         build_parser().parse_args(["not-a-real-command"])
 
 
+def test_edit_model_parses_all_flags():
+    args = build_parser().parse_args(
+        [
+            "edit",
+            "model",
+            "flash",
+            "--name",
+            "gpt-x",
+            "--url",
+            "http://x",
+            "--key",
+            "sk-1",
+            "--headers",
+            "{}",
+            "--test",
+        ]
+    )
+    assert args.command == "edit"
+    assert args.edit_command == "model"
+    assert args.target == "flash"
+    assert args.name == "gpt-x"
+    assert args.test is True
+    assert callable(args.func)
+
+
+def test_edit_model_rejects_unknown_target():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["edit", "model", "bogus"])
+
+
+def test_edit_auth_reset_parses():
+    args = build_parser().parse_args(["edit", "auth", "reset", "--yes"])
+    assert args.edit_command == "auth"
+    assert args.auth_command == "reset"
+    assert args.yes is True
+
+
+def test_edit_auth_set_requires_token_positional():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["edit", "auth", "set"])
+    args = build_parser().parse_args(["edit", "auth", "set", "my-token"])
+    assert args.token == "my-token"
+
+
+def test_edit_env_mutually_exclusive_flags():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["edit", "env", "--backend", "--web"])
+    args = build_parser().parse_args(["edit", "env", "--web"])
+    assert args.web is True
+
+
+def test_edit_memory_add_requires_layer():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["edit", "memory", "add", "content"])
+    args = build_parser().parse_args(["edit", "memory", "add", "content", "--layer", "short"])
+    assert args.layer == "short"
+    assert args.content == "content"
+
+
+def test_edit_memory_search_carries_global_json_flag():
+    args = build_parser().parse_args(["--json", "edit", "memory", "search", "query text"])
+    assert args.json is True
+    assert args.query == "query text"
+
+
+def test_task_list_defaults():
+    args = build_parser().parse_args(["task", "list"])
+    assert args.status == "all"
+    assert args.limit == 100
+
+
+def test_task_del_and_toggle_take_an_id():
+    args = build_parser().parse_args(["task", "del", "t1"])
+    assert args.id == "t1"
+    args = build_parser().parse_args(["task", "toggle", "t1"])
+    assert args.id == "t1"
+
+
+def test_log_list_defaults_and_flags():
+    args = build_parser().parse_args(["log", "list", "--kind", "task", "--unread"])
+    assert args.kind == "task"
+    assert args.unread is True
+
+
+def test_log_tail_parses_level_and_grep():
+    args = build_parser().parse_args(["log", "tail", "--level", "ERROR", "--grep", "boom"])
+    assert args.level == "ERROR"
+    assert args.grep == "boom"
+    assert callable(args.func)
+
+
+def test_log_show_and_del_take_an_id():
+    args = build_parser().parse_args(["log", "show", "r1"])
+    assert args.id == "r1"
+    args = build_parser().parse_args(["log", "del", "r1", "--yes"])
+    assert args.id == "r1"
+    assert args.yes is True
+
+
 def test_ensure_utf8_streams_reconfigures_text_streams(monkeypatch, tmp_path):
     # A real console-backed TextIOWrapper (e.g. cp1252 on a stock Windows
     # terminal) can't encode Turkish text -- this must switch it to utf-8

@@ -7,7 +7,7 @@ import io
 import sys
 
 from rona_cli import __version__
-from rona_cli.commands import server, status, web
+from rona_cli.commands import edit, log, server, status, task, web
 
 
 def _ensure_utf8_streams() -> None:
@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command")
 
-    for module in (status, server, web):
+    for module in (status, server, web, edit, task, log):
         module.register(sub, sub_common)
 
     return parser

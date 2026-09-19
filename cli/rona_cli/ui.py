@@ -29,23 +29,23 @@ def _paint(text: str, color: str) -> str:
 
 
 def ok(message: str) -> None:
-    print(f"{_paint('[OK]', 'green')} {message}")
+    print(f"{_paint('[OK]', 'green')} {message}", flush=True)
 
 
 def warn(message: str) -> None:
-    print(f"{_paint('[!]', 'yellow')} {message}")
+    print(f"{_paint('[!]', 'yellow')} {message}", flush=True)
 
 
 def error(message: str) -> None:
-    print(f"{_paint('[X]', 'red')} {message}", file=sys.stderr)
+    print(f"{_paint('[X]', 'red')} {message}", file=sys.stderr, flush=True)
 
 
 def info(message: str = "") -> None:
-    print(message)
+    print(message, flush=True)
 
 
 def heading(text: str) -> None:
-    print(_paint(text, "bold"))
+    print(_paint(text, "bold"), flush=True)
 
 
 def confirm(prompt: str, default: bool = False) -> bool:

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,6 +21,15 @@ class ApiError(RuntimeError):
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
+
+
+def build_query(path: str, params: dict[str, Any]) -> str:
+    """Append ``?a=b&c=d`` to ``path`` for every non-``None`` value in
+    ``params``. Shared by every command that filters a GET endpoint."""
+    filtered = {k: v for k, v in params.items() if v is not None}
+    if not filtered:
+        return path
+    return f"{path}?{urllib.parse.urlencode(filtered)}"
 
 
 @dataclass
@@ -70,3 +81,24 @@ class Client:
 
     def delete(self, path: str, timeout: float | None = None) -> Any:
         return self.request("DELETE", path, payload={}, timeout=timeout)
+
+    def stream_lines(self, path: str, timeout: float | None = None) -> Iterator[str]:
+        """Yield decoded lines from a long-lived GET response as they
+        arrive (used for `GET /api/logs`'s SSE stream). The caller is
+        responsible for interpreting SSE framing (`data: ...`, blank lines,
+        `: ping` comments) -- this just gets bytes off the wire without
+        buffering the whole response first.
+        """
+        url = f"{self.base_url.rstrip('/')}{path}"
+        req = urllib.request.Request(url, method="GET", headers=self._headers())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+                for raw_line in resp:
+                    yield raw_line.decode("utf-8", errors="replace").rstrip("\n")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise ApiError(f"HTTP {exc.code}: {detail}", status=exc.code) from exc
+        except urllib.error.URLError as exc:
+            raise ApiError(f"bağlantı kurulamadı: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise ApiError("istek zaman aşımına uğradı") from exc
