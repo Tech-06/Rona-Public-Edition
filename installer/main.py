@@ -32,7 +32,9 @@ def _ensure_utf8_streams() -> None:
             except (OSError, ValueError):
                 pass
 
-from installer import detect, envgen, prereq, state, ui
+from rona_cli import envio
+
+from installer import detect, envgen, prereq, state, ui, wizard
 from installer.steps import backend as backend_step
 from installer.steps import cli as cli_step
 from installer.steps import web as web_step
@@ -143,6 +145,11 @@ def main(argv: list[str] | None = None) -> int:
         ui.ok("AUTH_TOKEN ayarlandı (backend ve web .env dosyaları eşleşiyor).")
 
     all_ok = bool(results) and all(results.values())
+
+    interactive = not args.yes and not args.json
+    if interactive and results.get("backend"):
+        wizard.run(REPO_ROOT, backend_in_scope=True)
+
     if all_ok:
         state.write_state(REPO_ROOT, {name: (name in selected) for name in _COMPONENTS})
 
@@ -154,7 +161,9 @@ def main(argv: list[str] | None = None) -> int:
         ui.info("")
         ui.info("Sıradaki adımlar:")
         if "backend" in selected:
-            ui.info("  rona edit model flash   # zorunlu: Flash model bilgilerini gir")
+            flash_configured = bool(envio.read_env_file(backend_env_path).get("FLASH_MODEL"))
+            if not flash_configured:
+                ui.info("  rona edit model flash   # zorunlu: Flash model bilgilerini gir")
             ui.info("  rona server start")
         if "web" in selected:
             ui.info("  rona web start")
