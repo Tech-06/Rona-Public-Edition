@@ -1,0 +1,183 @@
+"""Turkish strings for the `rona` CLI. Default language -- these are the
+literal strings the CLI shipped with before language support existed, so
+this file is the "no surprises" baseline; `en.py` must define exactly the
+same key set (enforced by tests/test_i18n.py).
+"""
+
+from __future__ import annotations
+
+STRINGS: dict[str, str] = {
+    # -- shared across multiple commands -----------------------------------
+    "common.empty": "(boş)",
+    "common.cancelled": "Vazgeçildi.",
+    "common.help_skip_confirm": "onay sorma",
+    "common.help_person_id": "kişi ID'si",
+    "common.help_json_object": "JSON nesnesi",
+    "common.metadata_invalid_json": "metadata geçerli bir JSON nesnesi değil: {exc}",
+    # -- ui.py ---------------------------------------------------------------
+    "ui.confirm_default_yes_suffix": "[E/h]",
+    "ui.confirm_default_no_suffix": "[e/H]",
+    "ui.confirm_yes_words": "e,evet,y,yes",
+    # -- cli.py ---------------------------------------------------------------
+    "cli.help_root": "Rona kurulumunun kök klasörü (varsayılan: otomatik bulunur)",
+    "cli.help_json": "çıktıyı JSON olarak ver",
+    "cli.description": "Rona kurulumunu terminalden yönetmek için araç.",
+    # -- paths.py ---------------------------------------------------------------
+    "paths.invalid_root": (
+        "'{candidate}' bir Rona kurulumu gibi görünmüyor "
+        "(backend/ ve web-client/ alt klasörleri bekleniyor)."
+    ),
+    "paths.not_found": (
+        "Rona kurulumu bulunamadı. `rona --root <yol>` ile belirt, "
+        "RONA_HOME ortam değişkenini ayarla ya da kurulum scriptini çalıştır."
+    ),
+    "paths.venv_missing": "Sanal ortam bulunamadı: {venv_dir}. Kurulum scriptini çalıştır ya da elle oluştur.",
+    # -- backend_client.py -----------------------------------------------------
+    "backend_client.no_auth_token": "AUTH_TOKEN ayarlanmamış; önce `rona edit auth reset` çalıştır.",
+    "backend_client.unreachable": "Backend'e ulaşılamadı ({exc}); önce `rona server start` çalıştır.",
+    # -- http.py ---------------------------------------------------------------
+    "http.connection_failed": "bağlantı kurulamadı: {reason}",
+    "http.timeout": "istek zaman aşımına uğradı",
+    # -- providers.py ------------------------------------------------------------
+    "providers.chat_missing_fields": "url, key ve model adı gerekli",
+    "providers.embedding_missing_fields": "api key ve model adı gerekli",
+    "providers.headers_invalid_json": "headers geçerli bir JSON nesnesi değil: {exc}",
+    "providers.headers_not_object": "headers bir JSON nesnesi (obje) olmalı",
+    # -- commands/status.py ------------------------------------------------------
+    "status.heading": "Rona kurulumu: {root}",
+    "status.backend_running": "Backend  çalışıyor  (uptime {uptime}s, model {model})",
+    "status.backend_stopped": "Backend  çalışmıyor  ({detail})",
+    "status.web_running": "Web      çalışıyor  (pid {pid}, uptime {uptime}s)",
+    "status.web_stopped": "Web      çalışmıyor  ({detail})",
+    "status.packages_installed": "Kurulu araç paketleri ({count}): {packages}",
+    "status.no_packages": "Kurulu araç paketi yok.",
+    "status.help": "Backend, web ve araç paketlerinin durumunu göster",
+    # -- commands/server.py -------------------------------------------------------
+    "server.no_auth_token": "AUTH_TOKEN ayarlanmamış",
+    "server.already_running": "backend zaten çalışıyor",
+    "server.systemctl_start_failed": "systemctl start başarısız oldu",
+    "server.exited_immediately": "backend hemen sonlandı (çıkış kodu {code}); {tail}",
+    "server.started": "backend {host}:{port} adresinde başlatıldı",
+    "server.start_timeout": "backend zaman aşımı içinde sağlıklı duruma gelmedi (`rona log tail` ile kontrol et)",
+    "server.already_stopped": "backend zaten çalışmıyor",
+    "server.systemctl_stop_failed": "systemctl stop başarısız oldu",
+    "server.stop_no_pid": (
+        "durdurulacak süreç bulunamadı (pid dosyası yok); backend rona "
+        "dışında başlatılmış olabilir, elle durdurman gerekir"
+    ),
+    "server.stopped": "backend durduruldu",
+    "server.stop_timeout": "backend zaman aşımı içinde durmadı",
+    "server.status_running": "Backend {host}:{port} adresinde çalışıyor (uptime {uptime}s, model {model})",
+    "server.pro_configured": "yapılandırıldı",
+    "server.pro_not_configured": "yok",
+    "server.scheduler_running": "çalışıyor",
+    "server.scheduler_stopped": "kapalı",
+    "server.status_detail": "         pro model: {pro}, zamanlayıcı: {scheduler}",
+    "server.status_stopped": "Backend çalışmıyor ({detail})",
+    "server.help_group": "Backend sürecini yönet",
+    "server.help_start": "Backend sürecini başlat",
+    "server.help_stop": "Backend sürecini durdur",
+    "server.help_restart": "Backend sürecini yeniden başlat",
+    "server.help_status": "Backend sürecinin durumunu göster",
+    # -- commands/web.py -----------------------------------------------------------
+    "web.status_running": "Web paneli {host}:{port} adresinde çalışıyor (pid {pid}, uptime {uptime}s)",
+    "web.status_stopped": "Web paneli çalışmıyor ({detail})",
+    "web.help_group": "Web panelini yönet",
+    "web.help_start": "Web panelini başlat",
+    "web.help_stop": "Web panelini durdur",
+    "web.help_restart": "Web panelini yeniden başlat",
+    "web.help_status": "Web panelinin durumunu göster",
+    # -- commands/edit/__init__.py --------------------------------------------------
+    "edit.help_group": "Yapılandırmayı düzenle",
+    # -- commands/edit/auth.py -------------------------------------------------------
+    "auth.confirm_reset": (
+        "Yeni bir AUTH_TOKEN üretilip backend ve web .env dosyalarına yazılsın mı? "
+        "Çalışan süreçlerin yeniden başlatılması gerekir."
+    ),
+    "auth.restart_hint": "Değişikliğin geçmesi için `rona server restart` ve `rona web restart` çalıştır.",
+    "auth.reset_ok": "Yeni AUTH_TOKEN backend ve web .env dosyalarına yazıldı.",
+    "auth.empty_token": "token boş olamaz",
+    "auth.set_ok": "AUTH_TOKEN backend ve web .env dosyalarına yazıldı.",
+    "auth.help_group": "Paylaşılan AUTH_TOKEN'ı yönet",
+    "auth.help_get": "Mevcut token'ı göster",
+    "auth.help_show_flag": "token'ı maskelemeden göster",
+    "auth.help_reset": "Yeni rastgele bir token üret",
+    "auth.help_set": "Belirli bir token'ı ayarla",
+    # -- commands/edit/env.py ---------------------------------------------------------
+    "env.creating": "{path} henüz yok; oluşturuluyor.",
+    "env.editor_failed": "Düzenleyici çalıştırılamadı: {command}",
+    "env.open_manually": "Dosyayı elle aç: {path}",
+    "env.help_group": ".env dosyasını düzenleyicide aç",
+    "env.help_backend_flag": "backend/.env dosyasını aç (varsayılan)",
+    "env.help_web_flag": "web-client/.env dosyasını aç",
+    # -- commands/edit/model.py -------------------------------------------------------
+    "model.heading": "{target} model ayarları",
+    "model.prompt_field": "  {field} [{shown}] (boş bırak = değiştirme): ",
+    "model.embedding_ignored_flag": "embedding hedefi için --{flag} yok sayıldı",
+    "model.confirm_save_despite_failure": "Test başarısız oldu ({detail}). Yine de kaydedilsin mi?",
+    "model.test_failed": "test başarısız: {detail}",
+    "model.test_ok": "Test başarılı.",
+    "model.saved": "{target} ayarları kaydedildi. Geçmesi için `rona server restart` çalıştır.",
+    "model.help_group": "Flash/Pro/embedding model ayarlarını düzenle",
+    "model.help_target": "düzenlenecek model katmanı",
+    "model.help_name": "model adı",
+    "model.help_url": "API taban URL'si (flash/pro)",
+    "model.help_key": "API anahtarı",
+    "model.help_headers": "ek HTTP başlıkları (JSON, flash/pro)",
+    "model.help_test": "kaydetmeden önce gerçek bir API çağrısıyla doğrula",
+    # -- commands/edit/memory.py -------------------------------------------------------
+    "memory.no_results": "Sonuç yok.",
+    "memory.result_line": "[{id}] ({layer}, skor {score}) {content}",
+    "memory.added": "Hafıza eklendi (id {id}).",
+    "memory.edit_no_fields": "değiştirilecek en az bir alan belirt (--layer/--content/--person/--metadata)",
+    "memory.updated": "Hafıza güncellendi.",
+    "memory.confirm_delete": "{id} numaralı hafıza silinsin mi?",
+    "memory.deleted": "Hafıza silindi.",
+    "memory.stats_total": "Toplam: {total}",
+    "memory.stats_split": "Genel (kişisiz): {general}, kişiye bağlı: {linked}",
+    "memory.stats_range": "En eski: {oldest}, en yeni: {newest}",
+    "memory.stats_access_count": "Toplam erişim sayısı: {count}",
+    "memory.help_group": "Hafıza kayıtlarını yönet",
+    "memory.help_search": "Anlamsal arama yap",
+    "memory.help_add": "Yeni hafıza ekle",
+    "memory.help_edit": "Var olan hafızayı düzenle",
+    "memory.help_delete": "Hafızayı sil",
+    "memory.help_stats": "Hafıza istatistiklerini göster",
+    # -- commands/task.py -------------------------------------------------------------
+    "task.no_tasks": "Görev yok.",
+    "task.list_line": "[{status:>7}] {id}  {name}  (sıradaki: {next_run})",
+    "task.confirm_delete": "{id} görevi silinsin mi?",
+    "task.deleted": "Görev silindi.",
+    "task.toggled": "Görev artık {status}.",
+    "task.help_group": "Zamanlanmış görevleri yönet",
+    "task.help_list": "Görevleri listele",
+    "task.help_delete": "Görevi sil",
+    "task.help_toggle": "Aktif/pasif durumunu değiştir",
+    # -- commands/log.py --------------------------------------------------------------
+    "log.no_records": "Kayıt yok.",
+    "log.confirm_delete": "{id} kaydı silinsin mi?",
+    "log.delete_unreported": "kayıt henüz kullanıcıya bildirilmedi; önce okunmuş olması gerekir",
+    "log.deleted": "Kayıt silindi.",
+    "log.stream_broken": "Log akışı kesildi: {exc}",
+    "log.file_not_found": "Log dosyası bulunamadı: {path}",
+    "log.following_local": "Backend çalışmıyor; yerel log dosyası izleniyor.",
+    "log.help_group": "Çalışma geçmişi ve canlı log",
+    "log.help_list": "Geçmiş kayıtları listele",
+    "log.help_unread_flag": "sadece henüz bildirilmemiş kayıtlar",
+    "log.help_show": "Bir kaydın detayını göster",
+    "log.help_delete": "Bildirilmiş bir kaydı sil",
+    "log.help_tail": "Canlı log akışını izle",
+    "log.help_level_flag": "ör. INFO, ERROR",
+    "log.help_grep_flag": "metin filtresi",
+    # -- commands/edit/lang.py (new) ----------------------------------------------------
+    "lang.help_group": "Üç bileşenin de dilini göster/ayarla (backend, web, cli)",
+    "lang.help_language_arg": "ayarlanacak dil (verilmezse mevcut diller gösterilir)",
+    "lang.help_backend_flag": "sadece backend'i ayarla",
+    "lang.help_web_flag": "sadece web panelini ayarla",
+    "lang.help_cli_flag": "sadece bu CLI'ı ayarla",
+    "lang.current_backend": "Backend : {lang}",
+    "lang.current_web": "Web     : {lang}",
+    "lang.current_cli": "CLI     : {lang}",
+    "lang.set_ok": "Dil {language} olarak ayarlandı ({changed}).",
+    "lang.restart_hint": "Değişikliğin geçmesi için `rona server restart` ve `rona web restart` çalıştır.",
+}

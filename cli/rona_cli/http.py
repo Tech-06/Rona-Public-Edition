@@ -14,6 +14,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from rona_cli import i18n
+
 
 class ApiError(RuntimeError):
     """Raised for any HTTP-level failure: refused connection, timeout, non-2xx."""
@@ -66,9 +68,9 @@ class Client:
             detail = exc.read().decode("utf-8", errors="replace")
             raise ApiError(f"HTTP {exc.code}: {detail}", status=exc.code) from exc
         except urllib.error.URLError as exc:
-            raise ApiError(f"bağlantı kurulamadı: {exc.reason}") from exc
+            raise ApiError(i18n.t("http.connection_failed", reason=exc.reason)) from exc
         except TimeoutError as exc:
-            raise ApiError("istek zaman aşımına uğradı") from exc
+            raise ApiError(i18n.t("http.timeout")) from exc
 
     def get(self, path: str, timeout: float | None = None) -> Any:
         return self.request("GET", path, timeout=timeout)
@@ -99,6 +101,6 @@ class Client:
             detail = exc.read().decode("utf-8", errors="replace")
             raise ApiError(f"HTTP {exc.code}: {detail}", status=exc.code) from exc
         except urllib.error.URLError as exc:
-            raise ApiError(f"bağlantı kurulamadı: {exc.reason}") from exc
+            raise ApiError(i18n.t("http.connection_failed", reason=exc.reason)) from exc
         except TimeoutError as exc:
-            raise ApiError("istek zaman aşımına uğradı") from exc
+            raise ApiError(i18n.t("http.timeout")) from exc

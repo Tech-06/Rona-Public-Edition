@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json as jsonlib
 
-from rona_cli import http, ui
+from rona_cli import http, i18n, ui
 from rona_cli.backend_client import BackendUnavailable, backend_client
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
@@ -47,19 +47,27 @@ def _cmd_list(args: argparse.Namespace) -> int:
         return 0
     tasks = result.get("tasks", [])
     if not tasks:
-        ui.info("Görev yok.")
+        ui.info(i18n.t("task.no_tasks"))
         return 0
     for task in tasks:
         next_run = task.get("next_run") or "-"
-        ui.info(f"[{task['status']:>7}] {task['id']}  {task['name']}  (sıradaki: {next_run})")
+        ui.info(
+            i18n.t(
+                "task.list_line",
+                status=task["status"],
+                id=task["id"],
+                name=task["name"],
+                next_run=next_run,
+            )
+        )
     return 0
 
 
 def _cmd_del(args: argparse.Namespace) -> int:
     if not args.yes and not args.json:
-        confirmed = ui.confirm(f"{args.id} görevi silinsin mi?", default=False)
+        confirmed = ui.confirm(i18n.t("task.confirm_delete", id=args.id), default=False)
         if not confirmed:
-            ui.info("Vazgeçildi.")
+            ui.info(i18n.t("common.cancelled"))
             return 1
 
     client, error = _resolve_client(args)
@@ -74,7 +82,7 @@ def _cmd_del(args: argparse.Namespace) -> int:
     if args.json:
         print(jsonlib.dumps(result, ensure_ascii=False))
     else:
-        ui.ok("Görev silindi.")
+        ui.ok(i18n.t("task.deleted"))
     return 0
 
 
@@ -97,24 +105,24 @@ def _cmd_toggle(args: argparse.Namespace) -> int:
     if args.json:
         print(jsonlib.dumps(result, ensure_ascii=False))
     else:
-        ui.ok(f"Görev artık {new_status}.")
+        ui.ok(i18n.t("task.toggled", status=new_status))
     return 0
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser("task", parents=[common], help="Zamanlanmış görevleri yönet")
+    parser = subparsers.add_parser("task", parents=[common], help=i18n.t("task.help_group"))
     sub = parser.add_subparsers(dest="task_command", required=True)
 
-    p_list = sub.add_parser("list", parents=[common], help="Görevleri listele")
+    p_list = sub.add_parser("list", parents=[common], help=i18n.t("task.help_list"))
     p_list.add_argument("--status", default="all", choices=_STATUSES)
     p_list.add_argument("--limit", type=int, default=100)
     p_list.set_defaults(func=_cmd_list)
 
-    p_del = sub.add_parser("del", parents=[common], help="Görevi sil")
+    p_del = sub.add_parser("del", parents=[common], help=i18n.t("task.help_delete"))
     p_del.add_argument("id")
-    p_del.add_argument("--yes", action="store_true", help="onay sorma")
+    p_del.add_argument("--yes", action="store_true", help=i18n.t("common.help_skip_confirm"))
     p_del.set_defaults(func=_cmd_del)
 
-    p_toggle = sub.add_parser("toggle", parents=[common], help="Aktif/pasif durumunu değiştir")
+    p_toggle = sub.add_parser("toggle", parents=[common], help=i18n.t("task.help_toggle"))
     p_toggle.add_argument("id")
     p_toggle.set_defaults(func=_cmd_toggle)

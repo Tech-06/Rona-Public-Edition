@@ -11,7 +11,7 @@ import json as jsonlib
 import time
 from pathlib import Path
 
-from rona_cli import http, ui
+from rona_cli import http, i18n, ui
 from rona_cli.backend_client import BackendUnavailable, backend_client, require_running
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
@@ -53,7 +53,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         return 0
     runs = result.get("runs", [])
     if not runs:
-        ui.info("Kayıt yok.")
+        ui.info(i18n.t("log.no_records"))
         return 0
     for run in runs:
         marker = " " if run["reported"] else "*"
@@ -83,9 +83,9 @@ def _cmd_show(args: argparse.Namespace) -> int:
 
 def _cmd_del(args: argparse.Namespace) -> int:
     if not args.yes and not args.json:
-        confirmed = ui.confirm(f"{args.id} kaydı silinsin mi?", default=False)
+        confirmed = ui.confirm(i18n.t("log.confirm_delete", id=args.id), default=False)
         if not confirmed:
-            ui.info("Vazgeçildi.")
+            ui.info(i18n.t("common.cancelled"))
             return 1
 
     client, error = _resolve_client(args)
@@ -96,14 +96,14 @@ def _cmd_del(args: argparse.Namespace) -> int:
         result = client.delete(f"/api/runs/{args.id}")
     except http.ApiError as exc:
         if exc.status == 409:
-            _emit_error(args, "kayıt henüz kullanıcıya bildirilmedi; önce okunmuş olması gerekir")
+            _emit_error(args, i18n.t("log.delete_unreported"))
         else:
             _emit_error(args, str(exc))
         return 1
     if args.json:
         print(jsonlib.dumps(result, ensure_ascii=False))
     else:
-        ui.ok("Kayıt silindi.")
+        ui.ok(i18n.t("log.deleted"))
     return 0
 
 
@@ -125,7 +125,7 @@ def _tail_remote(client: http.Client, level: str | None, grep: str | None) -> in
                 continue
             print(line, flush=True)
     except http.ApiError as exc:
-        ui.error(f"Log akışı kesildi: {exc}")
+        ui.error(i18n.t("log.stream_broken", exc=exc))
         return 1
     except KeyboardInterrupt:
         pass
@@ -134,9 +134,9 @@ def _tail_remote(client: http.Client, level: str | None, grep: str | None) -> in
 
 def _tail_local(log_path: Path, level: str | None, grep: str | None) -> int:
     if not log_path.exists():
-        ui.error(f"Log dosyası bulunamadı: {log_path}")
+        ui.error(i18n.t("log.file_not_found", path=log_path))
         return 1
-    ui.warn("Backend çalışmıyor; yerel log dosyası izleniyor.")
+    ui.warn(i18n.t("log.following_local"))
     offset = log_path.stat().st_size
     try:
         while True:
@@ -173,26 +173,26 @@ def _cmd_tail(args: argparse.Namespace) -> int:
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser("log", parents=[common], help="Çalışma geçmişi ve canlı log")
+    parser = subparsers.add_parser("log", parents=[common], help=i18n.t("log.help_group"))
     sub = parser.add_subparsers(dest="log_command", required=True)
 
-    p_list = sub.add_parser("list", parents=[common], help="Geçmiş kayıtları listele")
+    p_list = sub.add_parser("list", parents=[common], help=i18n.t("log.help_list"))
     p_list.add_argument("--kind", default="all", choices=_KINDS)
     p_list.add_argument("--status", default=None)
-    p_list.add_argument("--unread", action="store_true", help="sadece henüz bildirilmemiş kayıtlar")
+    p_list.add_argument("--unread", action="store_true", help=i18n.t("log.help_unread_flag"))
     p_list.add_argument("--limit", type=int, default=50)
     p_list.set_defaults(func=_cmd_list)
 
-    p_show = sub.add_parser("show", parents=[common], help="Bir kaydın detayını göster")
+    p_show = sub.add_parser("show", parents=[common], help=i18n.t("log.help_show"))
     p_show.add_argument("id")
     p_show.set_defaults(func=_cmd_show)
 
-    p_del = sub.add_parser("del", parents=[common], help="Bildirilmiş bir kaydı sil")
+    p_del = sub.add_parser("del", parents=[common], help=i18n.t("log.help_delete"))
     p_del.add_argument("id")
-    p_del.add_argument("--yes", action="store_true", help="onay sorma")
+    p_del.add_argument("--yes", action="store_true", help=i18n.t("common.help_skip_confirm"))
     p_del.set_defaults(func=_cmd_del)
 
-    p_tail = sub.add_parser("tail", parents=[common], help="Canlı log akışını izle")
-    p_tail.add_argument("--level", default=None, help="ör. INFO, ERROR")
-    p_tail.add_argument("--grep", default=None, help="metin filtresi")
+    p_tail = sub.add_parser("tail", parents=[common], help=i18n.t("log.help_tail"))
+    p_tail.add_argument("--level", default=None, help=i18n.t("log.help_level_flag"))
+    p_tail.add_argument("--grep", default=None, help=i18n.t("log.help_grep_flag"))
     p_tail.set_defaults(func=_cmd_tail)

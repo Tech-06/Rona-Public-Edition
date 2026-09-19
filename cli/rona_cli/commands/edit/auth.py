@@ -9,7 +9,7 @@ import argparse
 import json as jsonlib
 import secrets
 
-from rona_cli import envio, ui
+from rona_cli import envio, i18n, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 TOKEN_BYTES = 32
@@ -32,7 +32,7 @@ def _emit_error(args: argparse.Namespace, message: str) -> None:
 
 def _mask(token: str) -> str:
     if not token:
-        return "(boş)"
+        return i18n.t("common.empty")
     if len(token) <= 4:
         return "*" * len(token)
     return f"{'*' * (len(token) - 4)}{token[-4:]}"
@@ -44,7 +44,7 @@ def _write_both(paths: RonaPaths, token: str) -> None:
 
 
 def _restart_hint() -> None:
-    ui.info("Değişikliğin geçmesi için `rona server restart` ve `rona web restart` çalıştır.")
+    ui.info(i18n.t("auth.restart_hint"))
 
 
 def _cmd_get(args: argparse.Namespace) -> int:
@@ -65,20 +65,16 @@ def _cmd_reset(args: argparse.Namespace) -> int:
     if paths is None:
         return 1
     if not args.yes and not args.json:
-        confirmed = ui.confirm(
-            "Yeni bir AUTH_TOKEN üretilip backend ve web .env dosyalarına yazılsın mı? "
-            "Çalışan süreçlerin yeniden başlatılması gerekir.",
-            default=False,
-        )
+        confirmed = ui.confirm(i18n.t("auth.confirm_reset"), default=False)
         if not confirmed:
-            ui.info("Vazgeçildi.")
+            ui.info(i18n.t("common.cancelled"))
             return 1
     token = secrets.token_urlsafe(TOKEN_BYTES)
     _write_both(paths, token)
     if args.json:
         print(jsonlib.dumps({"ok": True, "token": token}, ensure_ascii=False))
     else:
-        ui.ok("Yeni AUTH_TOKEN backend ve web .env dosyalarına yazıldı.")
+        ui.ok(i18n.t("auth.reset_ok"))
         _restart_hint()
     return 0
 
@@ -89,29 +85,29 @@ def _cmd_set(args: argparse.Namespace) -> int:
         return 1
     token = args.token.strip()
     if not token:
-        _emit_error(args, "token boş olamaz")
+        _emit_error(args, i18n.t("auth.empty_token"))
         return 1
     _write_both(paths, token)
     if args.json:
         print(jsonlib.dumps({"ok": True}, ensure_ascii=False))
     else:
-        ui.ok("AUTH_TOKEN backend ve web .env dosyalarına yazıldı.")
+        ui.ok(i18n.t("auth.set_ok"))
         _restart_hint()
     return 0
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser("auth", parents=[common], help="Paylaşılan AUTH_TOKEN'ı yönet")
+    parser = subparsers.add_parser("auth", parents=[common], help=i18n.t("auth.help_group"))
     sub = parser.add_subparsers(dest="auth_command", required=True)
 
-    p_get = sub.add_parser("get", parents=[common], help="Mevcut token'ı göster")
-    p_get.add_argument("--show", action="store_true", help="token'ı maskelemeden göster")
+    p_get = sub.add_parser("get", parents=[common], help=i18n.t("auth.help_get"))
+    p_get.add_argument("--show", action="store_true", help=i18n.t("auth.help_show_flag"))
     p_get.set_defaults(func=_cmd_get)
 
-    p_reset = sub.add_parser("reset", parents=[common], help="Yeni rastgele bir token üret")
-    p_reset.add_argument("--yes", action="store_true", help="onay sorma")
+    p_reset = sub.add_parser("reset", parents=[common], help=i18n.t("auth.help_reset"))
+    p_reset.add_argument("--yes", action="store_true", help=i18n.t("common.help_skip_confirm"))
     p_reset.set_defaults(func=_cmd_reset)
 
-    p_set = sub.add_parser("set", parents=[common], help="Belirli bir token'ı ayarla")
+    p_set = sub.add_parser("set", parents=[common], help=i18n.t("auth.help_set"))
     p_set.add_argument("token")
     p_set.set_defaults(func=_cmd_set)

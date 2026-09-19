@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import json as jsonlib
 
-from rona_cli import envio, providers, ui
+from rona_cli import envio, i18n, providers, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 _TARGETS = {
@@ -33,7 +33,7 @@ _TARGETS = {
 
 def _mask(value: str) -> str:
     if not value:
-        return "(boş)"
+        return i18n.t("common.empty")
     if len(value) <= 4:
         return "*" * len(value)
     return f"{'*' * (len(value) - 4)}{value[-4:]}"
@@ -52,13 +52,13 @@ def _prompt_for_missing(
     """Interactive fallback when no --name/--url/--key/--headers were passed
     at all: show current values, let the user keep or replace each one."""
     result = dict(current)
-    ui.heading(f"{target} model ayarları")
+    ui.heading(i18n.t("model.heading", target=target))
     for field in field_map:
         if given.get(field) is not None:
             result[field] = given[field]
             continue
-        shown = _mask(current[field]) if field == "key" else (current[field] or "(boş)")
-        raw = input(f"  {field} [{shown}] (boş bırak = değiştirme): ").strip()
+        shown = _mask(current[field]) if field == "key" else (current[field] or i18n.t("common.empty"))
+        raw = input(i18n.t("model.prompt_field", field=field, shown=shown)).strip()
         if raw:
             result[field] = raw
     return result
@@ -100,7 +100,7 @@ def _cmd(args: argparse.Namespace) -> int:
     if args.target == "embedding" and not args.json:
         for ignored in ("url", "headers"):
             if getattr(args, ignored, None) is not None:
-                ui.warn(f"embedding hedefi için --{ignored} yok sayıldı")
+                ui.warn(i18n.t("model.embedding_ignored_flag", flag=ignored))
 
     env = envio.read_env_file(paths.backend_env)
     current = _current_values(env, field_map)
@@ -118,12 +118,12 @@ def _cmd(args: argparse.Namespace) -> int:
         ok, detail = _run_test(args.target, values)
         if not ok:
             if args.json or not ui.confirm(
-                f"Test başarısız oldu ({detail}). Yine de kaydedilsin mi?", default=False
+                i18n.t("model.confirm_save_despite_failure", detail=detail), default=False
             ):
-                _emit_error(args, f"test başarısız: {detail}")
+                _emit_error(args, i18n.t("model.test_failed", detail=detail))
                 return 1
         elif not args.json:
-            ui.ok("Test başarılı.")
+            ui.ok(i18n.t("model.test_ok"))
 
     updates: dict[str, str] = {}
     for field, env_key in field_map.items():
@@ -141,23 +141,16 @@ def _cmd(args: argparse.Namespace) -> int:
     if args.json:
         print(jsonlib.dumps({"ok": True, "target": args.target}, ensure_ascii=False))
     else:
-        ui.ok(
-            f"{args.target} ayarları kaydedildi. Geçmesi için "
-            "`rona server restart` çalıştır."
-        )
+        ui.ok(i18n.t("model.saved", target=args.target))
     return 0
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser(
-        "model", parents=[common], help="Flash/Pro/embedding model ayarlarını düzenle"
-    )
-    parser.add_argument("target", choices=sorted(_TARGETS), help="düzenlenecek model katmanı")
-    parser.add_argument("--name", default=None, help="model adı")
-    parser.add_argument("--url", default=None, help="API taban URL'si (flash/pro)")
-    parser.add_argument("--key", default=None, help="API anahtarı")
-    parser.add_argument("--headers", default=None, help="ek HTTP başlıkları (JSON, flash/pro)")
-    parser.add_argument(
-        "--test", action="store_true", help="kaydetmeden önce gerçek bir API çağrısıyla doğrula"
-    )
+    parser = subparsers.add_parser("model", parents=[common], help=i18n.t("model.help_group"))
+    parser.add_argument("target", choices=sorted(_TARGETS), help=i18n.t("model.help_target"))
+    parser.add_argument("--name", default=None, help=i18n.t("model.help_name"))
+    parser.add_argument("--url", default=None, help=i18n.t("model.help_url"))
+    parser.add_argument("--key", default=None, help=i18n.t("model.help_key"))
+    parser.add_argument("--headers", default=None, help=i18n.t("model.help_headers"))
+    parser.add_argument("--test", action="store_true", help=i18n.t("model.help_test"))
     parser.set_defaults(func=_cmd)

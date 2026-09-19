@@ -6,7 +6,7 @@ import argparse
 import io
 import sys
 
-from rona_cli import __version__
+from rona_cli import __version__, i18n
 from rona_cli.commands import edit, log, server, status, task, web
 
 
@@ -42,11 +42,8 @@ def _common_parser(*, suppress: bool) -> argparse.ArgumentParser:
     """
     kwargs: dict = {"argument_default": argparse.SUPPRESS} if suppress else {}
     parser = argparse.ArgumentParser(add_help=False, **kwargs)
-    parser.add_argument(
-        "--root",
-        help="Rona kurulumunun kök klasörü (varsayılan: otomatik bulunur)",
-    )
-    parser.add_argument("--json", action="store_true", help="çıktıyı JSON olarak ver")
+    parser.add_argument("--root", help=i18n.t("cli.help_root"))
+    parser.add_argument("--json", action="store_true", help=i18n.t("cli.help_json"))
     return parser
 
 
@@ -56,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="rona",
-        description="Rona kurulumunu terminalden yönetmek için araç.",
+        description=i18n.t("cli.description"),
         parents=[root_common],
     )
     parser.add_argument("--version", action="version", version=f"rona {__version__}")
@@ -71,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     _ensure_utf8_streams()
+    i18n.set_language(i18n.resolve_language())
     parser = build_parser()
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)

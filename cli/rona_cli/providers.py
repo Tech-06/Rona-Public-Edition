@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from rona_cli import http
+from rona_cli import http, i18n
 
 GOOGLE_EMBED_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -20,7 +20,7 @@ def test_chat_model(
     """POST a one-token ping to an OpenAI-compatible `/chat/completions`
     endpoint (the same shape `app/llm.py` uses via the `openai` SDK)."""
     if not url or not api_key or not model:
-        return False, "url, key ve model adı gerekli"
+        return False, i18n.t("providers.chat_missing_fields")
     client = http.Client(
         base_url=url, token=api_key, timeout=15.0, extra_headers=headers or {}
     )
@@ -41,7 +41,7 @@ def _normalize_embedding_model(model: str) -> str:
 def test_embedding(api_key: str, model: str) -> tuple[bool, str]:
     """POST a one-word embedding request to the Gemini REST API."""
     if not api_key or not model:
-        return False, "api key ve model adı gerekli"
+        return False, i18n.t("providers.embedding_missing_fields")
     normalized = _normalize_embedding_model(model)
     client = http.Client(base_url=GOOGLE_EMBED_BASE_URL, timeout=15.0)
     try:
@@ -62,10 +62,10 @@ def parse_headers(raw: str | None) -> dict[str, str]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"headers geçerli bir JSON nesnesi değil: {exc}") from exc
+        raise ValueError(i18n.t("providers.headers_invalid_json", exc=exc)) from exc
     if not isinstance(parsed, dict):
         # A ValueError (not TypeError) on purpose: every caller catches
         # ValueError uniformly for "the --headers string was bad", whether
         # that's invalid JSON or valid JSON of the wrong shape.
-        raise ValueError("headers bir JSON nesnesi (obje) olmalı")  # noqa: TRY004
+        raise ValueError(i18n.t("providers.headers_not_object"))  # noqa: TRY004
     return {str(k): str(v) for k, v in parsed.items()}

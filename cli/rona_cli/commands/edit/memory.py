@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import json as jsonlib
 
-from rona_cli import http, ui
+from rona_cli import http, i18n, ui
 from rona_cli.backend_client import BackendUnavailable, backend_client
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
@@ -55,10 +55,18 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return 0
     results = result.get("results", [])
     if not results:
-        ui.info("Sonuç yok.")
+        ui.info(i18n.t("memory.no_results"))
         return 0
     for item in results:
-        ui.info(f"[{item['id']}] ({item['layer']}, skor {item['score']}) {item['content']}")
+        ui.info(
+            i18n.t(
+                "memory.result_line",
+                id=item["id"],
+                layer=item["layer"],
+                score=item["score"],
+                content=item["content"],
+            )
+        )
     return 0
 
 
@@ -68,7 +76,7 @@ def _cmd_add(args: argparse.Namespace) -> int:
         try:
             metadata = jsonlib.loads(args.metadata)
         except jsonlib.JSONDecodeError as exc:
-            _emit_error(args, f"metadata geçerli bir JSON nesnesi değil: {exc}")
+            _emit_error(args, i18n.t("common.metadata_invalid_json", exc=exc))
             return 1
 
     client, error = _resolve_client(args)
@@ -89,7 +97,7 @@ def _cmd_add(args: argparse.Namespace) -> int:
     if args.json:
         print(jsonlib.dumps(result, ensure_ascii=False))
     else:
-        ui.ok(f"Hafıza eklendi (id {result.get('id')}).")
+        ui.ok(i18n.t("memory.added", id=result.get("id")))
     return 0
 
 
@@ -99,7 +107,7 @@ def _cmd_edit(args: argparse.Namespace) -> int:
         try:
             metadata = jsonlib.loads(args.metadata)
         except jsonlib.JSONDecodeError as exc:
-            _emit_error(args, f"metadata geçerli bir JSON nesnesi değil: {exc}")
+            _emit_error(args, i18n.t("common.metadata_invalid_json", exc=exc))
             return 1
 
     payload: dict = {}
@@ -112,7 +120,7 @@ def _cmd_edit(args: argparse.Namespace) -> int:
     if metadata is not None:
         payload["metadata"] = metadata
     if not payload:
-        _emit_error(args, "değiştirilecek en az bir alan belirt (--layer/--content/--person/--metadata)")
+        _emit_error(args, i18n.t("memory.edit_no_fields"))
         return 1
 
     client, error = _resolve_client(args)
@@ -127,15 +135,15 @@ def _cmd_edit(args: argparse.Namespace) -> int:
     if args.json:
         print(jsonlib.dumps(result, ensure_ascii=False))
     else:
-        ui.ok("Hafıza güncellendi.")
+        ui.ok(i18n.t("memory.updated"))
     return 0
 
 
 def _cmd_delete(args: argparse.Namespace) -> int:
     if not args.yes and not args.json:
-        confirmed = ui.confirm(f"{args.id} numaralı hafıza silinsin mi?", default=False)
+        confirmed = ui.confirm(i18n.t("memory.confirm_delete", id=args.id), default=False)
         if not confirmed:
-            ui.info("Vazgeçildi.")
+            ui.info(i18n.t("common.cancelled"))
             return 1
 
     client, error = _resolve_client(args)
@@ -150,7 +158,7 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     if args.json:
         print(jsonlib.dumps(result, ensure_ascii=False))
     else:
-        ui.ok("Hafıza silindi.")
+        ui.ok(i18n.t("memory.deleted"))
     return 0
 
 
@@ -167,24 +175,33 @@ def _cmd_stats(args: argparse.Namespace) -> int:
     if args.json:
         print(jsonlib.dumps(result, ensure_ascii=False))
         return 0
-    ui.info(f"Toplam: {result['total']}")
+    ui.info(i18n.t("memory.stats_total", total=result["total"]))
     for layer, count in result["by_layer"].items():
         ui.info(f"  {layer}: {count}")
     ui.info(
-        f"Genel (kişisiz): {result['general_count']}, "
-        f"kişiye bağlı: {result['person_linked_count']}"
+        i18n.t(
+            "memory.stats_split",
+            general=result["general_count"],
+            linked=result["person_linked_count"],
+        )
     )
     if result["oldest_created_at"]:
-        ui.info(f"En eski: {result['oldest_created_at']}, en yeni: {result['newest_created_at']}")
-    ui.info(f"Toplam erişim sayısı: {result['total_access_count']}")
+        ui.info(
+            i18n.t(
+                "memory.stats_range",
+                oldest=result["oldest_created_at"],
+                newest=result["newest_created_at"],
+            )
+        )
+    ui.info(i18n.t("memory.stats_access_count", count=result["total_access_count"]))
     return 0
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser("memory", parents=[common], help="Hafıza kayıtlarını yönet")
+    parser = subparsers.add_parser("memory", parents=[common], help=i18n.t("memory.help_group"))
     sub = parser.add_subparsers(dest="memory_command", required=True)
 
-    p_search = sub.add_parser("search", parents=[common], help="Anlamsal arama yap")
+    p_search = sub.add_parser("search", parents=[common], help=i18n.t("memory.help_search"))
     p_search.add_argument("query")
     p_search.add_argument("--person", default=None)
     p_search.add_argument("--date-from", dest="date_from", default=None)
@@ -192,25 +209,25 @@ def register(subparsers, common) -> None:
     p_search.add_argument("--limit", type=int, default=10)
     p_search.set_defaults(func=_cmd_search)
 
-    p_add = sub.add_parser("add", parents=[common], help="Yeni hafıza ekle")
+    p_add = sub.add_parser("add", parents=[common], help=i18n.t("memory.help_add"))
     p_add.add_argument("content")
     p_add.add_argument("--layer", required=True, choices=_LAYERS)
-    p_add.add_argument("--person", type=int, default=None, help="kişi ID'si")
-    p_add.add_argument("--metadata", default=None, help="JSON nesnesi")
+    p_add.add_argument("--person", type=int, default=None, help=i18n.t("common.help_person_id"))
+    p_add.add_argument("--metadata", default=None, help=i18n.t("common.help_json_object"))
     p_add.set_defaults(func=_cmd_add)
 
-    p_edit = sub.add_parser("edit", parents=[common], help="Var olan hafızayı düzenle")
+    p_edit = sub.add_parser("edit", parents=[common], help=i18n.t("memory.help_edit"))
     p_edit.add_argument("id", type=int)
     p_edit.add_argument("--layer", default=None, choices=_LAYERS)
     p_edit.add_argument("--content", default=None)
-    p_edit.add_argument("--person", type=int, default=None, help="kişi ID'si")
-    p_edit.add_argument("--metadata", default=None, help="JSON nesnesi")
+    p_edit.add_argument("--person", type=int, default=None, help=i18n.t("common.help_person_id"))
+    p_edit.add_argument("--metadata", default=None, help=i18n.t("common.help_json_object"))
     p_edit.set_defaults(func=_cmd_edit)
 
-    p_delete = sub.add_parser("delete", parents=[common], help="Hafızayı sil")
+    p_delete = sub.add_parser("delete", parents=[common], help=i18n.t("memory.help_delete"))
     p_delete.add_argument("id", type=int)
-    p_delete.add_argument("--yes", action="store_true", help="onay sorma")
+    p_delete.add_argument("--yes", action="store_true", help=i18n.t("common.help_skip_confirm"))
     p_delete.set_defaults(func=_cmd_delete)
 
-    p_stats = sub.add_parser("stats", parents=[common], help="Hafıza istatistiklerini göster")
+    p_stats = sub.add_parser("stats", parents=[common], help=i18n.t("memory.help_stats"))
     p_stats.set_defaults(func=_cmd_stats)

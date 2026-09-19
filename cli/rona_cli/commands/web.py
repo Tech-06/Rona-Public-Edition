@@ -15,7 +15,7 @@ import json as jsonlib
 import subprocess
 from typing import Any
 
-from rona_cli import envio, http, ui
+from rona_cli import envio, http, i18n, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 
@@ -92,26 +92,31 @@ def _cmd_status(args: argparse.Namespace) -> int:
         return 0
     if data.get("running"):
         ui.ok(
-            f"Web paneli {data['host']}:{data['port']} adresinde çalışıyor "
-            f"(pid {data.get('pid')}, uptime {data.get('uptime_seconds', '?')}s)"
+            i18n.t(
+                "web.status_running",
+                host=data["host"],
+                port=data["port"],
+                pid=data.get("pid"),
+                uptime=data.get("uptime_seconds", "?"),
+            )
         )
     else:
-        ui.warn(f"Web paneli çalışmıyor ({data.get('detail', '')})")
+        ui.warn(i18n.t("web.status_stopped", detail=data.get("detail", "")))
     return 0
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser("web", parents=[common], help="Web panelini yönet")
+    parser = subparsers.add_parser("web", parents=[common], help=i18n.t("web.help_group"))
     sub = parser.add_subparsers(dest="web_command", required=True)
 
-    p_start = sub.add_parser("start", parents=[common], help="Web panelini başlat")
+    p_start = sub.add_parser("start", parents=[common], help=i18n.t("web.help_start"))
     p_start.set_defaults(func=_cmd_start)
 
-    p_stop = sub.add_parser("stop", parents=[common], help="Web panelini durdur")
+    p_stop = sub.add_parser("stop", parents=[common], help=i18n.t("web.help_stop"))
     p_stop.set_defaults(func=_cmd_stop)
 
-    p_restart = sub.add_parser("restart", parents=[common], help="Web panelini yeniden başlat")
+    p_restart = sub.add_parser("restart", parents=[common], help=i18n.t("web.help_restart"))
     p_restart.set_defaults(func=_cmd_restart)
 
-    p_status = sub.add_parser("status", parents=[common], help="Web panelinin durumunu göster")
+    p_status = sub.add_parser("status", parents=[common], help=i18n.t("web.help_status"))
     p_status.set_defaults(func=_cmd_status)

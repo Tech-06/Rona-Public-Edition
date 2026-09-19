@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import sys
 
+from rona_cli import i18n
+
 _NO_COLOR = bool(os.environ.get("NO_COLOR")) or not sys.stdout.isatty()
 
 _RESET = "\033[0m"
@@ -49,7 +51,7 @@ def heading(text: str) -> None:
 
 
 def confirm(prompt: str, default: bool = False) -> bool:
-    suffix = "[E/h]" if default else "[e/H]"
+    suffix = i18n.t("ui.confirm_default_yes_suffix" if default else "ui.confirm_default_no_suffix")
     try:
         answer = input(f"{prompt} {suffix} ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -57,4 +59,5 @@ def confirm(prompt: str, default: bool = False) -> bool:
         return False
     if not answer:
         return default
-    return answer in ("e", "evet", "y", "yes")
+    yes_words = i18n.t("ui.confirm_yes_words").split(",")
+    return answer in yes_words

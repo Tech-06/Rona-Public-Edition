@@ -17,7 +17,7 @@ import subprocess
 import time
 from typing import Any
 
-from rona_cli import envio, http, procutil, ui
+from rona_cli import envio, http, i18n, procutil, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 START_TIMEOUT_SECONDS = 25
@@ -86,7 +86,7 @@ def describe(paths: RonaPaths) -> dict[str, Any]:
             "running": False,
             "host": host,
             "port": port,
-            "detail": "AUTH_TOKEN ayarlanmamış",
+            "detail": i18n.t("server.no_auth_token"),
         }
     try:
         data = client.get("/api/status")
@@ -99,12 +99,12 @@ def describe(paths: RonaPaths) -> dict[str, Any]:
 def _start(paths: RonaPaths) -> tuple[bool, str]:
     client, host, port, have_token = _client(paths)
     if _healthy(client, host, port, have_token):
-        return True, "backend zaten çalışıyor"
+        return True, i18n.t("server.already_running")
 
     if _systemctl_available():
         started, detail = _run_systemctl("start")
         if not started:
-            return False, detail or "systemctl start başarısız oldu"
+            return False, detail or i18n.t("server.systemctl_start_failed")
     else:
         python = paths.backend_python()
         log_path = paths.backend_dir / "backend_spawn.log"
@@ -116,44 +116,41 @@ def _start(paths: RonaPaths) -> tuple[bool, str]:
         if proc.poll() is not None:
             procutil.clear_pid_file(paths.backend_pid)
             tail = "; ".join(procutil.tail_lines(log_path, 5))
-            return False, f"backend hemen sonlandı (çıkış kodu {proc.returncode}); {tail}"
+            return False, i18n.t("server.exited_immediately", code=proc.returncode, tail=tail)
 
     deadline = time.monotonic() + START_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if _healthy(client, host, port, have_token):
-            return True, f"backend {host}:{port} adresinde başlatıldı"
+            return True, i18n.t("server.started", host=host, port=port)
         time.sleep(POLL_INTERVAL_SECONDS)
-    return False, "backend zaman aşımı içinde sağlıklı duruma gelmedi (`rona log tail` ile kontrol et)"
+    return False, i18n.t("server.start_timeout")
 
 
 def _stop(paths: RonaPaths) -> tuple[bool, str]:
     client, host, port, have_token = _client(paths)
     if not _healthy(client, host, port, have_token) and not procutil.port_open(host, port):
         procutil.clear_pid_file(paths.backend_pid)
-        return True, "backend zaten çalışmıyor"
+        return True, i18n.t("server.already_stopped")
 
     if _systemctl_available():
         stopped, detail = _run_systemctl("stop")
         if not stopped:
-            return False, detail or "systemctl stop başarısız oldu"
+            return False, detail or i18n.t("server.systemctl_stop_failed")
     else:
         pid = procutil.read_pid_file(paths.backend_pid)
         if pid is None or not procutil.pid_alive(pid):
             pid = procutil.find_pid_by_port(host, port)
         if pid is None:
-            return False, (
-                "durdurulacak süreç bulunamadı (pid dosyası yok); backend rona "
-                "dışında başlatılmış olabilir, elle durdurman gerekir"
-            )
+            return False, i18n.t("server.stop_no_pid")
         procutil.kill_tree(pid)
 
     procutil.clear_pid_file(paths.backend_pid)
     deadline = time.monotonic() + STOP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if not procutil.port_open(host, port):
-            return True, "backend durduruldu"
+            return True, i18n.t("server.stopped")
         time.sleep(POLL_INTERVAL_SECONDS)
-    return False, "backend zaman aşımı içinde durmadı"
+    return False, i18n.t("server.stop_timeout")
 
 
 def _restart(paths: RonaPaths) -> tuple[bool, str]:
@@ -225,30 +222,36 @@ def _cmd_status(args: argparse.Namespace) -> int:
         return 0
     if data.get("running"):
         ui.ok(
-            f"Backend {data['host']}:{data['port']} adresinde çalışıyor "
-            f"(uptime {data.get('uptime_seconds', '?')}s, model {data.get('flash_model', '?')})"
+            i18n.t(
+                "server.status_running",
+                host=data["host"],
+                port=data["port"],
+                uptime=data.get("uptime_seconds", "?"),
+                model=data.get("flash_model", "?"),
+            )
         )
-        ui.info(
-            f"         pro model: {'yapılandırıldı' if data.get('pro_configured') else 'yok'}, "
-            f"zamanlayıcı: {'çalışıyor' if data.get('scheduler_running') else 'kapalı'}"
+        pro = i18n.t("server.pro_configured" if data.get("pro_configured") else "server.pro_not_configured")
+        scheduler = i18n.t(
+            "server.scheduler_running" if data.get("scheduler_running") else "server.scheduler_stopped"
         )
+        ui.info(i18n.t("server.status_detail", pro=pro, scheduler=scheduler))
     else:
-        ui.warn(f"Backend çalışmıyor ({data.get('detail', '')})")
+        ui.warn(i18n.t("server.status_stopped", detail=data.get("detail", "")))
     return 0
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser("server", parents=[common], help="Backend sürecini yönet")
+    parser = subparsers.add_parser("server", parents=[common], help=i18n.t("server.help_group"))
     sub = parser.add_subparsers(dest="server_command", required=True)
 
-    p_start = sub.add_parser("start", parents=[common], help="Backend sürecini başlat")
+    p_start = sub.add_parser("start", parents=[common], help=i18n.t("server.help_start"))
     p_start.set_defaults(func=_cmd_start)
 
-    p_stop = sub.add_parser("stop", parents=[common], help="Backend sürecini durdur")
+    p_stop = sub.add_parser("stop", parents=[common], help=i18n.t("server.help_stop"))
     p_stop.set_defaults(func=_cmd_stop)
 
-    p_restart = sub.add_parser("restart", parents=[common], help="Backend sürecini yeniden başlat")
+    p_restart = sub.add_parser("restart", parents=[common], help=i18n.t("server.help_restart"))
     p_restart.set_defaults(func=_cmd_restart)
 
-    p_status = sub.add_parser("status", parents=[common], help="Backend sürecinin durumunu göster")
+    p_status = sub.add_parser("status", parents=[common], help=i18n.t("server.help_status"))
     p_status.set_defaults(func=_cmd_status)

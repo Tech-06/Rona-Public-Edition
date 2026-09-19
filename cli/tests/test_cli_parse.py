@@ -1,7 +1,9 @@
 import io
+from pathlib import Path
 
 import pytest
 
+from rona_cli import i18n
 from rona_cli.cli import _ensure_utf8_streams, build_parser, main
 
 
@@ -179,3 +181,31 @@ def test_ensure_utf8_streams_ignores_non_text_streams(monkeypatch):
     monkeypatch.setattr("sys.stdout", object())
     monkeypatch.setattr("sys.stderr", object())
     _ensure_utf8_streams()  # must not raise
+
+
+def test_rona_lang_env_var_switches_help_text_language(monkeypatch, capsys):
+    # main() resolves and applies the language (RONA_LANG here) before
+    # building the parser, so --help text itself comes out in English.
+    original = i18n.get_language()
+    monkeypatch.setenv("RONA_LANG", "en")
+    try:
+        with pytest.raises(SystemExit):
+            main(["--help"])
+    finally:
+        i18n.set_language(original)
+    out = capsys.readouterr().out
+    assert "Tool for managing a Rona installation" in out
+    assert "Rona kurulumunu terminalden yönetmek" not in out
+
+
+def test_default_language_help_text_is_turkish(monkeypatch, capsys):
+    original = i18n.get_language()
+    monkeypatch.delenv("RONA_LANG", raising=False)
+    monkeypatch.setattr(i18n, "state_file", lambda: Path("/no/such/file.json"))
+    try:
+        with pytest.raises(SystemExit):
+            main(["--help"])
+    finally:
+        i18n.set_language(original)
+    out = capsys.readouterr().out
+    assert "Rona kurulumunu terminalden yönetmek" in out

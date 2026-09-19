@@ -56,14 +56,13 @@ def _search_upward(start: Path) -> Path | None:
 
 def find_root(explicit: str | Path | None = None) -> Path:
     """Resolve the Rona installation root, or raise ``RonaNotFoundError``."""
+    from rona_cli import i18n
+
     if explicit:
         candidate = Path(explicit).resolve()
         if _looks_like_root(candidate):
             return candidate
-        raise RonaNotFoundError(
-            f"'{candidate}' bir Rona kurulumu gibi görünmüyor "
-            "(backend/ ve web-client/ alt klasörleri bekleniyor)."
-        )
+        raise RonaNotFoundError(i18n.t("paths.invalid_root", candidate=candidate))
 
     env_root = os.environ.get("RONA_HOME")
     if env_root:
@@ -83,22 +82,18 @@ def find_root(explicit: str | Path | None = None) -> Path:
     if cwd_root is not None:
         return cwd_root
 
-    raise RonaNotFoundError(
-        "Rona kurulumu bulunamadı. `rona --root <yol>` ile belirt, "
-        "RONA_HOME ortam değişkenini ayarla ya da kurulum scriptini çalıştır."
-    )
+    raise RonaNotFoundError(i18n.t("paths.not_found"))
 
 
 def _venv_python(venv_dir: Path) -> Path:
+    from rona_cli import i18n
+
     if os.name == "nt":
         candidate = venv_dir / "Scripts" / "python.exe"
     else:
         candidate = venv_dir / "bin" / "python"
     if not candidate.is_file():
-        raise RonaNotFoundError(
-            f"Sanal ortam bulunamadı: {venv_dir}. Kurulum scriptini çalıştır "
-            "ya da elle oluştur."
-        )
+        raise RonaNotFoundError(i18n.t("paths.venv_missing", venv_dir=venv_dir))
     return candidate
 
 

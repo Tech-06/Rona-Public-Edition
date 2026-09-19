@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 import json as jsonlib
 
-from rona_cli import ui
+from rona_cli import i18n, ui
 from rona_cli.commands import server, web
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
@@ -52,33 +52,40 @@ def _run(args: argparse.Namespace) -> int:
         )
         return 0
 
-    ui.heading(f"Rona kurulumu: {root}")
+    ui.heading(i18n.t("status.heading", root=root))
     ui.info()
 
     if backend.get("running"):
         ui.ok(
-            f"Backend  çalışıyor  (uptime {backend.get('uptime_seconds', '?')}s, "
-            f"model {backend.get('flash_model', '?')})"
+            i18n.t(
+                "status.backend_running",
+                uptime=backend.get("uptime_seconds", "?"),
+                model=backend.get("flash_model", "?"),
+            )
         )
     else:
-        ui.warn(f"Backend  çalışmıyor  ({backend.get('detail', '')})")
+        ui.warn(i18n.t("status.backend_stopped", detail=backend.get("detail", "")))
 
     if dashboard.get("running"):
-        ui.ok(f"Web      çalışıyor  (pid {dashboard.get('pid')}, uptime {dashboard.get('uptime_seconds', '?')}s)")
+        ui.ok(
+            i18n.t(
+                "status.web_running",
+                pid=dashboard.get("pid"),
+                uptime=dashboard.get("uptime_seconds", "?"),
+            )
+        )
     else:
-        ui.warn(f"Web      çalışmıyor  ({dashboard.get('detail', '')})")
+        ui.warn(i18n.t("status.web_stopped", detail=dashboard.get("detail", "")))
 
     ui.info()
     if packages:
-        ui.info(f"Kurulu araç paketleri ({len(packages)}): {', '.join(packages)}")
+        ui.info(i18n.t("status.packages_installed", count=len(packages), packages=", ".join(packages)))
     else:
-        ui.info("Kurulu araç paketi yok.")
+        ui.info(i18n.t("status.no_packages"))
 
     return 0
 
 
 def register(subparsers, common) -> None:
-    parser = subparsers.add_parser(
-        "status", parents=[common], help="Backend, web ve araç paketlerinin durumunu göster"
-    )
+    parser = subparsers.add_parser("status", parents=[common], help=i18n.t("status.help"))
     parser.set_defaults(func=_run)

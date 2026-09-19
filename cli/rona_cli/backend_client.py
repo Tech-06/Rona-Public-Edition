@@ -6,7 +6,7 @@ need the backend to be up.
 
 from __future__ import annotations
 
-from rona_cli import envio, http
+from rona_cli import envio, http, i18n
 from rona_cli.paths import RonaPaths
 
 
@@ -31,9 +31,7 @@ def backend_client(paths: RonaPaths, *, timeout: float = 10.0) -> http.Client:
     env = envio.read_env_file(paths.backend_env)
     token = env.get("AUTH_TOKEN", "")
     if not token:
-        raise BackendUnavailable(
-            "AUTH_TOKEN ayarlanmamış; önce `rona edit auth reset` çalıştır."
-        )
+        raise BackendUnavailable(i18n.t("backend_client.no_auth_token"))
     host, port = _env_host_port(env)
     return http.Client(base_url=f"http://{host}:{port}", token=token, timeout=timeout)
 
@@ -43,6 +41,4 @@ def require_running(client: http.Client) -> None:
     try:
         client.get("/health", timeout=3.0)
     except http.ApiError as exc:
-        raise BackendUnavailable(
-            f"Backend'e ulaşılamadı ({exc}); önce `rona server start` çalıştır."
-        ) from exc
+        raise BackendUnavailable(i18n.t("backend_client.unreachable", exc=exc)) from exc
