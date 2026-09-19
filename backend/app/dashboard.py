@@ -22,7 +22,14 @@ from toolbox import manager as toolbox_manager
 from toolbox import packages as toolbox_packages
 from toolbox.db import DB_PATH
 from toolbox.registry import iter_specs
-from toolbox.tools.mem_tool import get_memories
+from toolbox.tools.mem_tool import (
+    add_memory,
+    delete_memory,
+    edit_memory,
+    get_memories,
+    memory_stats,
+    search_memories,
+)
 from toolbox.tools.people_tool import get_people
 from trigger import scheduler as trigger_scheduler
 from trigger import store as trigger_store
@@ -294,6 +301,77 @@ async def get_subagent(run_id: str):
     return run
 
 
+_RUN_KINDS = ("all", "task", "subagent")
+
+
+@router.get("/runs")
+async def list_runs(
+    kind: str = "all",
+    status: str | None = None,
+    reported: bool | None = None,
+    limit: int = 50,
+):
+    """Combined execution history: scheduled-task runs and subagent runs,
+    merged and sorted by recency (see ``rona log`` in the CLI).
+
+    Each store validates its own ``status`` values, and they don't fully
+    overlap (task runs can be ``missed``, subagent runs can't) -- so
+    filtering happens here, generically, after fetching a batch from each
+    side that's guaranteed large enough to contain the true top ``limit``
+    once merged and re-sorted.
+    """
+    if kind not in _RUN_KINDS:
+        raise HTTPException(400, f"invalid kind: {kind}")
+
+    fetch_limit = limit * 2 if kind == "all" else limit
+    runs: list[dict[str, Any]] = []
+    if kind in ("all", "task"):
+        runs.extend({**run, "kind": "task"} for run in trigger_store.list_all_runs(fetch_limit))
+    if kind in ("all", "subagent"):
+        runs.extend(
+            {**run, "kind": "subagent"}
+            for run in subagent_store.list_runs("all", fetch_limit)
+        )
+
+    if status is not None:
+        runs = [run for run in runs if run["status"] == status]
+    if reported is not None:
+        runs = [run for run in runs if run["reported"] == reported]
+
+    runs.sort(key=lambda run: run.get("started_at") or run.get("created_at") or "", reverse=True)
+    return {"runs": runs[:limit]}
+
+
+@router.get("/runs/{run_id}")
+async def get_run_detail(run_id: str):
+    run = trigger_store.get_run(run_id)
+    if run is not None:
+        return {**run, "kind": "task"}
+    run = subagent_store.get_run(run_id)
+    if run is not None:
+        return {**run, "kind": "subagent"}
+    raise HTTPException(404, "Run not found")
+
+
+@router.delete("/runs/{run_id}")
+async def delete_run(run_id: str):
+    task_run = trigger_store.get_run(run_id)
+    if task_run is not None:
+        if not task_run["reported"]:
+            raise HTTPException(409, "Run has not been reported to the user yet")
+        trigger_store.delete_run(run_id)
+        return {"deleted": True}
+
+    subagent_run = subagent_store.get_run(run_id)
+    if subagent_run is not None:
+        if not subagent_run["reported"]:
+            raise HTTPException(409, "Run has not been reported to the user yet")
+        subagent_store.delete_run(run_id)
+        return {"deleted": True}
+
+    raise HTTPException(404, "Run not found")
+
+
 @router.get("/data/notes")
 async def data_notes(limit: int = 50, offset: int = 0):
     if not toolbox_manager.is_installed("notes"):
@@ -321,6 +399,83 @@ async def data_memories(
     return get_memories(
         limit=limit, offset=offset, person=person, date_from=date_from, date_to=date_to
     )
+
+
+@router.get("/data/memories/search")
+async def search_memories_endpoint(
+    q: str,
+    person: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 10,
+):
+    result = search_memories(
+        query=q, person=person, date_from=date_from, date_to=date_to, limit=limit
+    )
+    if not result["success"]:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+@router.get("/data/memories/stats")
+async def memory_stats_endpoint():
+    result = memory_stats()
+    if not result["success"]:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+class MemoryCreate(BaseModel):
+    layer: str
+    content: str
+    person_id: int | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class MemoryUpdate(BaseModel):
+    layer: str | None = None
+    content: str | None = None
+    person_id: int | None = None
+    metadata: dict[str, Any] | None = None
+
+
+def _memory_error_status(detail: str) -> int:
+    return 404 if "not found" in detail.lower() else 400
+
+
+@router.post("/data/memories")
+async def create_memory(payload: MemoryCreate):
+    result = add_memory(
+        layer=payload.layer,
+        content=payload.content,
+        person_id=payload.person_id,
+        metadata=payload.metadata,
+    )
+    if not result["success"]:
+        raise HTTPException(_memory_error_status(result["error"]), result["error"])
+    return result
+
+
+@router.put("/data/memories/{memory_id}")
+async def update_memory(memory_id: int, payload: MemoryUpdate):
+    result = edit_memory(
+        memory_id=memory_id,
+        layer=payload.layer,
+        content=payload.content,
+        person_id=payload.person_id,
+        metadata=payload.metadata,
+    )
+    if not result["success"]:
+        raise HTTPException(_memory_error_status(result["error"]), result["error"])
+    return result
+
+
+@router.delete("/data/memories/{memory_id}")
+async def remove_memory(memory_id: int):
+    result = delete_memory(memory_id)
+    if not result["success"]:
+        raise HTTPException(_memory_error_status(result["error"]), result["error"])
+    return result
 
 
 def _seconds_ago(timestamp: str) -> float:

@@ -267,6 +267,40 @@ def list_runs(task_id: str, limit: int = 10) -> list[dict[str, Any]]:
     return [_run_to_dict(row) for row in rows]
 
 
+def list_all_runs(limit: int = 50) -> list[dict[str, Any]]:
+    """Every task run across every task, newest first, with the owning
+    task's name attached -- used by the dashboard/CLI's combined run
+    history view (see ``app/dashboard.py``'s ``/api/runs``). Unlike
+    ``list_runs``, this is not scoped to one task.
+    """
+    connection = _get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT r.*, t.name AS task_name FROM task_runs r "
+        "JOIN tasks t ON t.id = r.task_id "
+        "ORDER BY r.started_at DESC, r.rowid DESC LIMIT ?",
+        (limit,),
+    )
+    rows = cursor.fetchall()
+    connection.close()
+    results = []
+    for row in rows:
+        item = _run_to_dict(row)
+        item["task_name"] = row["task_name"]
+        results.append(item)
+    return results
+
+
+def delete_run(run_id: str) -> bool:
+    connection = _get_connection()
+    cursor = connection.cursor()
+    cursor.execute("DELETE FROM task_runs WHERE id = ?", (run_id,))
+    changed = cursor.rowcount > 0
+    connection.commit()
+    connection.close()
+    return changed
+
+
 def count_running() -> int:
     connection = _get_connection()
     cursor = connection.cursor()

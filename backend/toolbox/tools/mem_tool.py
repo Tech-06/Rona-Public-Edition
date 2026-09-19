@@ -115,6 +115,7 @@ def _row_to_memory(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
         "person_id": row["person_id"],
+        "layer": row["layer"],
         "content": row["content"],
         "created_at": row["created_at"],
         "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
@@ -267,7 +268,7 @@ def get_memories(
         connection = _get_connection()
         cursor = connection.cursor()
         cursor.execute(
-            f"SELECT id, person_id, content, created_at, metadata "
+            f"SELECT id, person_id, layer, content, created_at, metadata "
             f"FROM memories{_where_clause(conditions)} "
             f"ORDER BY id DESC LIMIT ? OFFSET ?",
             (*params, limit, offset),
@@ -302,7 +303,7 @@ def search_memories(
         connection = _get_connection()
         cursor = connection.cursor()
         cursor.execute(
-            f"SELECT id, person_id, content, created_at, metadata, embedding "
+            f"SELECT id, person_id, layer, content, created_at, metadata, embedding "
             f"FROM memories{_where_clause(conditions)}",
             params,
         )
@@ -332,6 +333,48 @@ def search_memories(
             {**_row_to_memory(row), "score": round(score, 4)} for score, row in top
         ]
         return {"success": True, "results": results}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)}
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def memory_stats() -> dict:
+    """Aggregate counts for the dashboard/CLI -- not an LLM-facing tool
+
+    (deliberately not registered in tools.json).
+    """
+    connection = None
+    try:
+        connection = _get_connection()
+        cursor = connection.cursor()
+
+        cursor.execute("SELECT layer, COUNT(*) FROM memories GROUP BY layer")
+        by_layer_counts = dict(cursor.fetchall())
+
+        cursor.execute("SELECT COUNT(*) FROM memories")
+        total = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM memories WHERE person_id IS NULL")
+        general_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT MIN(created_at), MAX(created_at) FROM memories")
+        oldest_created_at, newest_created_at = cursor.fetchone()
+
+        cursor.execute("SELECT COALESCE(SUM(access_count), 0) FROM memories")
+        total_access_count = cursor.fetchone()[0]
+
+        return {
+            "success": True,
+            "total": total,
+            "by_layer": {layer: by_layer_counts.get(layer, 0) for layer in _LAYERS},
+            "general_count": general_count,
+            "person_linked_count": total - general_count,
+            "oldest_created_at": oldest_created_at,
+            "newest_created_at": newest_created_at,
+            "total_access_count": total_access_count,
+        }
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
     finally:

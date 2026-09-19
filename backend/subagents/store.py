@@ -98,6 +98,16 @@ def list_runs(status: str = "all", limit: int = 20) -> list[dict[str, Any]]:
     return [_run_to_dict(row) for row in rows]
 
 
+def delete_run(run_id: str) -> bool:
+    connection = _get_connection()
+    cursor = connection.cursor()
+    cursor.execute("DELETE FROM subagent_runs WHERE id = ?", (run_id,))
+    changed = cursor.rowcount > 0
+    connection.commit()
+    connection.close()
+    return changed
+
+
 def count_running() -> int:
     connection = _get_connection()
     cursor = connection.cursor()
