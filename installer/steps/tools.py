@@ -64,7 +64,21 @@ def run(root: Path) -> None:
         ui.warn(i18n.t("tools_step.catalog_unreachable"))
         return
 
-    options = [(pkg["id"], f"{pkg['name']} — {pkg['description']}", False, "") for pkg in packages]
+    # A library package (google_auth) provides no tools of its own and is
+    # pulled in automatically by whatever requires it, so listing it among
+    # "which tools do you want" only muddies the choice.
+    offered = [pkg for pkg in packages if pkg.get("kind") != "library"]
+    if not offered:
+        ui.warn(i18n.t("tools_step.catalog_unreachable"))
+        return
+
+    options = []
+    for pkg in offered:
+        requires = pkg.get("requires") or []
+        note = (
+            i18n.t("tools_step.requires", packages=", ".join(requires)) if requires else ""
+        )
+        options.append((pkg["id"], f"{pkg['name']} — {pkg['description']}", False, note))
     selected = ui.select_components(options)
     if not selected:
         ui.info(i18n.t("tools_step.none_selected"))

@@ -133,6 +133,7 @@ STRINGS: dict[str, str] = {
     ),
     "tools_step.catalog_unreachable": "Araç paketi kataloğuna ulaşılamadı, bu adım atlandı.",
     "tools_step.none_selected": "Hiçbir paket seçilmedi.",
+    "tools_step.requires": "ayrıca kurar: {packages}",
     "tools_step.installing": "{id} kuruluyor...",
     "tools_step.installed_summary": "Kurulan paketler: {ids}",
     "tools_step.failed_summary": "Kurulamayan paketler: {ids}",

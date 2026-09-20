@@ -1460,7 +1460,13 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (EOFError, KeyboardInterrupt):
+        # Ctrl-C, or stdin closed on a command that still had something to
+        # ask -- a traceback would suggest a bug rather than a cancellation.
+        print("\ncancelled", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

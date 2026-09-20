@@ -131,6 +131,7 @@ STRINGS: dict[str, str] = {
     ),
     "tools_step.catalog_unreachable": "Could not reach the tool package catalog, skipping this step.",
     "tools_step.none_selected": "No packages selected.",
+    "tools_step.requires": "also installs: {packages}",
     "tools_step.installing": "Installing {id}...",
     "tools_step.installed_summary": "Installed packages: {ids}",
     "tools_step.failed_summary": "Packages that failed to install: {ids}",

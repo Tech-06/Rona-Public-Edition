@@ -131,3 +131,53 @@ def test_select_components_options_are_unchecked_by_default(tmp_path, monkeypatc
 
     assert captured_options[0][0] == "get_time"
     assert captured_options[0][2] is False  # not pre-selected
+
+
+def test_library_packages_are_hidden_and_dependencies_noted(tmp_path, monkeypatch):
+    """google_auth provides no tools of its own and comes along automatically,
+    so it belongs in the note on google_calendar's line, not on a line of its
+    own in a "which tools do you want" list."""
+    root = tmp_path / "root"
+    _make_backend_venv(root)
+    monkeypatch.setattr(tools_step.detect, "git_available", lambda: True)
+    catalog_payload = {
+        "ok": True,
+        "packages": [
+            {
+                "id": "google_auth",
+                "name": "Google Account Authorization",
+                "description": "oauth",
+                "kind": "library",
+                "requires": [],
+            },
+            {
+                "id": "google_calendar",
+                "name": "Google Calendar",
+                "description": "events",
+                "kind": "tool",
+                "requires": ["google_auth"],
+            },
+            {"id": "get_time", "name": "Get Time", "description": "desc", "kind": "tool"},
+        ],
+    }
+    monkeypatch.setattr(
+        tools_step.subprocess,
+        "run",
+        lambda *a, **k: _FakeCompleted(stdout=json.dumps(catalog_payload)),
+    )
+
+    captured_options = []
+
+    def _capture(options):
+        captured_options.extend(options)
+        return []
+
+    monkeypatch.setattr(tools_step.ui, "select_components", _capture)
+    tools_step.run(root)
+
+    offered = {opt[0]: opt for opt in captured_options}
+    assert "google_auth" not in offered
+    assert set(offered) == {"google_calendar", "get_time"}
+    assert "google_auth" in offered["google_calendar"][3]
+    # A catalog entry without the metadata must not grow a spurious note.
+    assert offered["get_time"][3] == ""

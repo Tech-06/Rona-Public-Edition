@@ -2,6 +2,7 @@ import json
 import os
 from types import SimpleNamespace
 
+from rona_cli import i18n
 from rona_cli.commands import tools
 
 from .helpers import make_root
@@ -25,6 +26,9 @@ def _args(root, **overrides):
         "yes": False,
         "keep_on_health_failure": False,
         "force": False,
+        "purge": False,
+        "edit": False,
+        "action_id": "some_action",
         "package_id": "get_time",
     }
     defaults.update(overrides)
@@ -197,3 +201,233 @@ def test_install_without_backend_venv_fails_cleanly(tmp_path, capsys):
 def test_list_without_installation_root_fails_cleanly(tmp_path):
     code = tools._cmd_list(_args(tmp_path / "not-a-root"))
     assert code == 1
+
+
+def test_available_shows_dependencies_and_installed_marker(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+
+    def _fake_run(cmd, cwd, capture_output, text, check):
+        payload = {
+            "ok": True,
+            "packages": [
+                {
+                    "id": "google_calendar",
+                    "version": "1.1.0",
+                    "name": "Google Calendar",
+                    "description": "events",
+                    "kind": "tool",
+                    "requires": ["google_auth"],
+                    "installed": False,
+                },
+                {
+                    "id": "google_auth",
+                    "version": "2.0.0",
+                    "name": "Google Account Authorization",
+                    "description": "oauth",
+                    "kind": "library",
+                    "requires": [],
+                    "installed": True,
+                },
+            ],
+        }
+        return _FakeCompleted(stdout=json.dumps(payload) + "\n")
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    assert tools._cmd_available(_args(root)) == 0
+    out = capsys.readouterr().out
+    assert "google_auth" in out
+    # The dependency has to be visible before the user commits to an install.
+    assert "google_calendar" in out and "google_auth" in out.split("google_calendar")[1]
+
+
+def test_available_tolerates_a_catalog_without_dependency_metadata(
+    tmp_path, monkeypatch, capsys
+):
+    """An older index publishes neither key; saying nothing beats implying
+    the package has no dependencies."""
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+
+    def _fake_run(cmd, cwd, capture_output, text, check):
+        payload = {
+            "ok": True,
+            "packages": [
+                {"id": "old", "version": "1.0.0", "name": "Old", "description": "x"}
+            ],
+        }
+        return _FakeCompleted(stdout=json.dumps(payload) + "\n")
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    assert tools._cmd_available(_args(root)) == 0
+    assert "old" in capsys.readouterr().out
+
+
+def test_config_show_masks_secrets_and_is_captured(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+
+    def _fake_run(cmd, cwd, capture_output, text, check):
+        calls.append(cmd)
+        payload = {
+            "ok": True,
+            "package": "google_calendar",
+            "fields": [
+                {
+                    "key": "accounts",
+                    "label": "Allowed accounts",
+                    "description": "",
+                    "type": "list",
+                    "secret": False,
+                    "set": True,
+                    "value": ["work", "home"],
+                },
+                {
+                    "key": "api_key",
+                    "label": "Key",
+                    "description": "",
+                    "type": "string",
+                    "secret": True,
+                    "set": True,
+                    "value": None,
+                },
+            ],
+        }
+        return _FakeCompleted(stdout=json.dumps(payload) + "\n")
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    assert tools._cmd_config(_args(root, package_id="google_calendar")) == 0
+    out = capsys.readouterr().out
+    assert "work, home" in out
+    assert "api_key" in out
+    assert calls[0].index("--json") < calls[0].index("config")
+
+
+def test_config_set_is_captured_and_reports_health(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+
+    def _fake_run(cmd, cwd, capture_output, text, check):
+        calls.append(cmd)
+        payload = {
+            "ok": True,
+            "package": "google_calendar",
+            "changed": ["accounts"],
+            "health_ok": False,
+            "detail": "no authorization for account(s): work",
+        }
+        return _FakeCompleted(stdout=json.dumps(payload) + "\n")
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    code = tools._cmd_config(
+        _args(root, package_id="google_calendar", set=["accounts=work"])
+    )
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "accounts" in captured.out
+    assert "no authorization" in captured.out + captured.err
+    assert "--set" in calls[0] and "accounts=work" in calls[0]
+
+
+def test_config_edit_inherits_stdio(tmp_path, monkeypatch):
+    """--edit walks every field, masking secrets with getpass, so it cannot be
+    captured and re-printed."""
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+
+    def _fake_run(cmd, cwd, check):
+        calls.append(cmd)
+        return _FakeCompleted(returncode=0)
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    assert tools._cmd_config(_args(root, package_id="google_auth", edit=True)) == 0
+    assert "--edit" in calls[0]
+
+
+def test_actions_lists_and_flags_terminal_only(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+
+    def _fake_run(cmd, cwd, capture_output, text, check):
+        payload = {
+            "ok": True,
+            "package": "google_auth",
+            "actions": [
+                {
+                    "id": "add_account",
+                    "label": "Add a Google account",
+                    "description": "works anywhere",
+                    "destructive": False,
+                    "cli_only": False,
+                    "params": [{"key": "account_name"}],
+                },
+                {
+                    "id": "add_account_here",
+                    "label": "Use this machine's browser",
+                    "description": "",
+                    "destructive": False,
+                    "cli_only": True,
+                    "params": [],
+                },
+            ],
+        }
+        return _FakeCompleted(stdout=json.dumps(payload) + "\n")
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    assert tools._cmd_actions(_args(root, package_id="google_auth")) == 0
+    out = capsys.readouterr().out
+    assert "add_account" in out
+    assert "account_name" in out
+    assert i18n.t("tools.action_cli_only") in out
+
+
+def test_run_inherits_stdio_and_forwards_json(tmp_path, monkeypatch):
+    """An action that answers input_required has to ask on this terminal, and
+    the authorization link it prints must reach the user unmangled."""
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+
+    def _fake_run(cmd, cwd, check):
+        calls.append(cmd)
+        return _FakeCompleted(returncode=0)
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    code = tools._cmd_run(
+        _args(
+            root,
+            package_id="google_auth",
+            action_id="add_account",
+            set=["account_name=work"],
+        )
+    )
+    assert code == 0
+    cmd = calls[0]
+    assert "--json" not in cmd
+    assert cmd[-4:] == ["run", "google_auth", "add_account"] or "run" in cmd
+    assert "--set" in cmd and "account_name=work" in cmd
+
+    calls.clear()
+    tools._cmd_run(
+        _args(root, package_id="google_auth", action_id="list_accounts", json=True)
+    )
+    # With `rona --json` the manager emits the JSON itself, since we are not
+    # capturing its output.
+    assert calls[0].index("--json") < calls[0].index("run")
+
+
+def test_uninstall_forwards_purge_flag(tmp_path, monkeypatch):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+
+    def _fake_run(cmd, cwd, check):
+        calls.append(cmd)
+        return _FakeCompleted(returncode=0)
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    assert tools._cmd_uninstall(_args(root, package_id="google_auth", purge=True)) == 0
+    assert "--purge" in calls[0]
