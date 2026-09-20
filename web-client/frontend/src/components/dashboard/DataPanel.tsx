@@ -52,7 +52,7 @@ function NotesTab() {
       <EmptyState>
         {t("data.notes_not_installed")}{" "}
         <code className="rounded bg-app px-1 py-0.5 text-xs">
-          python -m toolbox.manager install notes
+          rona tools install notes
         </code>
       </EmptyState>
     );

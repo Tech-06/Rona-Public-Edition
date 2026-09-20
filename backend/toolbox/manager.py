@@ -430,10 +430,10 @@ def run_health_check(manifest: PackageManifest) -> HealthResult:
 
 def verify_installed(package_id: str) -> HealthResult:
     """Re-run an already-installed package's health check on demand."""
-    return run_health_check(_installed_manifest(package_id))
+    return run_health_check(installed_manifest(package_id))
 
 
-def _installed_manifest(package_id: str) -> PackageManifest:
+def installed_manifest(package_id: str) -> PackageManifest:
     pkg_dir = packages.package_dir(package_id)
     if not pkg_dir.is_dir():
         raise ManagerError(f"'{package_id}' is not installed")
@@ -454,7 +454,7 @@ def configure_installed(package_id: str, answers: dict[str, Any]) -> HealthResul
     dashboard) never have to know the difference. Fields not mentioned in
     ``answers`` keep whatever value they already have.
     """
-    manifest = _installed_manifest(package_id)
+    manifest = installed_manifest(package_id)
     unknown = set(answers) - {f.key for f in manifest.config}
     if unknown:
         raise ManagerError(
@@ -581,7 +581,7 @@ def run_action(
     cli_only either block for far longer than a request may take, or only
     make sense on the machine the backend itself runs on.
     """
-    manifest = _installed_manifest(package_id)
+    manifest = installed_manifest(package_id)
     action = manifest.find_action(action_id)
     if action is None:
         known = ", ".join(a.id for a in manifest.actions) or "none"
@@ -1228,7 +1228,7 @@ def _cli_verify(args: argparse.Namespace) -> int:
 
 def _cli_config(args: argparse.Namespace) -> int:
     try:
-        manifest = _installed_manifest(args.package_id)
+        manifest = installed_manifest(args.package_id)
         if args.set or args.edit:
             current = packages.load_config_values(manifest)
             answers: dict[str, Any] = {}
@@ -1282,7 +1282,7 @@ def _cli_config(args: argparse.Namespace) -> int:
 
 def _cli_actions(args: argparse.Namespace) -> int:
     try:
-        manifest = _installed_manifest(args.package_id)
+        manifest = installed_manifest(args.package_id)
         actions = [action_payload(a) for a in manifest.actions]
     except (ManagerError, packages.PackageLoadError) as exc:
         _emit(args, {"ok": False, "error": str(exc)})
@@ -1309,7 +1309,7 @@ def _cli_actions(args: argparse.Namespace) -> int:
 
 def _cli_run(args: argparse.Namespace) -> int:
     try:
-        manifest = _installed_manifest(args.package_id)
+        manifest = installed_manifest(args.package_id)
         action = manifest.find_action(args.action_id)
         if action is None:
             known = ", ".join(a.id for a in manifest.actions) or "none"

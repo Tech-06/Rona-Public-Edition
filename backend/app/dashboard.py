@@ -132,6 +132,20 @@ def _package_status(manifest) -> dict[str, Any]:
         "requires": manifest.requires,
         "configured": not missing,
         "missing_config": missing,
+        # Field metadata only -- no values. Enough to render a form; the
+        # values come from the package's own config endpoint, where secrets
+        # are stripped.
+        "config_fields": [
+            toolbox_manager.config_field_payload(field) for field in manifest.config
+        ],
+        # cli_only actions are left out rather than shown-and-refused: they
+        # block far longer than a request may take, or only make sense on the
+        # machine the backend itself runs on.
+        "actions": [
+            toolbox_manager.action_payload(action)
+            for action in manifest.actions
+            if not action.cli_only
+        ],
     }
 
 
@@ -178,6 +192,89 @@ async def list_packages():
     return {
         "packages": [_package_status(m) for m in manifests],
         "warnings": toolbox.load_warnings(),
+    }
+
+
+def _installed_manifest_or_404(package_id: str):
+    try:
+        return toolbox_manager.installed_manifest(package_id)
+    except toolbox_manager.ManagerError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except toolbox_packages.PackageLoadError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/packages/{package_id}/config")
+async def read_package_config(package_id: str):
+    """Current configuration of one installed package.
+
+    Secrets are never included -- config_field_payload reports only whether
+    one is set, the same way /config drops _SECRET_FIELDS.
+    """
+    manifest = _installed_manifest_or_404(package_id)
+    values = toolbox_packages.load_config_values(manifest)
+    return {
+        "id": manifest.id,
+        "fields": [
+            toolbox_manager.config_field_payload(field, values) for field in manifest.config
+        ],
+    }
+
+
+@router.put("/packages/{package_id}/config")
+async def update_package_config(package_id: str, payload: dict[str, Any]):
+    manifest = _installed_manifest_or_404(package_id)
+    unknown = set(payload) - {field.key for field in manifest.config}
+    if unknown:
+        raise HTTPException(
+            400, i18n.t("dashboard.not_editable", names=", ".join(sorted(unknown)))
+        )
+    try:
+        # Writes .env / config.json and re-runs the health check; blocking, so
+        # off the event loop the same way the connection probe goes.
+        health = await asyncio.to_thread(
+            toolbox_manager.configure_installed, package_id, payload
+        )
+    except (toolbox_manager.ManagerError, toolbox_packages.PackageLoadError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "ok": True,
+        "health": {"ok": health.ok, "detail": health.detail},
+        "restart_required": True,
+    }
+
+
+class PackageActionRequest(BaseModel):
+    params: dict[str, Any] = {}
+    # Handed back verbatim from a previous input_required response. Opaque to
+    # everything between the package that produced it and the package that
+    # consumes it -- which is what lets a multi-step flow span two requests
+    # without the backend holding a session open.
+    state: dict[str, Any] | None = None
+
+
+@router.post("/packages/{package_id}/actions/{action_id}")
+async def run_package_action(package_id: str, action_id: str, payload: PackageActionRequest):
+    _installed_manifest_or_404(package_id)
+    try:
+        result = await asyncio.to_thread(
+            toolbox_manager.run_action,
+            package_id,
+            action_id,
+            payload.params,
+            payload.state,
+            allow_cli_only=False,
+        )
+    except toolbox_manager.ManagerError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "status": result.status,
+        "message": result.message,
+        "data": result.data,
+        "fields": [
+            toolbox_manager.config_field_payload(field) for field in result.fields
+        ],
+        "state": result.state,
     }
 
 

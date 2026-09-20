@@ -5,6 +5,7 @@ import { tr } from "./tr";
 // surprise (see lib/i18n.ts).
 export const en: Record<keyof typeof tr, string> = {
   // -- common (reused across several panels/sections) -------------------------------
+  "common.save": "Save",
   "common.saving": "Saving...",
   "common.save_failed": "Could not save",
   "common.action_failed": "Action failed",
@@ -142,6 +143,17 @@ export const en: Record<keyof typeof tr, string> = {
   "connections.missing_short": "missing",
   "connections.live": "live",
   "connections.error_short": "error",
+  "common.continue": "Continue",
+  "connections.package_id_placeholder": "package_id",
+  "connections.configure": "Configure",
+  "connections.close": "Close",
+  "connections.config_load_failed": "Could not read the configuration",
+  "connections.secret_set": "(set -- type to replace)",
+  "connections.secret_unset": "(not set)",
+  "connections.list_placeholder": "comma-separated",
+  "connections.actions_title": "Operations",
+  "connections.action_running": "Running...",
+  "connections.action_continue": "Continue",
 
   // -- common (more) ------------------------------------------------------------------
   "common.delete": "Delete",

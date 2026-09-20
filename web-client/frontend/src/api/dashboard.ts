@@ -14,6 +14,32 @@ export interface StatusResponse {
   log_size_bytes: number | null;
 }
 
+/** One user-configurable value a package declares. Metadata only -- a
+ * secret's value is never sent to the browser, only whether one is set. */
+export interface PackageConfigField {
+  key: string;
+  label: string;
+  description: string;
+  type: "string" | "integer" | "boolean" | "list";
+  target: "env" | "config" | "file";
+  secret: boolean;
+  required: boolean;
+  set: boolean;
+  /** Present only on the per-package config endpoint, and null for secrets. */
+  value?: unknown;
+}
+
+/** An operator-facing operation the package exposes (authorizing an account,
+ * revoking one, ...). Actions marked cli_only never reach the dashboard. */
+export interface PackageAction {
+  id: string;
+  label: string;
+  description: string;
+  destructive: boolean;
+  cli_only: boolean;
+  params: PackageConfigField[];
+}
+
 export interface PackageStatus {
   id: string;
   name: string;
@@ -24,6 +50,30 @@ export interface PackageStatus {
   requires: string[];
   configured: boolean;
   missing_config: string[];
+  config_fields: PackageConfigField[];
+  actions: PackageAction[];
+}
+
+export interface PackageConfigResponse {
+  id: string;
+  fields: PackageConfigField[];
+}
+
+export interface PackageConfigUpdateResponse {
+  ok: boolean;
+  health: ProbeResult;
+  restart_required: boolean;
+}
+
+/** One step of an action. `input_required` means the handler needs more from
+ * the user: render `fields`, then post again with those values and `state`
+ * handed back exactly as received. */
+export interface PackageActionResponse {
+  status: "ok" | "error" | "input_required";
+  message: string;
+  data: Record<string, unknown>;
+  fields: PackageConfigField[];
+  state: Record<string, unknown> | null;
 }
 
 export interface ConnectionsResponse {
@@ -141,6 +191,19 @@ export const dashboardApi = {
   connections: () => api.get<ConnectionsResponse>("/api/connections"),
   probeConnections: () => api.post<ProbeResponse>("/api/connections/probe"),
   packages: () => api.get<PackagesResponse>("/api/packages"),
+  packageConfig: (id: string) => api.get<PackageConfigResponse>(`/api/packages/${id}/config`),
+  updatePackageConfig: (id: string, values: Record<string, unknown>) =>
+    api.put<PackageConfigUpdateResponse>(`/api/packages/${id}/config`, values),
+  runPackageAction: (
+    id: string,
+    actionId: string,
+    params: Record<string, unknown>,
+    state: Record<string, unknown> | null,
+  ) =>
+    api.post<PackageActionResponse>(`/api/packages/${id}/actions/${actionId}`, {
+      params,
+      state,
+    }),
   tools: () => api.get<{ tools: ToolSpecResponse[] }>("/api/tools"),
   config: () => api.get<ConfigResponse>("/api/config"),
   updateConfig: (values: Record<string, unknown>) =>

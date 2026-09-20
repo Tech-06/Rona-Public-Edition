@@ -4,6 +4,7 @@
 // typeof tr, string>`), so a missing/extra key there is a build error.
 export const tr = {
   // -- common (reused across several panels/sections) -------------------------------
+  "common.save": "Kaydet",
   "common.saving": "Kaydediliyor...",
   "common.save_failed": "Kaydedilemedi",
   "common.action_failed": "İşlem başarısız oldu",
@@ -141,6 +142,17 @@ export const tr = {
   "connections.missing_short": "eksik",
   "connections.live": "canlı",
   "connections.error_short": "hata",
+  "common.continue": "Devam et",
+  "connections.package_id_placeholder": "paket_id",
+  "connections.configure": "Yapılandır",
+  "connections.close": "Kapat",
+  "connections.config_load_failed": "Yapılandırma okunamadı",
+  "connections.secret_set": "(ayarlandı, değiştirmek için yaz)",
+  "connections.secret_unset": "(ayarlanmadı)",
+  "connections.list_placeholder": "virgülle ayırın",
+  "connections.actions_title": "İşlemler",
+  "connections.action_running": "Çalışıyor...",
+  "connections.action_continue": "Devam et",
 
   // -- common (more) ------------------------------------------------------------------
   "common.delete": "Sil",
