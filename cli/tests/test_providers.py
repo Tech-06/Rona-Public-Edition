@@ -85,3 +85,44 @@ def test_test_embedding_reports_http_error(fake_api, monkeypatch):
     ok, detail = providers.test_embedding("bad-key", "bad")
     assert ok is False
     assert "403" in detail
+
+
+def test_test_chat_model_sends_a_user_agent(fake_api):
+    """Providers behind bot-protection (Cloudflare's HTTP 403 "error code:
+    1010" among them) block urllib's default "Python-urllib/x.y" User-Agent
+    outright -- even though the identical request the backend makes through
+    the openai SDK, which sets its own, sails through unblocked."""
+    fake_api.set_route("POST", "/chat/completions", 200, {})
+    providers.test_chat_model(f"http://127.0.0.1:{fake_api.port}", "sk-test", "test-model")
+    ua = fake_api.requests[0]["headers"]["user-agent"]
+    assert ua and not ua.startswith("Python-urllib")
+
+
+def test_normalize_chat_base_url_strips_a_pasted_completions_suffix():
+    """Most providers document the *full* completions endpoint, which is
+    exactly what people paste into FLASH_MODEL_URL -- and what the backend's
+    own normalize_model_url validator already tolerates by stripping it."""
+    assert (
+        providers.normalize_chat_base_url("https://api.example.com/v1/chat/completions")
+        == "https://api.example.com/v1"
+    )
+    assert (
+        providers.normalize_chat_base_url("https://api.example.com/v1/chat/completions/")
+        == "https://api.example.com/v1"
+    )
+    # Already a bare base URL: left untouched.
+    assert providers.normalize_chat_base_url("https://api.example.com/v1") == "https://api.example.com/v1"
+
+
+def test_test_chat_model_does_not_double_the_completions_path(fake_api):
+    """Without normalizing first, a pasted full-endpoint URL would build
+    <url>/chat/completions on top of a URL that already ends in
+    /chat/completions -- testing a different address than the backend
+    actually calls, and the wrong one entirely against a server that
+    doesn't happen to tolerate the doubled path."""
+    fake_api.set_route("POST", "/chat/completions", 200, {})
+    ok, detail = providers.test_chat_model(
+        f"http://127.0.0.1:{fake_api.port}/chat/completions", "sk-test", "test-model"
+    )
+    assert ok is True, detail
+    assert len(fake_api.requests) == 1

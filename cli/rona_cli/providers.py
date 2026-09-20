@@ -14,6 +14,27 @@ from rona_cli import http, i18n
 GOOGLE_EMBED_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
+def normalize_chat_base_url(url: str) -> str:
+    """Strip a trailing ``/chat/completions`` the same way `app/config.py`'s
+    ``normalize_model_url`` validator does before handing the URL to the
+    openai SDK as ``base_url``.
+
+    Most providers' docs show the *full* completions endpoint, which is
+    exactly what people paste into FLASH_MODEL_URL/PRO_MODEL_URL -- the
+    backend already tolerates that by normalizing it away at load time.
+    Without the same normalization here, this module would build
+    ``<pasted-url>/chat/completions`` on top of a URL that already ends in
+    ``/chat/completions``, testing a different (and wrong) address than the
+    one the backend actually calls. `cli/` can't import `app/config.py`
+    (sibling-package isolation), so this mirrors that one validator by hand;
+    keep the two in sync if it ever changes.
+    """
+    stripped = url.rstrip("/")
+    suffix = "/chat/completions"
+    stripped = stripped.removesuffix(suffix)
+    return stripped
+
+
 def test_chat_model(
     url: str, api_key: str, model: str, headers: dict[str, str] | None = None
 ) -> tuple[bool, str]:
@@ -22,7 +43,10 @@ def test_chat_model(
     if not url or not api_key or not model:
         return False, i18n.t("providers.chat_missing_fields")
     client = http.Client(
-        base_url=url, token=api_key, timeout=15.0, extra_headers=headers or {}
+        base_url=normalize_chat_base_url(url),
+        token=api_key,
+        timeout=15.0,
+        extra_headers=headers or {},
     )
     try:
         client.post(

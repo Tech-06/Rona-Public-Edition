@@ -156,9 +156,9 @@ async def get_connections():
         "packages": packages_status,
         "gemini_embedding_configured": bool(os.getenv("GOOGLE_API_KEY"))
         and bool(os.getenv("EMBEDDING_MODEL_NAME")),
-        "flash_configured": bool(
-            settings.flash_model and settings.flash_model_url and settings.flash_model_api
-        ),
+        # Same rule as Settings.pro_configured: name + URL is configured, the
+        # api key is optional because a gateway may authenticate on a header.
+        "flash_configured": bool(settings.flash_model and settings.flash_model_url),
         "pro_configured": settings.pro_configured,
         "db_present": DB_PATH.exists(),
         "checkpoint_db_present": CHECKPOINT_DB_PATH.exists(),

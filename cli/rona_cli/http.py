@@ -42,7 +42,15 @@ class Client:
     extra_headers: dict[str, str] = field(default_factory=dict)
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        # Without an explicit User-Agent, urllib sends "Python-urllib/3.x",
+        # which several providers' bot-protection (Cloudflare in particular,
+        # HTTP 403 "error code: 1010") blocks outright -- even though the
+        # exact same request succeeds once the backend makes it through the
+        # openai SDK, which sends its own SDK User-Agent. `rona edit model
+        # --test`'s whole point is "does this key/model work the way the
+        # backend will actually use it", so it needs to look like a normal
+        # client too, not like a bare Python script probing the API.
+        headers = {"Content-Type": "application/json", "User-Agent": "Rona/0.1"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         headers.update(self.extra_headers)

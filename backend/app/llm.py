@@ -7,12 +7,26 @@ from app.config import get_settings
 
 settings = get_settings()
 
+# The OpenAI SDK refuses to construct a client with an empty api_key, and
+# these clients are built at import time -- so a blank key took the entire
+# backend down before it could serve anything, with the reason buried in
+# whatever happened to be capturing stdout.
+#
+# A blank key is not a mistake here. A gateway reached through
+# FLASH_MODEL_URL may authenticate on a custom header instead of a bearer
+# token, which is the whole reason *_MODEL_HEADERS exists and why the
+# installer's wizard accepts an empty key. Give the SDK a placeholder so
+# the import succeeds: a provider that genuinely wants a bearer token
+# rejects the call itself, at the point of use, with its own message --
+# which is a far better failure than a backend that will not boot.
+_PLACEHOLDER_API_KEY = "no-api-key"
+
 default_headers = {"User-Agent": f"{settings.app_name}/0.1"}
 default_headers.update(settings.flash_model_headers)
 
 client = AsyncOpenAI(
     base_url=settings.flash_model_url,
-    api_key=settings.flash_model_api,
+    api_key=settings.flash_model_api or _PLACEHOLDER_API_KEY,
     default_headers=default_headers,
     timeout=settings.llm_timeout_seconds,
     max_retries=1,
@@ -24,7 +38,7 @@ if settings.pro_configured:
     pro_headers.update(settings.pro_model_headers)
     pro_client = AsyncOpenAI(
         base_url=settings.pro_model_url,
-        api_key=settings.pro_model_api,
+        api_key=settings.pro_model_api or _PLACEHOLDER_API_KEY,
         default_headers=pro_headers,
         timeout=settings.llm_timeout_seconds,
         max_retries=1,

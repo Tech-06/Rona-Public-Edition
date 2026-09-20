@@ -69,7 +69,11 @@ class Settings(BaseSettings):
 
     @property
     def pro_configured(self) -> bool:
-        return bool(self.pro_model and self.pro_model_url and self.pro_model_api)
+        # A model is configured once it has a name and a URL. The api key is
+        # deliberately not part of the test: a gateway may authenticate on a
+        # custom header instead (see app/llm.py), and requiring a key here
+        # silently disabled a Pro model that was set up perfectly well.
+        return bool(self.pro_model and self.pro_model_url)
 
     @field_validator("flash_model_headers", "pro_model_headers", mode="before")
     @classmethod
