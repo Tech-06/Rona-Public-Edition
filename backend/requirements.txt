@@ -13,7 +13,7 @@ google-genai>=1.0
 apscheduler>=3.10,<4
 tzdata>=2024.1; platform_system == "Windows"
 
-# Optional tool packages (installed on demand via `python -m toolbox.manager
-# install <id>` from the Rona Tools catalog) bring their own dependencies --
+# Optional tool packages (installed on demand with `rona tools install <id>`
+# from the Rona Tools catalog) bring their own dependencies --
 # e.g. tavily-python, deepl, requests, google-api-python-client -- and pip
 # -install them automatically at install time. They are not listed here.

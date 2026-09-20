@@ -119,7 +119,7 @@ rona edit lang en           # switch all three to English
 rona edit lang tr --backend --web   # only the backend and web dashboard
 ```
 
-### `rona tools list|available|install|uninstall|verify`
+### `rona tools list|available|install|uninstall|verify|config|actions|run`
 
 A thin wrapper over the backend's own `toolbox.manager`, delegating to the
 backend's venv python exactly the way `rona web` delegates to
@@ -127,12 +127,13 @@ backend's venv python exactly the way `rona web` delegates to
 itself, so the CLI stays stdlib-only and keeps working even without the
 backend installed.
 
-`list`/`available`/`verify` run the manager with `--json`, captured, and
-are re-printed through this CLI's own table (or passed straight through
-if `rona` itself was given `--json`). `install`/`uninstall` inherit stdio
-instead, since a package's own config prompts (an API key read via
-`getpass`, the health-check retry/keep/cancel choice) need a live
-terminal.
+`list`/`available`/`verify`/`actions`, and `config` without `--edit`, run the
+manager with `--json`, captured, and are re-printed through this CLI's own
+table (or passed straight through if `rona` itself was given `--json`).
+`install`/`uninstall`/`run`, and `config --edit`, inherit stdio instead, since
+a package's own config prompts (an API key read via `getpass`, the
+health-check retry/keep/cancel choice), the dependency confirmation and an
+action's input round trips all need a live terminal.
 
 ```bash
 rona tools available                 # every package in the catalog
@@ -140,6 +141,45 @@ rona tools install web_search        # prompts for its Tavily API key
 rona tools list                      # installed packages
 rona tools verify web_search
 rona tools uninstall web_search
+```
+
+`available` also prints what a package will drag in with it -- but only when
+the catalog actually publishes that metadata, since an older index saying
+nothing about dependencies is not the same as a package having none.
+`install` then surfaces the manager's own confirmation before anything is
+downloaded.
+
+### `rona tools config <id> [--set key=value] [--edit]`
+
+Shows or changes an installed package's configuration, going through the same
+`.env` / `config.json` / copied-file paths the installer uses. With no flags it
+prints the current values; a secret is never sent back from the manager, so it
+shows only as set or not set. `--set` changes individual values; `--edit` walks
+every field on the terminal (blank keeps the current value, secrets read
+through `getpass`) and so runs with inherited stdio rather than captured.
+
+```bash
+rona tools config google_calendar
+rona tools config google_calendar --set accounts=personal,work
+rona tools config google_auth --edit
+```
+
+### `rona tools actions <id>` and `rona tools run <id> <action>`
+
+Actions are the operations a package exposes to *you* rather than to the
+model: authorizing a Google account, listing or revoking those
+authorizations. `actions` lists them (with their parameters, and whether one
+is irreversible); `run` runs one.
+
+`run` always inherits stdio. An action may answer "input_required" -- needing
+something it can only ask for now, like the address a browser was redirected
+to -- and the link it prints has to reach you unmangled. Actions a package
+marks terminal-only never appear in the dashboard, only here.
+
+```bash
+rona tools actions google_auth
+rona tools run google_auth add_account           # prompts for the account name
+rona tools run google_auth list_accounts
 ```
 
 ### `rona task list|del|toggle`

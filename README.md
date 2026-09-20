@@ -58,13 +58,44 @@ Katalogtaki paketler: `get_time`, `web_search` (Tavily), `weather` (OpenWeatherM
 
 ```bash
 rona tools list               # kurulu paketleri listele
+rona tools config <id>        # bir paketin ayarlarını göster/değiştir
+rona tools actions <id>       # paketin sunduğu işlemleri listele
+rona tools run <id> <işlem>   # bunlardan birini çalıştır
 rona tools verify <id>        # bir paketin sağlık kontrolünü tekrar çalıştır
 rona tools uninstall <id>
 ```
 
+Bir paketin ayarları kurulumdan sonra da değişebilir: `rona tools config <id>` (ya da web panelinde **Ayarlar → Bağlantılar → Araç paketleri → Yapılandır**) aynı `.env`/`config.json` yollarını kullanır. Bazı paketler ayrıca **işlem** sunar -- araçlardan farklı olarak bunları model değil siz çağırırsınız (bir Google hesabını yetkilendirmek gibi); hem `rona tools run` ile hem de aynı panelden çalıştırılabilirler.
+
+**Bağımlılıklar.** Bir paket, ihtiyaç duyduğu diğer paketleri kendi manifest'inde bildirir ve katalog bunu `index.json`'a da yazar; böylece kurulum, hiçbir şey indirmeden önce size ne olacağını söyleyebilir. `rona tools install google_calendar` önce "bu `google_auth`'u da kuracak" diye uyarır ve onay ister; kabul ederseniz `google_auth` tam olarak kurulup yapılandırıldıktan *sonra* asıl pakete geçilir. Başka bir paketin hâlâ ihtiyaç duyduğu bir paketi kaldırmak `--force` olmadan reddedilir.
+
 `rona tools`, arka planda backend'in kendi `python -m toolbox.manager`'ına devreder (bkz. [`rona` komut referansı](#rona-komut-referansı)); backend'i elle kurduysanız aynı komutları doğrudan `backend/` içinden `python -m toolbox.manager ...` olarak da çalıştırabilirsiniz.
 
-> **Daha önceki bir Rona sürümünden güncelliyorsanız:** `get_time`, `web_search`, `get_weather`, `translate_text`, notlar ve Google Takvim/Kişiler/Gmail araçları bu güncellemeyle çekirdekten kalktı ve modelin kullanabilir listesinden kayboldu. Geri almak için ilgili paketi kurmanız yeterli (yukarıya bakın). Notlarınız `rona.db` içindeki `notes` tablosunda olduğu gibi durur, `notes` paketini kurduğunuzda hemen görünür. Google credentials.json/`token_<hesap>.json` dosyalarınız ise eski konumda (`backend/toolbox/tools/`) kalır ve otomatik taşınmaz -- `google_auth` paketini kurarken `credentials.json`'ı yeniden seçin ve her hesap için `python -m toolbox.custom.google_auth.add_account <hesap_adi>` ile tekrar yetkilendirin (eski token dosyalarını elle `backend/toolbox/custom/google_auth/` klasörüne kopyalarsanız yeniden yetkilendirmeye gerek kalmaz).
+#### Google hesapları
+
+Tek bir OAuth istemcisi istediğiniz kadar hesabı yetkilendirir; hesap adlarını siz seçersiniz (`kisisel`, `is`, ne isterseniz) ve sabit bir liste yoktur.
+
+`google_auth` kurulurken (doğrudan ya da üç Google paketinden birinin bağımlılığı olarak) bir `credentials.json` ister: Google Cloud Console → APIs & Services → Credentials → OAuth client ID → **Desktop app**. Bu tek dosya bütün hesaplar için yeterlidir.
+
+Hesap eklemek için web panelinde **Ayarlar → Bağlantılar → Araç paketleri → `google_auth` → Yapılandır → Add a Google account**, ya da:
+
+```bash
+rona tools run google_auth add_account
+```
+
+İkisi de size bir bağlantı verir. Bu bağlantıyı **herhangi bir cihazda** açabilirsiniz -- Rona'nın çalıştığı makine olmak zorunda değil. İzin verdikten sonra tarayıcı `http://localhost:47111/…` adresini açmaya çalışır ve "siteye ulaşılamıyor" hatası gösterir: bu beklenen davranıştır, orada dinleyen bir şey yok, önemli olan adres çubuğundaki adrestir. O adresi kopyalayıp geri yapıştırın, işlem tamam.
+
+Sunucu kurulumlarını çalışır kılan şey budur. Eski `add_account.py` (hâlâ duruyor, `add_account_here` işlemi olarak) tarayıcıyı **backend'in çalıştığı makinede** açar ve yönlendirmeyi o makinenin `localhost`'unda bekler -- kendi bilgisayarınızda sorunsuz, SSH ile bağlandığınız bir sunucuda imkânsız.
+
+Bir hesabı yetkilendirmek, onu herhangi bir aracın kullanabileceği anlamına gelmez: her Google paketinin kendi izinli hesap listesi vardır, böylece Takvim iki hesabı görürken Mail yalnızca birini görebilir. Aynı panelden ya da:
+
+```bash
+rona tools config google_calendar --set accounts=kisisel,is
+```
+
+`rona tools run google_auth list_accounts` yetkili hesapları ve token'larının hâlâ geçerli olup olmadığını gösterir; `remove_account` birini geri alır.
+
+> **Daha önceki bir Rona sürümünden güncelliyorsanız:** `get_time`, `web_search`, `get_weather`, `translate_text`, notlar ve Google Takvim/Kişiler/Gmail araçları bu güncellemeyle çekirdekten kalktı ve modelin kullanabilir listesinden kayboldu. Geri almak için ilgili paketi kurmanız yeterli (yukarıya bakın). Notlarınız `rona.db` içindeki `notes` tablosunda olduğu gibi durur, `notes` paketini kurduğunuzda hemen görünür. Google credentials.json/`token_<hesap>.json` dosyalarınız ise eski konumda (`backend/toolbox/tools/`) kalır ve otomatik taşınmaz -- `google_auth` paketini kurarken `credentials.json`'ı yeniden seçin ve her hesabı `rona tools run google_auth add_account` ile tekrar yetkilendirin (eski token dosyalarını elle `backend/toolbox/custom/google_auth/` klasörüne kopyalarsanız yeniden yetkilendirmeye gerek kalmaz).
 
 ### Semantik bellek sistemi
 Rona sizinle ilgili bilgileri üç katmanda saklar: **deep** (kalıcı, tanımlayıcı gerçekler), **seasonal** (orta vadeli projeler/planlar) ve **short** (güncel konuşma bağlamı). Her anı bir kişiye bağlanabilir ya da genel/konu bazlı bırakılabilir. Anılar bir embedding modeliyle vektöre çevrilir ve `search_memories` ile anlamsal olarak (kelime eşleşmesi değil, anlam benzerliğiyle) aranır.
@@ -204,6 +235,8 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona edit memory search\|add\|edit\|delete\|stats` | Hafıza kayıtlarını yönet (çalışan bir backend gerekir) |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Üç bileşenin de dilini göster/ayarla; hedef belirtilmezse üçünü birden değiştirir |
 | `rona tools list\|available\|install\|uninstall\|verify` | [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini yönet (backend'in `toolbox.manager`'ına devreder) |
+| `rona tools config <id> [--set k=v] [--edit]` | Kurulu bir paketin ayarlarını göster ya da değiştir (sırlar maskelenir) |
+| `rona tools actions <id>` / `rona tools run <id> <işlem>` | Paketin operatöre dönük işlemlerini listele/çalıştır (ör. `google_auth add_account`) |
 | `rona task list\|del\|toggle` | Zamanlanmış görevleri listele/sil/aktif-pasif değiştir |
 | `rona log list\|show\|del` | Geçmiş çalıştırma kayıtlarını (görev + alt ajan) yönet |
 | `rona log tail [--level --grep]` | Canlı log akışını izle (backend kapalıysa yerel log dosyasına döner) |
@@ -286,11 +319,13 @@ python create_db.py
 python run.py
 ```
 
-Backend artık `http://127.0.0.1:8000` adresinde çalışıyor (kuruluysa bundan sonra `rona server start`/`stop` ile de yönetebilirsiniz). Web arama, hava durumu, çeviri, notlar ve Google Takvim/Kişiler/Gmail gibi araçlar bu noktada henüz kurulu değildir -- her biri isteğe bağlıdır, bkz. [Araç kutusu (toolbox)](#araç-kutusu-toolbox). Google Takvim/Kişiler/Gmail'den birini kurmak istediğinizde `python -m toolbox.manager install google_calendar` (`rona` kuruluysa: `rona tools install google_calendar`; veya `google_contacts`/`google_mail`) size Google Cloud Console'dan indireceğiniz OAuth istemci dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın (tarayıcı açılır, izin verirsiniz):
+Backend artık `http://127.0.0.1:8000` adresinde çalışıyor (kuruluysa bundan sonra `rona server start`/`stop` ile de yönetebilirsiniz). Web arama, hava durumu, çeviri, notlar ve Google Takvim/Kişiler/Gmail gibi araçlar bu noktada henüz kurulu değildir -- her biri isteğe bağlıdır, bkz. [Araç kutusu (toolbox)](#araç-kutusu-toolbox). Google Takvim/Kişiler/Gmail'den birini kurmak istediğinizde `python -m toolbox.manager install google_calendar` (`rona` kuruluysa: `rona tools install google_calendar`; veya `google_contacts`/`google_mail`) önce `google_auth`'un da kurulacağını söyler ve Google Cloud Console'dan indireceğiniz OAuth istemci dosyasının yolunu sorar; ardından her hesabı bir kez yetkilendirin:
 
 ```powershell
-python -m toolbox.custom.google_auth.add_account <hesap_adi>
+python -m toolbox.manager run google_auth add_account
 ```
+
+Bu size herhangi bir cihazda açabileceğiniz bir bağlantı verir ve yönlendirilen adresi geri ister -- ayrıntılar için bkz. [Google hesapları](#google-hesapları).
 
 ##### 5. Web paneli
 
@@ -366,11 +401,13 @@ python create_db.py
 python run.py
 ```
 
-Backend `http://127.0.0.1:8000` adresinde çalışır. Google entegrasyonları isteğe bağlıdır: `python -m toolbox.manager install google_calendar` (`rona` kuruluysa: `rona tools install google_calendar`; veya `google_contacts`/`google_mail`) `credentials.json` dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın:
+Backend `http://127.0.0.1:8000` adresinde çalışır. Google entegrasyonları isteğe bağlıdır: `python -m toolbox.manager install google_calendar` (`rona` kuruluysa: `rona tools install google_calendar`; veya `google_contacts`/`google_mail`) `credentials.json` dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesabı bir kez yetkilendirin:
 
 ```bash
-python -m toolbox.custom.google_auth.add_account <hesap_adi>
+python -m toolbox.manager run google_auth add_account
 ```
+
+Bu size herhangi bir cihazda açabileceğiniz bir bağlantı verir ve yönlendirilen adresi geri ister -- ayrıntılar için bkz. [Google hesapları](#google-hesapları).
 
 ##### 5. Web paneli
 
@@ -445,7 +482,7 @@ python create_db.py
 python run.py
 ```
 
-Google entegrasyonları isteğe bağlıdır: ilgili paketi kurun (`python -m toolbox.manager install google_calendar` vb., `rona` kuruluysa `rona tools install google_calendar`), kurulum `credentials.json` dosyasının yolunu soracaktır. Ardından her hesap için bir kez `python -m toolbox.custom.google_auth.add_account <hesap_adi>` çalıştırın (bu adım masaüstü ortamlı bir oturumda, tarayıcı açılabilecek şekilde yapılmalıdır).
+Google entegrasyonları isteğe bağlıdır: ilgili paketi kurun (`python -m toolbox.manager install google_calendar` vb., `rona` kuruluysa `rona tools install google_calendar`), kurulum `credentials.json` dosyasının yolunu soracaktır. Ardından her hesabı `rona tools run google_auth add_account` ile ya da web panelinden yetkilendirin -- bu akış size bir bağlantı verip yönlendirilen adresi geri istediği için sunucuda tarayıcı bulunmasına gerek yoktur (bkz. [Google hesapları](#google-hesapları)).
 
 ##### 5. Web paneli
 
@@ -519,7 +556,7 @@ Depoyu `~/rona` dışında bir yere klonladıysanız, kopyaladığınız `.servi
 
 `TAVILY_API_KEY`, `DEEPL_API_KEY`, `OPENWEATHER_API_KEY` gibi araca özel değişkenler bu dosyada tanımlı değildir -- ilgili [Rona Tools](https://github.com/Tech-06/Rona-Tools) paketini `rona tools install <paket_id>` (ya da `python -m toolbox.manager install <paket_id>`) ile kurduğunuzda soru olarak sorulur ve otomatik olarak `.env`'e eklenir.
 
-Google Takvim/Kişiler/Gmail paketleri de bir ortam değişkeni değil, doğrudan bir dosya olarak bir `credentials.json` (Google Cloud Console'dan alınan OAuth istemci kimliği) gerektirir; `google_calendar`/`google_contacts`/`google_mail` paketlerinden birini kurarken bu dosyanın yolu sorulur ve `backend/toolbox/custom/google_auth/credentials.json` olarak kopyalanır. Her hesabın yetkilendirme jetonu `python -m toolbox.custom.google_auth.add_account <hesap_adi>` çalıştırıldığında aynı klasöre `token_<hesap_adi>.json` olarak yazılır.
+Google Takvim/Kişiler/Gmail paketleri de bir ortam değişkeni değil, doğrudan bir dosya olarak bir `credentials.json` (Google Cloud Console'dan alınan OAuth istemci kimliği) gerektirir; `google_calendar`/`google_contacts`/`google_mail` paketlerinden birini kurarken bu dosyanın yolu sorulur ve `backend/toolbox/custom/google_auth/credentials.json` olarak kopyalanır. Her hesabın yetkilendirme jetonu, o hesabı yetkilendirdiğinizde aynı klasöre `token_<hesap_adi>.json` olarak yazılır ve paketi kaldırırken (aksini istemedikçe) korunur.
 
 ### `web-client/.env`
 

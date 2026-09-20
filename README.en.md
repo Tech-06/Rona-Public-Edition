@@ -58,13 +58,44 @@ Packages in the catalog: `get_time`, `web_search` (Tavily), `weather` (OpenWeath
 
 ```bash
 rona tools list               # list installed packages
+rona tools config <id>        # show or change a package's settings
+rona tools actions <id>       # operations the package exposes
+rona tools run <id> <action>  # run one of them
 rona tools verify <id>        # re-run a package's health check
 rona tools uninstall <id>
 ```
 
+A package's settings can be changed after install too: `rona tools config <id>` (or, in the dashboard, **Settings → Connections → Tool packages → Configure**) goes through the very same `.env`/`config.json` write paths. Some packages also expose **actions** -- unlike tools, you call these, not the model (authorizing a Google account, say) -- runnable both from `rona tools run` and from that same panel.
+
+**Dependencies.** A package declares what it needs in its own manifest, and the catalog mirrors that into `index.json`, so an install can tell you what is about to happen before anything is downloaded. `rona tools install google_calendar` warns that it will also install `google_auth` and asks first; if you agree, `google_auth` is installed and fully configured *before* the package you asked for is touched. Removing something another package still requires is refused without `--force`.
+
 `rona tools` delegates to the backend's own `python -m toolbox.manager` under the hood (see [`rona` command reference](#rona-command-reference)); if you installed the backend manually, you can run the same commands directly from inside `backend/` as `python -m toolbox.manager ...`.
 
-> **Upgrading from an older Rona version:** `get_time`, `web_search`, `get_weather`, `translate_text`, notes, and the Google Calendar/Contacts/Gmail tools moved out of the core with this update and disappeared from the model's tool list. Install the package back (see above) to get one back. Your notes are untouched in `rona.db`'s `notes` table and show up immediately once you install the `notes` package. Your Google `credentials.json`/`token_<account>.json` files stay at their old location (`backend/toolbox/tools/`) and are not moved automatically -- when installing `google_auth`, point it at `credentials.json` again and re-authorize each account with `python -m toolbox.custom.google_auth.add_account <account_name>` (or copy the old token files into `backend/toolbox/custom/google_auth/` yourself to skip re-authorizing).
+#### Google accounts
+
+One OAuth client authorizes as many accounts as you like. The account names are yours to choose (`personal`, `work`, whatever) -- there is no fixed set.
+
+Installing `google_auth` (directly, or as a dependency of one of the three Google packages) asks for a `credentials.json`: Google Cloud Console → APIs & Services → Credentials → OAuth client ID → **Desktop app**. That one file covers every account.
+
+To add an account, use the dashboard's **Settings → Connections → Tool packages → `google_auth` → Configure → Add a Google account**, or:
+
+```bash
+rona tools run google_auth add_account
+```
+
+Either way you get a link. Open it on **any device** -- it does not have to be the machine Rona runs on. After you approve, the browser will try to load `http://localhost:47111/…` and show a "site can't be reached" error. That is expected: nothing is listening there, and the address bar is the whole point. Copy that address, paste it back, done.
+
+This is what makes a server install work. The older `add_account.py` (still present, exposed as the `add_account_here` action) opens a browser on the machine the *backend* runs on and waits for a redirect to that machine's own `localhost` -- fine on your own desktop, impossible over SSH.
+
+Authorizing an account doesn't yet let any tool use it: each Google package has its own allowed-accounts list, so Calendar can see two accounts while Mail sees only one. Set it from the same panel, or:
+
+```bash
+rona tools config google_calendar --set accounts=personal,work
+```
+
+`rona tools run google_auth list_accounts` shows what is authorized and whether each token still works; `remove_account` revokes one.
+
+> **Upgrading from an older Rona version:** `get_time`, `web_search`, `get_weather`, `translate_text`, notes, and the Google Calendar/Contacts/Gmail tools moved out of the core with this update and disappeared from the model's tool list. Install the package back (see above) to get one back. Your notes are untouched in `rona.db`'s `notes` table and show up immediately once you install the `notes` package. Your Google `credentials.json`/`token_<account>.json` files stay at their old location (`backend/toolbox/tools/`) and are not moved automatically -- when installing `google_auth`, point it at `credentials.json` again and re-authorize each account with `rona tools run google_auth add_account` (or copy the old token files into `backend/toolbox/custom/google_auth/` yourself to skip re-authorizing).
 
 ### Semantic memory system
 Rona stores information about you in three layers: **deep** (durable, defining facts), **seasonal** (mid-term projects and plans), and **short** (current conversation context). Each memory can be linked to a specific person or left general/topical. Memories are embedded into vectors and searched semantically with `search_memories` — by meaning, not keyword matching.
@@ -204,6 +235,8 @@ Once the installer is done, you manage Rona from your terminal with `rona`:
 | `rona edit memory search\|add\|edit\|delete\|stats` | Manage memory records (needs a running backend) |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Show/set the language of all three components; changes all three if no target is given |
 | `rona tools list\|available\|install\|uninstall\|verify` | Manage the optional tool packages from the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog (delegates to the backend's `toolbox.manager`) |
+| `rona tools config <id> [--set k=v] [--edit]` | Show or change an installed package's settings (secrets are masked) |
+| `rona tools actions <id>` / `rona tools run <id> <action>` | List/run a package's operator-facing operations (e.g. `google_auth add_account`) |
 | `rona task list\|del\|toggle` | List/delete/toggle scheduled tasks |
 | `rona log list\|show\|del` | Manage execution history (tasks + subagents) |
 | `rona log tail [--level --grep]` | Follow the live log (falls back to the local log file when the backend is down) |
@@ -286,11 +319,13 @@ python create_db.py
 python run.py
 ```
 
-The backend is now running at `http://127.0.0.1:8000` (once `rona` is installed you can also manage it with `rona server start`/`stop`). Tools like web search, weather, translation, notes, and Google Calendar/Contacts/Gmail aren't installed at this point -- each is optional, see [Toolbox](#toolbox). When you want a Google Calendar/Contacts/Gmail package, `python -m toolbox.manager install google_calendar` (with `rona` installed: `rona tools install google_calendar`; or `google_contacts`/`google_mail`) will ask for the OAuth client file you downloaded from Google Cloud Console and place it for you; then run this once per account (a browser window opens for you to grant access):
+The backend is now running at `http://127.0.0.1:8000` (once `rona` is installed you can also manage it with `rona server start`/`stop`). Tools like web search, weather, translation, notes, and Google Calendar/Contacts/Gmail aren't installed at this point -- each is optional, see [Toolbox](#toolbox). When you want a Google Calendar/Contacts/Gmail package, `python -m toolbox.manager install google_calendar` (with `rona` installed: `rona tools install google_calendar`; or `google_contacts`/`google_mail`) tells you `google_auth` is coming along too and asks for the OAuth client file you downloaded from Google Cloud Console; then authorize each account once:
 
 ```powershell
-python -m toolbox.custom.google_auth.add_account <account_name>
+python -m toolbox.manager run google_auth add_account
 ```
+
+That hands you a link to open on any device and takes back the address it redirects to -- see [Google accounts](#google-accounts) for the details.
 
 ##### 5. Web dashboard
 
@@ -366,11 +401,13 @@ python create_db.py
 python run.py
 ```
 
-The backend runs at `http://127.0.0.1:8000`. The Google integrations are optional: `python -m toolbox.manager install google_calendar` (with `rona` installed: `rona tools install google_calendar`; or `google_contacts`/`google_mail`) will ask for the path to `credentials.json` and place it for you; then run once per account:
+The backend runs at `http://127.0.0.1:8000`. The Google integrations are optional: `python -m toolbox.manager install google_calendar` (with `rona` installed: `rona tools install google_calendar`; or `google_contacts`/`google_mail`) will ask for the path to `credentials.json` and place it for you; then authorize each account once:
 
 ```bash
-python -m toolbox.custom.google_auth.add_account <account_name>
+python -m toolbox.manager run google_auth add_account
 ```
+
+That hands you a link to open on any device and takes back the address it redirects to -- see [Google accounts](#google-accounts) for the details.
 
 ##### 5. Web dashboard
 
@@ -445,7 +482,7 @@ python create_db.py
 python run.py
 ```
 
-The Google integrations are optional: install the package you want (`python -m toolbox.manager install google_calendar`, etc.; with `rona` installed: `rona tools install google_calendar`), which will ask for `credentials.json`'s path. Then run `python -m toolbox.custom.google_auth.add_account <account_name>` once per account (do this in a desktop session where a browser can open).
+The Google integrations are optional: install the package you want (`python -m toolbox.manager install google_calendar`, etc.; with `rona` installed: `rona tools install google_calendar`), which will ask for `credentials.json`'s path. Then authorize each account with `rona tools run google_auth add_account`, or from the dashboard -- that flow hands you a link and takes back the address it redirects to, so the server needs no browser of its own (see [Google accounts](#google-accounts)).
 
 ##### 5. Web dashboard
 
@@ -519,7 +556,7 @@ If you cloned the repository somewhere other than `~/rona`, edit the `WorkingDir
 
 Tool-specific variables like `TAVILY_API_KEY`, `DEEPL_API_KEY`, `OPENWEATHER_API_KEY` aren't defined in this file -- installing the corresponding [Rona Tools](https://github.com/Tech-06/Rona-Tools) package with `rona tools install <package_id>` (or `python -m toolbox.manager install <package_id>`) asks for it and appends it to `.env` automatically.
 
-The Google Calendar/Contacts/Gmail packages also require a file, not an environment variable, for their shared `google_auth` dependency: a `credentials.json` (an OAuth client from Google Cloud Console) copied to `backend/toolbox/custom/google_auth/credentials.json` when you install one of them. Each account's authorization token is written next to it as `token_<account_name>.json` when you run `python -m toolbox.custom.google_auth.add_account <account_name>`.
+The Google Calendar/Contacts/Gmail packages also require a file, not an environment variable, for their shared `google_auth` dependency: a `credentials.json` (an OAuth client from Google Cloud Console) copied to `backend/toolbox/custom/google_auth/credentials.json` when you install one of them. Each account's authorization token is written next to it as `token_<account_name>.json` when you authorize that account, and is preserved when you uninstall the package unless you ask otherwise.
 
 ### `web-client/.env`
 
