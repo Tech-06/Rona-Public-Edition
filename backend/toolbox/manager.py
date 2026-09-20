@@ -314,6 +314,8 @@ def _restore_user_data(package_id: str, pkg_dir: Path) -> list[str]:
         restored.append(path.name)
     if not any(parked.iterdir()):
         parked.rmdir()
+        if parked.parent.is_dir() and not any(parked.parent.iterdir()):
+            parked.parent.rmdir()
     return restored
 
 
@@ -1215,7 +1217,12 @@ def _cli_verify(args: argparse.Namespace) -> int:
     except ManagerError as exc:
         _emit(args, {"ok": False, "error": str(exc)})
         return 1
-    _emit(args, {"ok": result.ok, "detail": result.detail})
+    payload = {"ok": result.ok, "detail": result.detail}
+    if not result.ok:
+        # _emit reports payload["error"] when ok is false; without this the
+        # one thing the user needs -- why it's unhealthy -- goes unprinted.
+        payload["error"] = result.detail
+    _emit(args, payload)
     return 0 if result.ok else 1
 
 

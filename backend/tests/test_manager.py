@@ -896,3 +896,162 @@ def test_user_data_globs_cannot_escape_the_package_directory(catalog, manager_en
 
     manifest = packages.load_manifest(packages.package_dir("ud_escape"))
     assert packages.user_data_paths(manifest) == []
+
+
+# ---------------------------------------------------------------------------
+# The manager's own command line
+# ---------------------------------------------------------------------------
+
+
+def _json_output(capsys) -> dict:
+    return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+
+def test_cli_verify_reports_why_it_is_unhealthy(catalog, manager_env, capsys):
+    """_emit prints payload["error"] when ok is false, so a bare
+    {"ok": False, "detail": ...} printed nothing but "error: None" -- losing
+    the one thing the user needs."""
+    catalog(
+        "cli_sick",
+        manifest_extra={"health_check": ".health:check"},
+        tools=[],
+        extra_files={
+            "health.py": "def check(config):\n    return {'ok': False, 'detail': 'needs a key'}\n"
+        },
+    )
+    manager_env.append("cli_sick")
+    manager.install("cli_sick", source=catalog.source_spec, keep_on_health_failure=True)
+
+    assert manager.main(["verify", "cli_sick"]) == 1
+    assert "needs a key" in capsys.readouterr().err
+
+
+def test_cli_config_shows_then_sets(catalog, manager_env, capsys):
+    catalog(
+        "cli_cfg",
+        manifest_extra={
+            "config": [
+                {"key": "token", "target": "env", "env_var": "CLI_CFG_TOKEN",
+                 "secret": True, "required": False},
+                {"key": "accounts", "type": "list", "target": "config", "required": False},
+            ]
+        },
+        tools=[],
+    )
+    manager_env.append("cli_cfg")
+    manager.install("cli_cfg", source=catalog.source_spec)
+
+    assert manager.main(["--json", "config", "cli_cfg"]) == 0
+    fields = {f["key"]: f for f in _json_output(capsys)["fields"]}
+    assert fields["accounts"]["value"] is None and not fields["accounts"]["set"]
+    assert fields["token"]["secret"] is True
+
+    assert manager.main(
+        ["--json", "config", "cli_cfg", "--set", "accounts=work,home",
+         "--set", "token=s3cret"]
+    ) == 0
+    assert sorted(_json_output(capsys)["changed"]) == ["accounts", "token"]
+    assert packages.read_config_file("cli_cfg")["accounts"] == ["work", "home"]
+
+    # Reading it back must never hand the secret out again.
+    manager.main(["--json", "config", "cli_cfg"])
+    fields = {f["key"]: f for f in _json_output(capsys)["fields"]}
+    assert fields["token"]["set"] is True
+    assert fields["token"]["value"] is None
+    assert fields["accounts"]["value"] == ["work", "home"]
+
+    os.environ.pop("CLI_CFG_TOKEN", None)
+
+
+def test_cli_config_rejects_an_unknown_key(catalog, manager_env, capsys):
+    catalog("cli_cfg_bad", tools=[])
+    manager_env.append("cli_cfg_bad")
+    manager.install("cli_cfg_bad", source=catalog.source_spec)
+
+    assert manager.main(["--json", "config", "cli_cfg_bad", "--set", "nope=1"]) == 1
+    assert "no config field" in _json_output(capsys)["error"]
+
+
+def test_cli_actions_and_run(catalog, manager_env, capsys):
+    catalog(
+        "cli_act",
+        manifest_extra={
+            "actions": [
+                {
+                    "id": "greet",
+                    "label": "Greet",
+                    "handler": ".actions:greet",
+                    "params": [{"key": "who", "required": True}],
+                },
+                {"id": "wipe", "handler": ".actions:greet", "cli_only": True},
+            ]
+        },
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def greet(config, params, state):\n"
+                "    return {'status': 'ok', 'message': f\"hi {params.get('who')}\"}\n"
+            )
+        },
+    )
+    manager_env.append("cli_act")
+    manager.install("cli_act", source=catalog.source_spec)
+
+    assert manager.main(["--json", "actions", "cli_act"]) == 0
+    actions = {a["id"]: a for a in _json_output(capsys)["actions"]}
+    assert actions["greet"]["params"][0]["key"] == "who"
+    assert actions["wipe"]["cli_only"] is True
+
+    assert manager.main(["--json", "run", "cli_act", "greet", "--set", "who=ada"]) == 0
+    assert _json_output(capsys)["message"] == "hi ada"
+
+
+def test_cli_run_without_a_required_param_fails_under_yes(catalog, manager_env, capsys):
+    catalog(
+        "cli_act_strict",
+        manifest_extra={
+            "actions": [
+                {
+                    "id": "greet",
+                    "handler": ".actions:greet",
+                    "params": [{"key": "who", "required": True}],
+                }
+            ]
+        },
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def greet(config, params, state):\n"
+                "    return {'status': 'ok', 'message': 'hi'}\n"
+            )
+        },
+    )
+    manager_env.append("cli_act_strict")
+    manager.install("cli_act_strict", source=catalog.source_spec)
+
+    assert manager.main(["--json", "run", "cli_act_strict", "greet", "--yes"]) == 1
+    assert "use --set" in _json_output(capsys)["error"]
+
+
+def test_cli_available_carries_dependency_metadata(catalog, manager_env, capsys):
+    catalog("cli_dep", manifest_extra={"kind": "library"}, tools=[])
+    catalog("cli_top", manifest_extra={"requires": ["cli_dep"]}, tools=[])
+    manager_env.append("cli_dep")
+    manager.install("cli_dep", source=catalog.source_spec)
+
+    assert manager.main(["--json", "available", "--source", catalog.source_spec]) == 0
+    entries = {p["id"]: p for p in _json_output(capsys)["packages"]}
+    assert entries["cli_top"]["requires"] == ["cli_dep"]
+    assert entries["cli_dep"]["kind"] == "library"
+    assert entries["cli_dep"]["installed"] is True
+    assert entries["cli_top"]["installed"] is False
+
+
+def test_cli_install_reports_a_catalog_failure_as_json(manager_env, capsys, tmp_path):
+    """SourceError is not a ManagerError: this used to escape _cli_install as a
+    raw traceback, which the CLI then reported as 'no output from the manager'
+    instead of the actual reason."""
+    assert manager.main(
+        ["--json", "install", "anything", "--source", f"local:{tmp_path}", "--yes"]
+    ) == 1
+    assert "index.json not found" in _json_output(capsys)["error"]
