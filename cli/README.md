@@ -102,6 +102,46 @@ rona edit memory add "loves tea" --layer short
 rona edit memory stats
 ```
 
+### `rona edit lang [tr|en] [--backend --web --cli]`
+
+Shows or sets the language of all three installed components. With no
+target flags, a language argument changes all three at once (backend
+`LANGUAGE` in `backend/.env`, web dashboard `UI_LANGUAGE` in
+`web-client/.env`, and this CLI's own `language` field in
+`~/.rona/config.json`); with no language argument at all, it just prints
+each one's current value. `--backend`/`--web`/`--cli` restrict a change to
+specific targets. Only writes to files/components that are actually part
+of this install; existing fields in `~/.rona/config.json` are preserved.
+
+```bash
+rona edit lang              # show current language of all three
+rona edit lang en           # switch all three to English
+rona edit lang tr --backend --web   # only the backend and web dashboard
+```
+
+### `rona tools list|available|install|uninstall|verify`
+
+A thin wrapper over the backend's own `toolbox.manager`, delegating to the
+backend's venv python exactly the way `rona web` delegates to
+`python -m webui` -- this command never imports anything from `toolbox/`
+itself, so the CLI stays stdlib-only and keeps working even without the
+backend installed.
+
+`list`/`available`/`verify` run the manager with `--json`, captured, and
+are re-printed through this CLI's own table (or passed straight through
+if `rona` itself was given `--json`). `install`/`uninstall` inherit stdio
+instead, since a package's own config prompts (an API key read via
+`getpass`, the health-check retry/keep/cancel choice) need a live
+terminal.
+
+```bash
+rona tools available                 # every package in the catalog
+rona tools install web_search        # prompts for its Tavily API key
+rona tools list                      # installed packages
+rona tools verify web_search
+rona tools uninstall web_search
+```
+
 ### `rona task list|del|toggle`
 
 Over the backend's `/api/tasks*` endpoints. `toggle` flips a task between
@@ -136,9 +176,14 @@ directly when the backend is down.
   provider or the Gemini embedding API, bypassing the backend entirely;
   used by both `rona edit model --test` and the installer's wizard.
 - **`ui.py`** — small print helpers (colored when the output is a TTY).
+- **`i18n.py`** + **`locales/{tr,en}.py`** — this CLI's own language
+  catalog. The active language is resolved once, before the argparse
+  parser is built (so help text comes out in the right language), from
+  `RONA_LANG` or the `language` field in `~/.rona/config.json`, falling
+  back to `tr`.
 - **`commands/`** — one module per top-level command (`status.py`,
-  `server.py`, `web.py`, `task.py`, `log.py`), plus an `edit/` subpackage
-  (`model.py`, `auth.py`, `env.py`, `memory.py`).
+  `server.py`, `web.py`, `task.py`, `log.py`, `tools.py`), plus an `edit/`
+  subpackage (`model.py`, `auth.py`, `env.py`, `memory.py`, `lang.py`).
 
 ## Tests
 

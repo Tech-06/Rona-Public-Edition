@@ -14,6 +14,7 @@ Rona; kendi sunucunuzda barındırdığınız, herhangi bir OpenAI API uyumlu di
 - [Kurulum ve Çalıştırma](#kurulum-ve-çalıştırma)
   - [Hızlı kurulum](#hızlı-kurulum-önerilen)
   - [`rona` komut referansı](#rona-komut-referansı)
+  - [Kaldırma](#kaldırma)
   - [İleri düzey: elle kurulum](#i̇leri-düzey-elle-kurulum)
 - [Yapılandırma Referansı](#yapılandırma-referansı)
 - [Mimari](#mimari)
@@ -46,20 +47,22 @@ Backend'de hazır gelen (kurulum gerektirmeyen) 22 çekirdek araç:
 | Alt ajanlar | `start_subagent`, `list_subagents`, `get_subagent_report`, `dismiss_subagent_report` |
 | Zamanlanmış görevler | `create_task`, `list_tasks`, `get_task`, `update_task`, `delete_task`, `get_task_run`, `dismiss_task_run` |
 
-Web arama, hava durumu, çeviri, yerel notlar ve Google Takvim/Kişiler/Gmail gibi araçlar artık çekirdeğe gömülü değil: her biri ayrı bir **isteğe bağlı araç paketi** olarak [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundan tek tek kurulur, böylece hiçbir kurulum bu araçların bağımlılıklarını/API anahtarlarını zorunlu kılmaz. Kurulum:
+Web arama, hava durumu, çeviri, yerel notlar ve Google Takvim/Kişiler/Gmail gibi araçlar artık çekirdeğe gömülü değil: her biri ayrı bir **isteğe bağlı araç paketi** olarak [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundan tek tek kurulur, böylece hiçbir kurulum bu araçların bağımlılıklarını/API anahtarlarını zorunlu kılmaz. Kurulum sihirbazı bunu kurulum sırasında zaten sorar (bkz. [Hızlı kurulum](#hızlı-kurulum-önerilen)); sonradan eklemek/kaldırmak isterseniz `rona` ile:
 
 ```bash
-python -m toolbox.manager install <paket_id>
+rona tools available          # katalogtaki tüm paketleri listele
+rona tools install <paket_id>
 ```
 
 Katalogtaki paketler: `get_time`, `web_search` (Tavily), `weather` (OpenWeatherMap), `deepl_translate` (DeepL), `notes` (yerel not listesi), `google_auth` (paylaşılan Google OAuth, diğer üç Google paketi tarafından otomatik kurulur), `google_calendar`, `google_contacts`, `google_mail`. Her paket, gerekli API anahtarını/hesap listesini kurulum sırasında sorar, `.env`'e ya da paketin kendi ayar dosyasına yazar ve bir sağlık kontrolü çalıştırır. Diğer komutlar:
 
 ```bash
-python -m toolbox.manager available     # katalogtaki tüm paketleri listele
-python -m toolbox.manager installed     # kurulu paketleri listele
-python -m toolbox.manager verify <id>   # bir paketin sağlık kontrolünü tekrar çalıştır
-python -m toolbox.manager uninstall <id>
+rona tools list               # kurulu paketleri listele
+rona tools verify <id>        # bir paketin sağlık kontrolünü tekrar çalıştır
+rona tools uninstall <id>
 ```
+
+`rona tools`, arka planda backend'in kendi `python -m toolbox.manager`'ına devreder (bkz. [`rona` komut referansı](#rona-komut-referansı)); backend'i elle kurduysanız aynı komutları doğrudan `backend/` içinden `python -m toolbox.manager ...` olarak da çalıştırabilirsiniz.
 
 > **Daha önceki bir Rona sürümünden güncelliyorsanız:** `get_time`, `web_search`, `get_weather`, `translate_text`, notlar ve Google Takvim/Kişiler/Gmail araçları bu güncellemeyle çekirdekten kalktı ve modelin kullanabilir listesinden kayboldu. Geri almak için ilgili paketi kurmanız yeterli (yukarıya bakın). Notlarınız `rona.db` içindeki `notes` tablosunda olduğu gibi durur, `notes` paketini kurduğunuzda hemen görünür. Google credentials.json/`token_<hesap>.json` dosyalarınız ise eski konumda (`backend/toolbox/tools/`) kalır ve otomatik taşınmaz -- `google_auth` paketini kurarken `credentials.json`'ı yeniden seçin ve her hesap için `python -m toolbox.custom.google_auth.add_account <hesap_adi>` ile tekrar yetkilendirin (eski token dosyalarını elle `backend/toolbox/custom/google_auth/` klasörüne kopyalarsanız yeniden yetkilendirmeye gerek kalmaz).
 
@@ -162,11 +165,13 @@ cd Rona-Public-Edition
 
 İki script de aynı işi yapar: önce bir Python 3.11+ yorumlayıcısının PATH'te olduğundan emin olur (yoksa `winget`/`brew`/`apt`/`dnf`/`pacman` ile kurulmasını önerip onay ister), ardından asıl işi yapan platform bağımsız kurulum aracına (`installer/`) devreder. O araç sırasıyla:
 
+0. **Dil sorar** (Türkçe / English) — her şeyden önce, iki dilde birden gösterilen tek bir soru. Seçtiğiniz dil kurulumun kendi çıktısını belirlediği gibi, kurulan üç ortamın da (backend'in konuşma dili, web panelinin arayüz dili, `rona`'nın kendi mesajları) varsayılanı olur; sonradan `rona edit lang` ile değiştirilebilir (bkz. [`rona` komut referansı](#rona-komut-referansı)). `--yes`/`--json` ile çalıştırılırsa sorulmaz, `tr` varsayılır; `--lang tr|en` ile baştan belirtilebilir.
 1. Hangi bileşenlerin kurulacağını sorar (**CLI**, **Backend**, **Web paneli** — varsayılan: hepsi seçili). Web paneli seçiliyse Node.js'in kurulu olup olmadığını da kontrol eder, gerekirse aynı şekilde onaylı kurar.
 2. Her seçilen bileşen için bağımsız bir sanal ortam oluşturup bağımlılıklarını kurar; backend seçiliyse veritabanını hazırlar, web paneli seçiliyse arayüzü derler (`npm ci && npm run build`).
 3. `AUTH_TOKEN`'ı bir kez rastgele üretip hem `backend/.env` hem `web-client/.env` dosyasına yazar; ikisi böylece otomatik olarak birebir eşleşir.
 4. Backend kurulduysa, etkileşimli bir sihirbazla Flash (zorunlu), Pro (isteğe bağlı) ve embedding (isteğe bağlı) model bilgilerinizi sorar. Her adım `s` yazılarak atlanabilir; girilen değerler kaydedilmeden önce gerçek bir API çağrısıyla test edilir, test başarısız olursa "tekrar gir / yine de kaydet / atla" seçenekleri sunulur. API anahtarları ekrana asla yazılmaz.
-5. `rona` komutunu terminalinizde kullanılabilir hale getirir (Windows'ta kullanıcı PATH'ine, macOS/Linux'ta `~/.local/bin`'e bir shim ekleyerek — zaten PATH'teyse dokunmaz).
+5. Ardından, yine backend kurulduysa, [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini (web arama, hava durumu, Google entegrasyonları vb.) numaralı bir listeden seçmenizi ister — hiçbiri varsayılan olarak işaretli gelmez, istediğiniz kadarını seçebilir ya da tamamen atlayabilirsiniz. Sonradan `rona tools install <id>` ile eklemeye devam edebilirsiniz.
+6. `rona` komutunu terminalinizde kullanılabilir hale getirir (Windows'ta kullanıcı PATH'ine, macOS/Linux'ta `~/.local/bin`'e bir shim ekleyerek — zaten PATH'teyse dokunmaz).
 
 Kurulum bittiğinde yeni bir terminal açıp şunları çalıştırabilirsiniz:
 
@@ -197,11 +202,35 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona edit auth get\|reset\|set` | Paylaşılan `AUTH_TOKEN`'ı görüntüle/yeniden üret/ayarla (her zaman iki `.env` dosyasına birden yazar) |
 | `rona edit env [--web]` | `.env` dosyasını `$EDITOR`'da aç (varsayılan: backend) |
 | `rona edit memory search\|add\|edit\|delete\|stats` | Hafıza kayıtlarını yönet (çalışan bir backend gerekir) |
+| `rona edit lang [tr\|en] [--backend --web --cli]` | Üç bileşenin de dilini göster/ayarla; hedef belirtilmezse üçünü birden değiştirir |
+| `rona tools list\|available\|install\|uninstall\|verify` | [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini yönet (backend'in `toolbox.manager`'ına devreder) |
 | `rona task list\|del\|toggle` | Zamanlanmış görevleri listele/sil/aktif-pasif değiştir |
 | `rona log list\|show\|del` | Geçmiş çalıştırma kayıtlarını (görev + alt ajan) yönet |
 | `rona log tail [--level --grep]` | Canlı log akışını izle (backend kapalıysa yerel log dosyasına döner) |
 
 Her komut `--json` ile makine tarafından okunabilir çıktı, `--root <yol>` ile (otomatik bulunamadığı durumlarda) farklı bir kurulum kökü belirtmeyi destekler. Tam ayrıntılar için [cli/README.md](cli/README.md).
+
+### Kaldırma
+
+Kurulum scriptinin oluşturduğu her şeyi geri almak için depo kökünde:
+
+```powershell
+.\uninstall.ps1     # Windows
+```
+```bash
+./uninstall.sh      # macOS / Linux
+```
+
+Bootstrap deseni `install.ps1`/`install.sh` ile aynıdır (bir Python 3.11+ yorumlayıcısı bulur, asıl işi yapan `installer/uninstall.py`'a devreder) ama Python eksikse kurulmasını önermez -- kaldırma için bir yorumlayıcı kurmak tuhaf olurdu. Script de aynı şekilde önce bir dil sorar (yalnızca kendi çıktısını etkiler, hiçbir yere kaydedilmez), sonra makinede gerçekten ne bulduysa altı grup halinde numaralı bir listede gösterir -- **hiçbiri varsayılan olarak işaretli gelmez**, yalnızca açıkça seçtikleriniz kaldırılır:
+
+- **Ortamlar** — sanal ortamlar (`cli/.venv`, `backend/.venv`, `web-client/.venv`), `node_modules`, derlenmiş panel
+- **PATH entegrasyonu** — `rona` komutunun shim'i ve PATH girdisi
+- **Kurulum durumu** — `~/.rona/config.json`
+- **Kullanıcı verisi** — `.env` dosyaları, `rona.db`, loglar; seçilirse silmeden önce API anahtarlarınızın, anılarınızın, kişilerinizin ve görevlerinizin kalıcı olarak kaybolacağını söyleyen **ayrı bir ikinci onay** ister
+- **Kurulu araç paketleri** — `backend/toolbox/custom/` altına kurulmuş isteğe bağlı paketler
+- **Çalışma artıkları** — pid/lock/log dosyaları
+
+Depo klasörünün kendisi hiçbir zaman silinmez; script bittiğinde kalanı silmek isterseniz klasörü elle silmeniz yeterlidir. Otomasyon için: `--yes --items environments,user-data` gibi virgülle ayrılmış bir liste (etkileşimsiz modda `--items` zorunludur, aksi halde hiçbir varsayım yapılmaz), `--json`, `--lang tr|en`.
 
 ### İleri düzey: elle kurulum
 
@@ -257,7 +286,7 @@ python create_db.py
 python run.py
 ```
 
-Backend artık `http://127.0.0.1:8000` adresinde çalışıyor (kuruluysa bundan sonra `rona server start`/`stop` ile de yönetebilirsiniz). Web arama, hava durumu, çeviri, notlar ve Google Takvim/Kişiler/Gmail gibi araçlar bu noktada henüz kurulu değildir -- her biri isteğe bağlıdır, bkz. [Araç kutusu (toolbox)](#araç-kutusu-toolbox). Google Takvim/Kişiler/Gmail'den birini kurmak istediğinizde `python -m toolbox.manager install google_calendar` (veya `google_contacts`/`google_mail`) size Google Cloud Console'dan indireceğiniz OAuth istemci dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın (tarayıcı açılır, izin verirsiniz):
+Backend artık `http://127.0.0.1:8000` adresinde çalışıyor (kuruluysa bundan sonra `rona server start`/`stop` ile de yönetebilirsiniz). Web arama, hava durumu, çeviri, notlar ve Google Takvim/Kişiler/Gmail gibi araçlar bu noktada henüz kurulu değildir -- her biri isteğe bağlıdır, bkz. [Araç kutusu (toolbox)](#araç-kutusu-toolbox). Google Takvim/Kişiler/Gmail'den birini kurmak istediğinizde `python -m toolbox.manager install google_calendar` (`rona` kuruluysa: `rona tools install google_calendar`; veya `google_contacts`/`google_mail`) size Google Cloud Console'dan indireceğiniz OAuth istemci dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın (tarayıcı açılır, izin verirsiniz):
 
 ```powershell
 python -m toolbox.custom.google_auth.add_account <hesap_adi>
@@ -337,7 +366,7 @@ python create_db.py
 python run.py
 ```
 
-Backend `http://127.0.0.1:8000` adresinde çalışır. Google entegrasyonları isteğe bağlıdır: `python -m toolbox.manager install google_calendar` (veya `google_contacts`/`google_mail`) `credentials.json` dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın:
+Backend `http://127.0.0.1:8000` adresinde çalışır. Google entegrasyonları isteğe bağlıdır: `python -m toolbox.manager install google_calendar` (`rona` kuruluysa: `rona tools install google_calendar`; veya `google_contacts`/`google_mail`) `credentials.json` dosyasının yolunu soracak ve kendisi yerleştirecektir; ardından her hesap için bir kez şunu çalıştırın:
 
 ```bash
 python -m toolbox.custom.google_auth.add_account <hesap_adi>
@@ -416,7 +445,7 @@ python create_db.py
 python run.py
 ```
 
-Google entegrasyonları isteğe bağlıdır: ilgili paketi kurun (`python -m toolbox.manager install google_calendar` vb.), kurulum `credentials.json` dosyasının yolunu soracaktır. Ardından her hesap için bir kez `python -m toolbox.custom.google_auth.add_account <hesap_adi>` çalıştırın (bu adım masaüstü ortamlı bir oturumda, tarayıcı açılabilecek şekilde yapılmalıdır).
+Google entegrasyonları isteğe bağlıdır: ilgili paketi kurun (`python -m toolbox.manager install google_calendar` vb., `rona` kuruluysa `rona tools install google_calendar`), kurulum `credentials.json` dosyasının yolunu soracaktır. Ardından her hesap için bir kez `python -m toolbox.custom.google_auth.add_account <hesap_adi>` çalıştırın (bu adım masaüstü ortamlı bir oturumda, tarayıcı açılabilecek şekilde yapılmalıdır).
 
 ##### 5. Web paneli
 
@@ -475,6 +504,7 @@ Depoyu `~/rona` dışında bir yere klonladıysanız, kopyaladığınız `.servi
 | `FLASH_MODEL_HEADERS` | Hayır | `{}` | JSON formatında ekstra istek başlıkları |
 | `PRO_MODEL` / `PRO_MODEL_URL` / `PRO_MODEL_API` / `PRO_MODEL_HEADERS` | Hayır | boş | İsteğe bağlı "pro" katmanı (`rona edit model pro --test`); boş bırakılırsa alt ajanlar ve görevler "pro" istendiğinde hata verir |
 | `RELOAD` | Hayır | `true` | Kod değişikliğinde otomatik yeniden başlatma |
+| `LANGUAGE` | Hayır | `tr` | Rona'nın konuşma dili (`persona.md`'nin dil kuralı) ve backend'in kendi ürettiği mesaj/log dili (`tr` ya da `en`); `rona edit lang` ile değiştirilir, restart gerekir |
 | `LOG_LEVEL` / `LOG_FILE` | Hayır | `INFO` / `rona.log` | Log seviyesi ve dosya yolu (`rona log tail`) |
 | `CONVERSATION_TTL_SECONDS` | Hayır | `7200` | Boşta kalan konuşmaların silinme süresi |
 | `MAX_HISTORY_MESSAGES` | Hayır | `50` | Modele gönderilen geçmiş mesaj sınırı |
@@ -487,7 +517,7 @@ Depoyu `~/rona` dışında bir yere klonladıysanız, kopyaladığınız `.servi
 | `WEB_AUTOSTART` | Hayır | `false` | Backend açılırken web panelini otomatik başlatsın mı |
 | `WEB_CLIENT_DIR` | Hayır | `../web-client` | Web panelinin göreli klasör konumu (yalnızca `WEB_AUTOSTART=true` iken kullanılır) |
 
-`TAVILY_API_KEY`, `DEEPL_API_KEY`, `OPENWEATHER_API_KEY` gibi araca özel değişkenler bu dosyada tanımlı değildir -- ilgili [Rona Tools](https://github.com/Tech-06/Rona-Tools) paketini `python -m toolbox.manager install <paket_id>` ile kurduğunuzda soru olarak sorulur ve otomatik olarak `.env`'e eklenir.
+`TAVILY_API_KEY`, `DEEPL_API_KEY`, `OPENWEATHER_API_KEY` gibi araca özel değişkenler bu dosyada tanımlı değildir -- ilgili [Rona Tools](https://github.com/Tech-06/Rona-Tools) paketini `rona tools install <paket_id>` (ya da `python -m toolbox.manager install <paket_id>`) ile kurduğunuzda soru olarak sorulur ve otomatik olarak `.env`'e eklenir.
 
 Google Takvim/Kişiler/Gmail paketleri de bir ortam değişkeni değil, doğrudan bir dosya olarak bir `credentials.json` (Google Cloud Console'dan alınan OAuth istemci kimliği) gerektirir; `google_calendar`/`google_contacts`/`google_mail` paketlerinden birini kurarken bu dosyanın yolu sorulur ve `backend/toolbox/custom/google_auth/credentials.json` olarak kopyalanır. Her hesabın yetkilendirme jetonu `python -m toolbox.custom.google_auth.add_account <hesap_adi>` çalıştırıldığında aynı klasöre `token_<hesap_adi>.json` olarak yazılır.
 
@@ -499,6 +529,7 @@ Google Takvim/Kişiler/Gmail paketleri de bir ortam değişkeni değil, doğruda
 | `WEB_HOST` / `WEB_PORT` | Hayır | `127.0.0.1` / `8016` | Panelin dinleyeceği adres ve port |
 | `BACKEND_URL` | Hayır | `http://127.0.0.1:8000` | Backend'in adresi |
 | `WEB_ALLOWED_HOSTS` | Hayır | `localhost,127.0.0.1` | `TrustedHostMiddleware` izin listesi |
+| `UI_LANGUAGE` | Hayır | `tr` | Panelin varsayılan dili (`tr`/`en`) -- her tarayıcı Ayarlar → Görünüm'den kendi seçimini yapıp bunu geçersiz kılabilir, `.env`'e dokunmadan; `rona edit lang` ile değiştirilir, restart gerekir |
 | `LOG_LEVEL` | Hayır | `INFO` | Log seviyesi |
 | `BACKEND_DIR` | Hayır | `../backend` | Yalnızca yerel geliştirme kolaylıkları (backend'i başlat/durdur, log takibi, salt-okunur veritabanı görünümü) için; yol geçersizse bu özellikler sessizce "kullanılamıyor" döner, panel çalışmaya devam eder |
 | `BACKEND_LOG_FILE` | Hayır | `rona.log` | `BACKEND_DIR` içinde takip edilecek log dosyasının adı |
@@ -562,9 +593,10 @@ Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/i
 - **`envio.py`** — `backend/toolbox/envfile.py` ile aynı semantiğe sahip, bağımsız bir stdlib `.env` okuma/yazma kopyası (yerinde değiştirme, `.bak` yedeği, atomik yazma) — CLI'ın backend'in Python paketini import etmemesi için kasıtlı olarak ayrı tutulur.
 - **`http.py`** — urllib tabanlı JSON istemci + `GET /api/logs`'un SSE akışını tüketen bir yardımcı.
 - **`providers.py`** — bir LLM sağlayıcısına veya Gemini embedding API'sine doğrudan (backend'i atlayarak) gerçek bir bağlantı testi yapar; hem `rona edit model --test` hem kurulum sihirbazı tarafından kullanılır.
-- **`commands/`** — `status.py`, `server.py`, `web.py`, `task.py`, `log.py` ve bir `edit/` alt paketi (`model.py`, `auth.py`, `env.py`, `memory.py`).
+- **`i18n.py`** + **`locales/{tr,en}.py`** — CLI'ın kendi çıktısının (yardım metinleri, komut mesajları) dil kataloğu; aktif dil `RONA_LANG` ortam değişkeninden ya da `~/.rona/config.json`'daki `language` alanından çözülür.
+- **`commands/`** — `status.py`, `server.py`, `web.py`, `task.py`, `log.py`, `tools.py` ve bir `edit/` alt paketi (`model.py`, `auth.py`, `env.py`, `memory.py`, `lang.py`).
 
-`rona server`, backend'in hiç sahip olmadığı bir süreç denetleyicisi ekler (pid dosyası, systemd `--user` birimi varsa onu tercih eder). `rona web`, web panelinin zaten var olan `python -m webui` denetleyicisine delege eder.
+`rona server`, backend'in hiç sahip olmadığı bir süreç denetleyicisi ekler (pid dosyası, systemd `--user` birimi varsa onu tercih eder). `rona web`, web panelinin zaten var olan `python -m webui` denetleyicisine delege eder. `rona tools`, backend'in kendi venv'indeki `python -m toolbox.manager`'a aynı şekilde delege eder -- CLI, `toolbox/`'ı hiçbir zaman import etmez.
 
 ### Web-client
 
@@ -574,7 +606,8 @@ Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/i
 - **`webui/host.py`** — yalnızca yerel geliştirme kolaylığı için: `BACKEND_DIR` altında backend sürecini başlatıp durdurma, logunu kuyruklama, `systemctl` varsa onun üzerinden yönetme (`/host/*` uç noktaları). Backend farklı bir makinede çalışıyorsa bu uç noktalar devre dışı kalır, panel yine de proxy üzerinden backend'e bağlanmaya devam eder.
 - **`webui/db.py`** — `BACKEND_DIR` içindeki `rona.db`'yi salt okunur açıp bazı yönetim görünümlerini (`/host/db/tasks`, `/host/db/subagents`) "degraded" (backend API'sinden değil, doğrudan dosyadan) modda sunar; dosya bulunamazsa boş sonuç döner.
 - **`webui/supervisor.py`** — `python -m webui start|stop|restart|status` komutunu uygulayan, panelin kendi `uvicorn` sürecini yöneten basit bir denetleyici.
-- **`frontend/`** — React + Vite + TypeScript kaynak kodu: canlı akışlı sohbet arayüzü (`components/chat/`) ve durum/bağlantı/yapılandırma/araç/görev/alt ajan/log/veri panellerinden oluşan yönetim arayüzü (`components/dashboard/`).
+- **`webui/i18n.py`** + **`webui/locales/{tr,en}.py`** — panelin kendi (proxy/host) hata mesajlarının dil kataloğu; `UI_LANGUAGE` `.env`'inden okunur. SPA fallback bunu `frontend/dist/index.html`'e sunmadan önce `<html lang>` ve `window.__RONA_LANG__` olarak sayfaya işler, böylece React ilk boyamadan önce doğru dilde açılır (tarayıcıdaki `localStorage["rona:lang"]` seçimi bunu ezip `.env`'e hiç dokunmadan geçersiz kılabilir).
+- **`frontend/`** — React + Vite + TypeScript kaynak kodu: canlı akışlı sohbet arayüzü (`components/chat/`) ve durum/bağlantı/yapılandırma/araç/görev/alt ajan/log/veri panellerinden oluşan yönetim arayüzü (`components/dashboard/`); `lib/i18n.ts` + `locales/{tr,en}.ts` + `components/LanguageProvider.tsx` frontend'in kendi dil kataloğu ve Context'idir.
 
 ### Kurulum aracı (`installer/`)
 
@@ -583,10 +616,12 @@ Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/i
 - **`detect.py`** — işletim sistemi, paket yöneticisi (winget/brew/apt/dnf/pacman), Node.js sürümü, hangi bileşenlerin zaten kurulu olduğu.
 - **`prereq.py`** — eksik Node.js'i tespit eder, ne kurulacağını gösterir, onay alıp kurar.
 - **`envgen.py`** — `.env.example` → `.env` (yorumlar korunarak, var olan dosyaya asla dokunmadan) ve `AUTH_TOKEN` üretimi/paylaşımı; `cli/rona_cli/envio`'yu doğrudan yeniden kullanır.
+- **`i18n.py`** + **`locales/{tr,en}.py`** — installer'ın kendi çıktısının dil kataloğu; `ask_language()` en başta, ön kontrollerden bile önce sorulur (`--lang tr|en` otomasyon için bunu atlar). Seçilen dil installer'ın kendi çıktısını belirlemenin yanında backend/web `.env`'lerine ve `~/.rona/config.json`'a da yazılır — böylece kurulan üç ortamın da başlangıç dili olur.
 - **`wizard.py`** — Flash/Pro/embedding için etkileşimli, atlanabilir, kaydetmeden önce gerçek bir API çağrısıyla doğrulayan yapılandırma akışı (`rona_cli.providers`'ı yeniden kullanır).
-- **`pathsetup.py`** — `rona`'yı PATH'e ekler (Windows: `HKCU\Environment` + bir `.cmd` shim; POSIX: `~/.local/bin` + onaylı bir rc dosyası satırı).
-- **`steps/`** — her bileşen için venv + bağımlılık kurulumu (`cli.py`, `backend.py`, `web.py`).
+- **`pathsetup.py`** — `rona`'yı PATH'e ekler (Windows: `HKCU\Environment` + bir `.cmd` shim; POSIX: `~/.local/bin` + onaylı bir rc dosyası satırı); simetrik `remove()` aynı girdiyi/shim'i cerrahi olarak geri alır, `uninstall.py` tarafından kullanılır.
+- **`steps/`** — her bileşen için venv + bağımlılık kurulumu (`cli.py`, `backend.py`, `web.py`) ve model sihirbazından hemen sonra çalışan, opt-in araç paketi seçimi (`tools.py`, `rona tools`'un kurulum akışındaki karşılığı).
 - **`main.py`** — hepsini birbirine bağlayan orkestrasyon (`--components`, `--repair`, `--yes`, `--json`).
+- **`uninstall.py`** (+ repo kökündeki `uninstall.ps1`/`uninstall.sh`) — kurulumun bıraktığı her şeyi (ortamlar, PATH girdisi, kurulum durumu, kullanıcı verisi, kurulu araç paketleri, çalışma artıkları) tespit edip hiçbiri varsayılan işaretli gelmeyen bir seçimle kaldırır; kendi açılış dil sorusu yalnızca bu scriptin çıktısını etkiler, hiçbir yere yazılmaz.
 
 ## Test
 
