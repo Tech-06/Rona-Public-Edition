@@ -14,6 +14,7 @@ import shutil
 import sys
 
 import pytest
+from pydantic import ValidationError
 
 import toolbox
 from toolbox import packages, registry
@@ -297,3 +298,63 @@ def test_manifest_id_must_match_directory_name(fixture_package):
 
     assert not toolbox.has_tool("mismatched_tool")
     assert any("dir_name_pkg" in w for w in toolbox.load_warnings())
+
+
+# ---------------------------------------------------------------------------
+# PackageAction schema
+# ---------------------------------------------------------------------------
+
+
+def _parsed_manifest(**extra):
+    base = {"id": "x", "version": "1.0.0", "name": "X"}
+    base.update(extra)
+    return packages.PackageManifest.model_validate(base)
+
+
+def test_manifest_actions_default_to_empty():
+    manifest = _parsed_manifest()
+    assert manifest.actions == []
+    assert manifest.user_data_globs == []
+    assert manifest.find_action("anything") is None
+
+
+def test_package_action_parses_and_finds():
+    manifest = _parsed_manifest(
+        actions=[
+            {
+                "id": "add_account",
+                "label": "Add an account",
+                "handler": ".actions:add_account",
+                "params": [{"key": "account_name", "label": "Name"}],
+                "destructive": False,
+            },
+            {"id": "wipe", "handler": ".actions:wipe", "destructive": True, "cli_only": True},
+        ]
+    )
+    add = manifest.find_action("add_account")
+    assert add is not None
+    assert add.display_label() == "Add an account"
+    assert [p.key for p in add.params] == ["account_name"]
+    assert not add.destructive and not add.cli_only
+
+    wipe = manifest.find_action("wipe")
+    # No label given: the id stands in, so a UI always has something to show.
+    assert wipe.display_label() == "wipe"
+    assert wipe.destructive and wipe.cli_only
+
+
+def test_package_action_requires_an_id_and_a_handler():
+    with pytest.raises(ValidationError):
+        _parsed_manifest(actions=[{"id": "no_handler"}])
+    with pytest.raises(ValidationError):
+        _parsed_manifest(actions=[{"id": "Bad-Id", "handler": ".actions:x"}])
+
+
+def test_action_params_reuse_config_field_defaults():
+    action = _parsed_manifest(
+        actions=[{"id": "a", "handler": ".m:f", "params": [{"key": "k"}]}]
+    ).actions[0]
+    param = action.params[0]
+    assert param.type == "string"
+    assert param.required is True
+    assert param.secret is False

@@ -7,10 +7,11 @@ import json
 import os
 import shutil
 import sys
+from pathlib import Path
 
 import pytest
 
-from toolbox import manager, packages, registry
+from toolbox import manager, packages, registry, sources
 from toolbox.manager import (
     HealthCheckFailed,
     InstallCancelled,
@@ -39,6 +40,7 @@ def catalog(tmp_path):
         tools: list[dict] | None = None,
         module_source: str = "",
         extra_files: dict[str, str] | None = None,
+        declare_in_index: bool = True,
     ):
         manifest = {
             "id": package_id,
@@ -65,9 +67,15 @@ def catalog(tmp_path):
             (pkg_dir / name).write_text(content, encoding="utf-8")
 
         data = json.loads((root / "index.json").read_text(encoding="utf-8"))
-        data["packages"].append(
-            {"id": package_id, "version": "0.1.0", "name": package_id, "description": ""}
-        )
+        entry = {"id": package_id, "version": "0.1.0", "name": package_id, "description": ""}
+        if declare_in_index:
+            # The real catalog mirrors these two manifest fields into
+            # index.json so a dependency plan can be built without
+            # downloading anything. declare_in_index=False reproduces an
+            # older catalog that doesn't.
+            entry["kind"] = manifest.get("kind", "tool")
+            entry["requires"] = manifest.get("requires", [])
+        data["packages"].append(entry)
         (root / "index.json").write_text(json.dumps(data), encoding="utf-8")
         return pkg_dir
 
@@ -87,6 +95,7 @@ def manager_env(tmp_path, monkeypatch):
     finally:
         for pid in created:
             shutil.rmtree(packages.package_dir(pid), ignore_errors=True)
+            shutil.rmtree(packages.preserved_dir(pid), ignore_errors=True)
             _purge_module_cache(pid)
         packages.write_lockfile(prior_lock)
         registry.reload_registry()
@@ -389,8 +398,8 @@ def test_uninstall_blocked_by_dependent_without_force(catalog, manager_env):
         manager.uninstall("base_pkg")
     assert manager.is_installed("base_pkg")
 
-    dependents = manager.uninstall("base_pkg", force=True)
-    assert dependents == ["leaf_pkg"]
+    result = manager.uninstall("base_pkg", force=True)
+    assert result.dependents == ["leaf_pkg"]
     assert not manager.is_installed("base_pkg")
 
 
@@ -413,3 +422,477 @@ def test_verify_installed_runs_health_check(catalog, manager_env):
     result = manager.verify_installed("pkg_verify")
     assert result.ok
     assert result.detail == "fine"
+
+
+# ---------------------------------------------------------------------------
+# Package actions
+# ---------------------------------------------------------------------------
+
+
+def _action_manifest(action_extra: dict | None = None) -> dict:
+    action = {"id": "do_thing", "label": "Do the thing", "handler": ".actions:do_thing"}
+    action.update(action_extra or {})
+    return {"actions": [action]}
+
+
+def test_action_returns_ok_with_data(catalog, manager_env):
+    catalog(
+        "act_ok",
+        manifest_extra=_action_manifest(),
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def do_thing(config, params, state):\n"
+                "    return {'status': 'ok', 'message': 'done', 'data': {'n': 1}}\n"
+            )
+        },
+    )
+    manager_env.append("act_ok")
+    manager.install("act_ok", source=catalog.source_spec)
+
+    result = manager.run_action("act_ok", "do_thing")
+    assert result.ok
+    assert result.message == "done"
+    assert result.data == {"n": 1}
+
+
+def test_action_receives_config_and_params(catalog, manager_env):
+    catalog(
+        "act_args",
+        manifest_extra={
+            "config": [{"key": "greeting", "target": "config", "required": False}],
+            **_action_manifest({"params": [{"key": "who", "required": True}]}),
+        },
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def do_thing(config, params, state):\n"
+                "    return {'status': 'ok', 'message': "
+                "f\"{config.get('greeting')} {params['who']}\"}\n"
+            )
+        },
+    )
+    manager_env.append("act_args")
+    manager.install("act_args", source=catalog.source_spec)
+    manager.configure_installed("act_args", {"greeting": "hi"})
+
+    result = manager.run_action("act_args", "do_thing", {"who": "ada"})
+    assert result.message == "hi ada"
+
+
+def test_action_multi_step_round_trips_state(catalog, manager_env):
+    """input_required is the whole point: the handler keeps no session, the
+    caller hands its state straight back."""
+    catalog(
+        "act_steps",
+        manifest_extra=_action_manifest({"params": [{"key": "name", "required": True}]}),
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def do_thing(config, params, state):\n"
+                "    if state is None:\n"
+                "        return {'status': 'input_required', 'message': 'paste it',\n"
+                "                'fields': [{'key': 'code', 'label': 'Code'}],\n"
+                "                'state': {'name': params['name']}}\n"
+                "    return {'status': 'ok',\n"
+                "            'message': f\"{state['name']}:{params['code']}\"}\n"
+            )
+        },
+    )
+    manager_env.append("act_steps")
+    manager.install("act_steps", source=catalog.source_spec)
+
+    first = manager.run_action("act_steps", "do_thing", {"name": "work"})
+    assert first.status == "input_required"
+    assert [f.key for f in first.fields] == ["code"]
+    assert first.state == {"name": "work"}
+
+    second = manager.run_action("act_steps", "do_thing", {"code": "xyz"}, first.state)
+    assert second.ok
+    assert second.message == "work:xyz"
+
+
+def test_action_follow_up_step_skips_param_validation(catalog, manager_env):
+    """The second call carries the fields the handler asked for, not the
+    action's own declared params -- re-checking those would reject it."""
+    catalog(
+        "act_skip",
+        manifest_extra=_action_manifest({"params": [{"key": "name", "required": True}]}),
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def do_thing(config, params, state):\n"
+                "    if state is None:\n"
+                "        return {'status': 'input_required', 'message': 'more',\n"
+                "                'fields': [{'key': 'code'}], 'state': {}}\n"
+                "    return {'status': 'ok', 'message': 'fine'}\n"
+            )
+        },
+    )
+    manager_env.append("act_skip")
+    manager.install("act_skip", source=catalog.source_spec)
+
+    first = manager.run_action("act_skip", "do_thing", {"name": "x"})
+    assert first.status == "input_required"
+    assert manager.run_action("act_skip", "do_thing", {"code": "c"}, first.state).ok
+
+
+# A lambda can't be serialised, so this state would survive a CLI round trip
+# and then break the moment the same action ran over HTTP.
+_UNSERIALISABLE_STATE_BODY = (
+    "    return {'status': 'input_required', 'fields': [{'key': 'a'}],\n"
+    "            'state': {'f': lambda: 1}}\n"
+)
+
+
+@pytest.mark.parametrize(
+    "body, expected_fragment",
+    [
+        ("    return 'not a dict'\n", "did not return a dict"),
+        ("    return {'status': 'weird'}\n", "unknown status"),
+        (
+            "    return {'status': 'input_required', 'fields': []}\n",
+            "declared no fields",
+        ),
+        (_UNSERIALISABLE_STATE_BODY, "not JSON-serialisable"),
+        ("    raise RuntimeError('boom')\n", "action raised: boom"),
+    ],
+)
+def test_action_malformed_return_becomes_error_result(
+    catalog, manager_env, body, expected_fragment
+):
+    """A third-party package's bug must read as a failed action, never as a
+    crashed backend."""
+    package_id = f"act_bad_{abs(hash(expected_fragment)) % 10000}"
+    catalog(
+        package_id,
+        manifest_extra=_action_manifest(),
+        tools=[],
+        extra_files={"actions.py": "def do_thing(config, params, state):\n" + body},
+    )
+    manager_env.append(package_id)
+    manager.install(package_id, source=catalog.source_spec)
+
+    result = manager.run_action(package_id, "do_thing")
+    assert result.status == "error"
+    assert expected_fragment in result.message
+
+
+def test_action_unknown_id_and_missing_param_raise(catalog, manager_env):
+    catalog(
+        "act_strict",
+        manifest_extra=_action_manifest({"params": [{"key": "who", "required": True}]}),
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def do_thing(config, params, state):\n"
+                "    return {'status': 'ok', 'message': 'ok'}\n"
+            )
+        },
+    )
+    manager_env.append("act_strict")
+    manager.install("act_strict", source=catalog.source_spec)
+
+    with pytest.raises(ManagerError, match="no action"):
+        manager.run_action("act_strict", "nope")
+    with pytest.raises(ManagerError, match="needs: who"):
+        manager.run_action("act_strict", "do_thing")
+
+
+def test_action_cli_only_is_refused_when_not_allowed(catalog, manager_env):
+    catalog(
+        "act_local",
+        manifest_extra=_action_manifest({"cli_only": True}),
+        tools=[],
+        extra_files={
+            "actions.py": (
+                "def do_thing(config, params, state):\n"
+                "    return {'status': 'ok', 'message': 'ok'}\n"
+            )
+        },
+    )
+    manager_env.append("act_local")
+    manager.install("act_local", source=catalog.source_spec)
+
+    assert manager.run_action("act_local", "do_thing").ok
+    with pytest.raises(ManagerError, match="only be run from a terminal"):
+        manager.run_action("act_local", "do_thing", allow_cli_only=False)
+
+
+def test_action_bad_handler_spec_raises(catalog, manager_env):
+    catalog(
+        "act_nohandler",
+        manifest_extra=_action_manifest({"handler": ".actions:missing_function"}),
+        tools=[],
+        extra_files={"actions.py": "x = 1\n"},
+    )
+    manager_env.append("act_nohandler")
+    manager.install("act_nohandler", source=catalog.source_spec)
+
+    with pytest.raises(manager.ActionError):
+        manager.run_action("act_nohandler", "do_thing")
+
+
+def test_run_action_on_missing_package_raises(manager_env):
+    with pytest.raises(ManagerError, match="not installed"):
+        manager.run_action("never_installed", "do_thing")
+
+
+# ---------------------------------------------------------------------------
+# Post-install configuration
+# ---------------------------------------------------------------------------
+
+
+def test_configure_installed_writes_and_rechecks(catalog, manager_env):
+    catalog(
+        "cfg_pkg",
+        manifest_extra={
+            "config": [{"key": "accounts", "type": "list", "target": "config", "required": False}],
+            "health_check": ".health:check",
+        },
+        tools=[],
+        extra_files={
+            "health.py": (
+                "def check(config):\n"
+                "    accounts = config.get('accounts') or []\n"
+                "    return {'ok': bool(accounts), 'detail': f'{len(accounts)} account(s)'}\n"
+            )
+        },
+    )
+    manager_env.append("cfg_pkg")
+    # Installs unhealthy on purpose: nothing is configured yet, which is
+    # exactly the state post-install configuration exists to get out of.
+    manager.install("cfg_pkg", source=catalog.source_spec, keep_on_health_failure=True)
+    assert not manager.verify_installed("cfg_pkg").ok
+
+    result = manager.configure_installed("cfg_pkg", {"accounts": ["work", "home"]})
+    assert result.ok
+    assert packages.read_config_file("cfg_pkg")["accounts"] == ["work", "home"]
+
+
+def test_configure_installed_keeps_untouched_values(catalog, manager_env):
+    catalog(
+        "cfg_keep",
+        manifest_extra={
+            "config": [
+                {"key": "one", "target": "config", "required": False},
+                {"key": "two", "target": "config", "required": False},
+            ]
+        },
+        tools=[],
+    )
+    manager_env.append("cfg_keep")
+    manager.install("cfg_keep", source=catalog.source_spec)
+    manager.configure_installed("cfg_keep", {"one": "a", "two": "b"})
+
+    manager.configure_installed("cfg_keep", {"two": "changed"})
+    stored = packages.read_config_file("cfg_keep")
+    assert stored == {"one": "a", "two": "changed"}
+
+
+def test_configure_installed_does_not_recopy_a_file_field(catalog, manager_env, tmp_path):
+    """The resolved value of a "file" field is the copy already sitting in the
+    package directory; merging it back must not try to copy it onto itself."""
+    source_file = tmp_path / "creds.json"
+    source_file.write_text('{"installed": {}}', encoding="utf-8")
+    catalog(
+        "cfg_file",
+        manifest_extra={
+            "config": [
+                {
+                    "key": "creds",
+                    "target": "file",
+                    "dest_filename": "creds.json",
+                    "required": True,
+                },
+                {"key": "note", "target": "config", "required": False},
+            ]
+        },
+        tools=[],
+    )
+    manager_env.append("cfg_file")
+    manager.install(
+        "cfg_file",
+        source=catalog.source_spec,
+        answers={"cfg_file": {"creds": str(source_file)}},
+    )
+
+    manager.configure_installed("cfg_file", {"note": "hello"})
+    assert (packages.package_dir("cfg_file") / "creds.json").is_file()
+    assert packages.read_config_file("cfg_file")["note"] == "hello"
+
+
+def test_configure_installed_rejects_unknown_field(catalog, manager_env):
+    catalog("cfg_strict", tools=[])
+    manager_env.append("cfg_strict")
+    manager.install("cfg_strict", source=catalog.source_spec)
+
+    with pytest.raises(ManagerError, match="no config field"):
+        manager.configure_installed("cfg_strict", {"nope": 1})
+
+
+# ---------------------------------------------------------------------------
+# Dependency plans
+# ---------------------------------------------------------------------------
+
+
+def _plan(catalog_fixture, package_id):
+    return manager.resolve_plan(
+        package_id, sources.parse_source(catalog_fixture.source_spec)
+    )
+
+
+def test_resolve_plan_lists_dependencies_first(catalog, manager_env):
+    catalog("plan_base", manifest_extra={"kind": "library"}, tools=[])
+    catalog("plan_leaf", manifest_extra={"requires": ["plan_base"]}, tools=[])
+
+    plan, complete = _plan(catalog, "plan_leaf")
+    assert complete
+    assert [(e.id, e.reason) for e in plan] == [
+        ("plan_base", "dependency"),
+        ("plan_leaf", "requested"),
+    ]
+    assert plan[0].kind == "library"
+    assert not any(e.already_installed for e in plan)
+
+
+def test_resolve_plan_marks_already_installed(catalog, manager_env):
+    catalog("plan_dep", manifest_extra={"kind": "library"}, tools=[])
+    catalog("plan_top", manifest_extra={"requires": ["plan_dep"]}, tools=[])
+    manager_env.extend(["plan_dep"])
+    manager.install("plan_dep", source=catalog.source_spec)
+
+    plan, _ = _plan(catalog, "plan_top")
+    assert [e.already_installed for e in plan] == [True, False]
+
+
+def test_resolve_plan_is_incomplete_when_the_index_is_silent(catalog, manager_env):
+    """An older catalog that doesn't publish requires must not be read as
+    'this package has no dependencies'."""
+    catalog("plan_quiet", manifest_extra={"requires": ["whatever"]}, declare_in_index=False)
+
+    plan, complete = _plan(catalog, "plan_quiet")
+    assert not complete
+    assert [e.id for e in plan] == ["plan_quiet"]
+
+
+def test_resolve_plan_detects_a_cycle(catalog, manager_env):
+    catalog("plan_a", manifest_extra={"requires": ["plan_b"]}, tools=[])
+    catalog("plan_b", manifest_extra={"requires": ["plan_a"]}, tools=[])
+
+    with pytest.raises(manager.DependencyCycle):
+        _plan(catalog, "plan_a")
+
+
+def test_resolve_plan_reports_a_missing_dependency(catalog, manager_env):
+    catalog("plan_orphan", manifest_extra={"requires": ["absent_pkg"]}, tools=[])
+
+    with pytest.raises(sources.SourceError, match="absent_pkg"):
+        _plan(catalog, "plan_orphan")
+
+
+def test_on_plan_rejection_installs_nothing(catalog, manager_env):
+    catalog("gate_base", manifest_extra={"kind": "library"}, tools=[])
+    catalog("gate_leaf", manifest_extra={"requires": ["gate_base"]}, tools=[])
+    manager_env.extend(["gate_base", "gate_leaf"])
+    seen = []
+
+    with pytest.raises(InstallCancelled):
+        manager.install(
+            "gate_leaf",
+            source=catalog.source_spec,
+            on_plan=lambda plan, complete: seen.append(plan) or False,
+        )
+
+    assert [e.id for e in seen[0]] == ["gate_base", "gate_leaf"]
+    assert not manager.is_installed("gate_base")
+    assert not manager.is_installed("gate_leaf")
+
+
+def test_on_plan_is_skipped_without_new_dependencies(catalog, manager_env):
+    """Nothing extra is being pulled in, so there is nothing to warn about."""
+    catalog("gate_solo", tools=[])
+    manager_env.append("gate_solo")
+    calls = []
+
+    manager.install(
+        "gate_solo",
+        source=catalog.source_spec,
+        on_plan=lambda plan, complete: calls.append(plan) or False,
+    )
+    assert calls == []
+    assert manager.is_installed("gate_solo")
+
+
+# ---------------------------------------------------------------------------
+# User data across uninstall / reinstall
+# ---------------------------------------------------------------------------
+
+
+def _token(package_id: str, name: str = "work") -> Path:
+    path = packages.package_dir(package_id) / f"token_{name}.json"
+    path.write_text('{"token": "secret"}', encoding="utf-8")
+    return path
+
+
+def test_uninstall_preserves_user_data_by_default(catalog, manager_env):
+    catalog("ud_keep", manifest_extra={"user_data_globs": ["token_*.json"]}, tools=[])
+    manager_env.append("ud_keep")
+    manager.install("ud_keep", source=catalog.source_spec)
+    _token("ud_keep")
+
+    result = manager.uninstall("ud_keep")
+    assert result.preserved == ["token_work.json"]
+    assert not manager.is_installed("ud_keep")
+    assert (packages.preserved_dir("ud_keep") / "token_work.json").is_file()
+
+
+def test_reinstall_restores_preserved_user_data(catalog, manager_env):
+    catalog("ud_round", manifest_extra={"user_data_globs": ["token_*.json"]}, tools=[])
+    manager_env.append("ud_round")
+    manager.install("ud_round", source=catalog.source_spec)
+    _token("ud_round")
+    manager.uninstall("ud_round")
+    _purge_module_cache("ud_round")
+
+    staged = manager.install("ud_round", source=catalog.source_spec)
+    assert staged[0].restored_user_data == ["token_work.json"]
+    restored = packages.package_dir("ud_round") / "token_work.json"
+    assert restored.read_text(encoding="utf-8") == '{"token": "secret"}'
+    assert not packages.preserved_dir("ud_round").exists()
+
+
+def test_uninstall_purge_deletes_user_data(catalog, manager_env):
+    catalog("ud_purge", manifest_extra={"user_data_globs": ["token_*.json"]}, tools=[])
+    manager_env.append("ud_purge")
+    manager.install("ud_purge", source=catalog.source_spec)
+    _token("ud_purge")
+
+    result = manager.uninstall("ud_purge", purge=True)
+    assert result.preserved == []
+    assert not packages.preserved_dir("ud_purge").exists()
+
+
+def test_on_user_data_declining_deletes(catalog, manager_env):
+    catalog("ud_ask", manifest_extra={"user_data_globs": ["token_*.json"]}, tools=[])
+    manager_env.append("ud_ask")
+    manager.install("ud_ask", source=catalog.source_spec)
+    _token("ud_ask")
+    asked = []
+
+    result = manager.uninstall(
+        "ud_ask", on_user_data=lambda pid, paths: asked.append((pid, paths)) or False
+    )
+    assert asked[0][0] == "ud_ask"
+    assert [p.name for p in asked[0][1]] == ["token_work.json"]
+    assert result.preserved == []
+    assert not packages.preserved_dir("ud_ask").exists()
+
+
+def test_user_data_globs_cannot_escape_the_package_directory(catalog, manager_env):
+    catalog("ud_escape", manifest_extra={"user_data_globs": ["../*.json"]}, tools=[])
+    manager_env.append("ud_escape")
+    manager.install("ud_escape", source=catalog.source_spec)
+
+    manifest = packages.load_manifest(packages.package_dir("ud_escape"))
+    assert packages.user_data_paths(manifest) == []

@@ -43,6 +43,9 @@ logger = logging.getLogger("uvicorn.error")
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 CUSTOM_DIR = Path(__file__).resolve().parent / "custom"
 LOCKFILE_PATH = CUSTOM_DIR / "installed.json"
+# Where uninstall parks a package's user data when the user asks to keep it.
+# Named with a leading dot so iter_installed() never mistakes it for a package.
+PRESERVED_DIR = CUSTOM_DIR / ".preserved"
 ENV_PATH = BACKEND_DIR / ".env"
 
 _PACKAGE_ID_PATTERN = r"^[a-z][a-z0-9_]*$"
@@ -78,6 +81,56 @@ class ConfigField(BaseModel):
         return self.label or self.key
 
 
+class PackageAction(BaseModel):
+    """A named operation a package exposes to the *operator* (not the model).
+
+    Tools are what the model calls; actions are what a human calls -- one-off
+    setup or maintenance operations that have no business sitting in the
+    model's tool list: authorizing a Google account, listing or revoking those
+    authorizations, re-running a migration. The manifest only declares them;
+    ``toolbox.manager.run_action`` resolves and runs the handler, and
+    ``rona tools run`` / the dashboard's package panel drive it.
+
+    ``handler`` uses the same ``"<module>:<function>"`` form as
+    ``health_check``, a leading ``"."`` meaning "inside this package". The
+    handler is called as ``handler(config, params, state)`` and returns one of:
+
+        {"status": "ok", "message": str, "data": {...}}
+        {"status": "error", "message": str}
+        {"status": "input_required", "message": str,
+         "fields": [<ConfigField dict>, ...], "state": {...}}
+
+    ``input_required`` is what makes multi-step flows (an OAuth consent round
+    trip, say) work identically over a terminal and over HTTP: the caller
+    collects ``fields``, then calls the same action again with those values
+    and the returned ``state`` handed back verbatim. ``state`` must be JSON
+    -serialisable precisely so the host never has to keep a session alive
+    between the steps.
+
+    ``params`` reuses ``ConfigField`` so one form renderer (a CLI prompt or a
+    web input) serves both config and action input. ``target``, ``env_var``
+    and ``dest_filename`` are meaningless for a parameter and are ignored --
+    an action's inputs go to the handler, they are never persisted by the host.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1, pattern=_PACKAGE_ID_PATTERN)
+    label: str = ""
+    description: str = ""
+    handler: str = Field(min_length=1)
+    params: list[ConfigField] = Field(default_factory=list)
+    # Ask for confirmation before running (revokes something, deletes a file).
+    destructive: bool = False
+    # Never offer over HTTP. For actions that block far longer than the web
+    # dashboard's proxy timeout, or that only make sense on the machine the
+    # backend itself runs on (opening a local browser, for instance).
+    cli_only: bool = False
+
+    def display_label(self) -> str:
+        return self.label or self.id
+
+
 class PackageManifest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -91,14 +144,23 @@ class PackageManifest(BaseModel):
     python_requirements: list[str] = Field(default_factory=list)
     schema_sql: str | None = None
     config: list[ConfigField] = Field(default_factory=list)
+    actions: list[PackageAction] = Field(default_factory=list)
     health_check: str | None = None
     tools_file: str = "tools.json"
+    # Glob patterns, relative to the package directory, matching files the
+    # *user* produced rather than the package shipped (google_auth's
+    # token_<account>.json, say). Uninstall offers to preserve these instead
+    # of deleting them with the rest of the package -- see manager.uninstall.
+    user_data_globs: list[str] = Field(default_factory=list)
 
     def env_fields(self) -> list[ConfigField]:
         return [f for f in self.config if f.target == "env"]
 
     def config_fields(self) -> list[ConfigField]:
         return [f for f in self.config if f.target == "config"]
+
+    def find_action(self, action_id: str) -> PackageAction | None:
+        return next((a for a in self.actions if a.id == action_id), None)
 
 
 class PackageLoadError(Exception):
@@ -258,6 +320,39 @@ def iter_installed() -> list[Path]:
         if p.is_dir() and not p.name.startswith((".", "__"))
     ]
     return sorted(dirs, key=lambda p: p.name)
+
+
+def user_data_paths(manifest: PackageManifest) -> list[Path]:
+    """Files inside an installed package matching its ``user_data_globs``.
+
+    Patterns are resolved strictly inside the package directory: a pattern
+    that escapes it (``../``, an absolute path) is ignored rather than
+    honoured, so a manifest can never point uninstall at arbitrary files.
+    """
+    pkg_dir = package_dir(manifest.id)
+    if not pkg_dir.is_dir():
+        return []
+    root = pkg_dir.resolve()
+    found: list[Path] = []
+    for pattern in manifest.user_data_globs:
+        for path in sorted(pkg_dir.glob(pattern)):
+            if not path.is_file() or path in found:
+                continue
+            if not path.resolve().is_relative_to(root):
+                logger.warning(
+                    "toolbox: package '%s': user_data_globs pattern %r escapes the "
+                    "package directory, ignoring %s",
+                    manifest.id,
+                    pattern,
+                    path,
+                )
+                continue
+            found.append(path)
+    return found
+
+
+def preserved_dir(package_id: str) -> Path:
+    return PRESERVED_DIR / package_id
 
 
 def load_installed_manifests() -> list[PackageManifest]:

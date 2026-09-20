@@ -22,18 +22,25 @@ Three backends, selected by a source spec string:
 ``index.json`` shape (at the catalog root)::
 
     {
-      "catalog_version": 1,
+      "catalog_version": 2,
       "packages": [
         {
           "id": "deepl_translate",
           "version": "0.1.0",
           "name": "DeepL Ceviri",
           "description": "...",
+          "kind": "tool",                      // optional, "tool" | "library"
+          "requires": [],                      // optional, package ids
           "path": "packages/deepl_translate"   // optional, defaults to
                                                  // "packages/<id>"
         }
       ]
     }
+
+``requires`` is a *copy* of the authoritative value in each package's own
+manifest.json. Mirroring it into the index is what lets the manager tell a
+user "this will also install google_auth" before anything is downloaded;
+the manifest still wins once the package is actually fetched.
 """
 
 from __future__ import annotations
@@ -67,6 +74,12 @@ class CatalogEntry:
     name: str
     description: str
     path: str
+    kind: str = "tool"
+    # ``None`` means the catalog didn't declare dependencies at all, which is
+    # not the same as ``()`` ("declared, and there are none"). A plan built
+    # from an index predating the key has to admit it may be incomplete
+    # rather than promise there is nothing else to install.
+    requires: tuple[str, ...] | None = None
 
 
 def _parse_index(raw: str, *, origin: str) -> list[CatalogEntry]:
@@ -82,6 +95,7 @@ def _parse_index(raw: str, *, origin: str) -> list[CatalogEntry]:
         if not isinstance(item, dict) or "id" not in item:
             raise SourceError(f"{origin}: invalid package entry in index.json: {item!r}")
         pkg_id = item["id"]
+        raw_requires = item.get("requires")
         entries.append(
             CatalogEntry(
                 id=pkg_id,
@@ -89,6 +103,12 @@ def _parse_index(raw: str, *, origin: str) -> list[CatalogEntry]:
                 name=item.get("name", pkg_id),
                 description=item.get("description", ""),
                 path=item.get("path", f"packages/{pkg_id}"),
+                kind=item.get("kind", "tool"),
+                requires=(
+                    tuple(str(dep) for dep in raw_requires)
+                    if isinstance(raw_requires, list)
+                    else None
+                ),
             )
         )
     return entries

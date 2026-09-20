@@ -23,6 +23,7 @@ from toolbox.sources import (
     HttpsTarballSource,
     LocalSource,
     SourceError,
+    _parse_index,
     parse_source,
 )
 
@@ -250,3 +251,32 @@ def test_https_tarball_source_404_raises(http_catalog_server):
     source = HttpsTarballSource(http_catalog_server + "/does-not-exist")
     with pytest.raises(SourceError):
         source.fetch_index()
+
+
+def test_index_carries_kind_and_requires():
+    entries = _parse_index(
+        json.dumps(
+            {
+                "catalog_version": 2,
+                "packages": [
+                    {"id": "dep", "kind": "library", "requires": []},
+                    {"id": "leaf", "requires": ["dep"]},
+                ],
+            }
+        ),
+        origin="test",
+    )
+    by_id = {e.id: e for e in entries}
+    assert by_id["dep"].kind == "library"
+    assert by_id["dep"].requires == ()
+    assert by_id["leaf"].kind == "tool"
+    assert by_id["leaf"].requires == ("dep",)
+
+
+def test_index_without_requires_reads_as_unknown_not_empty():
+    """An older catalog says nothing about dependencies. Reading that as "()"
+    would let the manager promise an install pulls in nothing else."""
+    entries = _parse_index(
+        json.dumps({"catalog_version": 1, "packages": [{"id": "old"}]}), origin="test"
+    )
+    assert entries[0].requires is None
