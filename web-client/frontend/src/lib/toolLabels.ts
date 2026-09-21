@@ -42,6 +42,14 @@ const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
   delete_task: "tool.delete_task",
   get_task_run: "tool.get_task_run",
   dismiss_task_run: "tool.dismiss_task_run",
+  bb_get_courses: "tool.bb_get_courses",
+  bb_get_announcements: "tool.bb_get_announcements",
+  bb_get_calendar: "tool.bb_get_calendar",
+  bb_get_assignments: "tool.bb_get_assignments",
+  bb_get_course_content: "tool.bb_get_course_content",
+  bb_get_item: "tool.bb_get_item",
+  bb_get_assignment_detail: "tool.bb_get_assignment_detail",
+  bb_get_grades: "tool.bb_get_grades",
 };
 
 function truncate(value: string, max = 40): string {
