@@ -243,6 +243,7 @@ def _record_turn_history(
     message: str,
     result: dict[str, Any],
     steps: list[dict[str, Any]],
+    started_at_ms: int,
     started_monotonic: float,
 ) -> None:
     """Persists this turn to graph.history so every client -- not just the
@@ -254,20 +255,24 @@ def _record_turn_history(
     the user's approve/reject continues the same conversation. Never lets
     a storage error break the chat itself -- the SSE "done" event the
     caller publishes right after this still reaches the client either way.
+
+    Both messages are stamped with the turn's start time, the same as the
+    old client-side version did -- graph.history._merge_messages orders a
+    merged transcript by createdAt, so server- and browser-recorded turns
+    must mean the same thing by it.
     """
-    now = int(time.time() * 1000)
     total_duration_ms = round((time.monotonic() - started_monotonic) * 1000)
     user_message = {
         "id": str(uuid.uuid4()),
         "role": "user",
         "content": message,
-        "createdAt": now,
+        "createdAt": started_at_ms,
     }
     assistant_message = {
         "id": str(uuid.uuid4()),
         "role": "assistant",
         "content": result["reply"],
-        "createdAt": now,
+        "createdAt": started_at_ms,
         "steps": steps,
         "totalDurationMs": total_duration_ms,
         "awaitingConfirmation": result["status"] == "confirmation_required",
@@ -285,6 +290,7 @@ async def _stream_worker(
     graph: Any, conversation_id: str, message: str, run: StreamRun
 ) -> None:
     recorder = history.TurnRecorder(run)
+    started_at_ms = int(time.time() * 1000)
     started = time.monotonic()
     try:
         try:
@@ -298,7 +304,9 @@ async def _stream_worker(
                 },
             )
         else:
-            _record_turn_history(conversation_id, message, result, recorder.steps, started)
+            _record_turn_history(
+                conversation_id, message, result, recorder.steps, started_at_ms, started
+            )
             run.publish("done", {**result, "conversation_id": conversation_id})
     finally:
         run.finish()

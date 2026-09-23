@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChat } from "../api/sse";
 import { useT } from "../components/LanguageProvider";
-import { fetchMessages, syncFromServer } from "../lib/storage";
+import {
+  fetchConversation,
+  loadIndex,
+  onConversationsChanged,
+  syncFromServer,
+  type ServerConversation,
+} from "../lib/storage";
 import { agentPhaseLabel, confirmPhaseLabel, toolLabel } from "../lib/toolLabels";
 import type { ChatMessage, ProgressEvent, StepRecord } from "../types";
 
@@ -24,29 +30,43 @@ export function useChat(initialConversationId: string | null, onConversationId?:
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const startedAtRef = useRef<number>(0);
+  // The server's updatedAt for the transcript currently on screen. Compared
+  // against the synced conversation list to notice that another device (or
+  // a turn that kept running after this one stopped listening) has added to
+  // it since -- see the live-refresh effect below.
+  const loadedUpdatedAtRef = useRef<number>(0);
+  // True until the initial fetch of an opened conversation settles -- the
+  // live-refresh effect would otherwise fire a second, identical fetch for
+  // the very sync that lands while the first one is still in flight.
+  const initialLoadPendingRef = useRef(Boolean(initialConversationId));
 
-  // The transcript now lives server-side (backend/graph/history.py), not
-  // in localStorage -- opening a conversation means fetching it. A given
-  // useChat instance is remounted (via App.tsx's `chatKey`) rather than
-  // updated whenever the user picks a different conversation, so
-  // initialConversationId is effectively fixed for this instance's
-  // lifetime and this only ever needs to run once, on mount.
+  function showServerConversation(conversation: ServerConversation) {
+    messagesRef.current = conversation.messages;
+    setMessages(conversation.messages);
+    loadedUpdatedAtRef.current = conversation.updatedAt;
+  }
+
+  // The transcript lives server-side (backend/graph/history.py) --
+  // opening a conversation means fetching it. A given useChat instance is
+  // remounted (via App.tsx's `chatKey`) rather than updated whenever the
+  // user picks a different conversation, so initialConversationId is
+  // effectively fixed for this instance's lifetime and this only ever
+  // needs to run once, on mount.
   useEffect(() => {
     if (!initialConversationId) return;
     let cancelled = false;
     setMessagesLoading(true);
-    fetchMessages(initialConversationId)
+    fetchConversation(initialConversationId)
       .then((loaded) => {
         if (cancelled) return;
-        messagesRef.current = loaded;
-        setMessages(loaded);
+        showServerConversation(loaded ?? { messages: [], updatedAt: 0 });
       })
       .catch(() => {
         if (cancelled) return;
-        messagesRef.current = [];
-        setMessages([]);
+        showServerConversation({ messages: [], updatedAt: 0 });
       })
       .finally(() => {
+        initialLoadPendingRef.current = false;
         if (!cancelled) setMessagesLoading(false);
       });
     return () => {
@@ -56,26 +76,28 @@ export function useChat(initialConversationId: string | null, onConversationId?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Catches up a conversation whose turn kept running (and got recorded,
-  // see backend/app/main.py's _stream_worker) after this client stopped
-  // watching it -- a phone app backgrounded mid-turn, put to sleep by the
-  // OS, and reopened later. Only refetches when nothing is in flight
-  // locally, so it can never clobber an optimistic in-progress bubble.
+  // Live refresh: every sync (periodic, on returning to the app, after a
+  // turn) re-reads the shared conversation list. When this conversation's
+  // entry there is newer than the transcript on screen, someone else wrote
+  // to it -- a message sent from another device, or a turn this client
+  // started but stopped watching (a phone app backgrounded mid-turn; the
+  // backend finishes and records it regardless) -- so fetch it again.
+  // Never while a send of our own is in flight, so an optimistic
+  // in-progress bubble can't be clobbered.
   useEffect(() => {
-    function handleVisibility() {
-      if (document.visibilityState !== "visible") return;
-      if (sendingRef.current || !conversationId) return;
-      fetchMessages(conversationId)
+    if (!conversationId) return;
+    return onConversationsChanged(() => {
+      if (sendingRef.current || initialLoadPendingRef.current) return;
+      const summary = loadIndex().find((entry) => entry.conversationId === conversationId);
+      if (!summary || summary.updatedAt <= loadedUpdatedAtRef.current) return;
+      fetchConversation(conversationId)
         .then((loaded) => {
-          messagesRef.current = loaded;
-          setMessages(loaded);
+          if (loaded && !sendingRef.current) showServerConversation(loaded);
         })
         .catch(() => {
-          // best effort -- try again next time the tab becomes visible
+          // best effort -- the next sync tries again
         });
-    }
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    });
   }, [conversationId]);
 
   const send = useCallback(
@@ -190,6 +212,13 @@ export function useChat(initialConversationId: string | null, onConversationId?:
               // best effort -- the periodic sync in useConversationSync
               // will pick this up on its next tick either way
             }
+            // What's on screen now matches what the server just recorded,
+            // so the live-refresh effect mustn't mistake our own turn for
+            // someone else's and refetch it.
+            const recorded = loadIndex().find((entry) => entry.conversationId === finalId);
+            if (recorded) {
+              loadedUpdatedAtRef.current = Math.max(loadedUpdatedAtRef.current, recorded.updatedAt);
+            }
             onConversationId?.(finalId);
             setAwaitingConfirmation(result.status === "confirmation_required");
             setSending(false);
@@ -204,18 +233,19 @@ export function useChat(initialConversationId: string | null, onConversationId?:
             // The stream can die (network drop, backgrounded tab killed by
             // the OS, ...) after the backend already finished and recorded
             // the turn -- reconcile with the server rather than leaving a
-            // real reply permanently hidden behind a local error bubble.
+            // real reply hidden behind a local error bubble. If the turn is
+            // still running there, the live-refresh effect catches it once
+            // it's recorded; if it genuinely failed, the server never got
+            // it and the error bubble stands.
             if (resolvedConversationId) {
-              const idToCheck = resolvedConversationId;
-              fetchMessages(idToCheck)
+              fetchConversation(resolvedConversationId)
                 .then((loaded) => {
-                  if (loaded.length <= baseMessageCount) return;
-                  messagesRef.current = loaded;
-                  setMessages(loaded);
-                  void syncFromServer();
+                  if (!loaded || loaded.messages.length <= baseMessageCount) return;
+                  showServerConversation(loaded);
+                  void syncFromServer().catch(() => {});
                 })
                 .catch(() => {
-                  // genuinely unreachable -- the error bubble stands
+                  // unreachable right now -- the next sync retries
                 });
             }
           },

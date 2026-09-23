@@ -88,6 +88,10 @@ STRINGS: dict[str, str] = {
     "web.help_stop": "Web panelini durdur",
     "web.help_restart": "Web panelini yeniden başlat",
     "web.help_status": "Web panelinin durumunu göster",
+    "web.frontend_stale": (
+        "Arayüz derlemesi kaynak kodundan eski -- tarayıcılar hâlâ eski arayüzü alıyor "
+        "(git pull sonrası derlenmemiş). Derlemek için: cd {path} && npm ci && npm run build"
+    ),
     # -- commands/edit/__init__.py --------------------------------------------------
     "edit.help_group": "Yapılandırmayı düzenle",
     # -- commands/edit/auth.py -------------------------------------------------------

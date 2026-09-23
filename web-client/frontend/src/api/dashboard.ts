@@ -238,6 +238,7 @@ export interface HistoryImportPayload {
 
 export interface HistoryImportResult {
   conversationsImported: number;
+  conversationsMerged: number;
   foldersImported: number;
 }
 

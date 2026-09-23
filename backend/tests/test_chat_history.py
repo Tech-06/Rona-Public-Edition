@@ -204,50 +204,148 @@ def test_export_all_matches_the_conversation_export_shape(db_path):
     assert len(conv["messages"]) == 2
 
 
-def test_import_conversations_only_adds_missing_ones(db_path):
-    history.record_turn("existing", _user_msg("a"), _assistant_msg("b"))
+def _legacy_conv(conversation_id: str, **overrides) -> dict:
+    """One conversation as the pre-server frontend kept it in localStorage."""
+    return {
+        "conversationId": conversation_id,
+        "title": "Legacy title",
+        "titleCustom": False,
+        "updatedAt": 1000,
+        "pinned": False,
+        "folderId": None,
+        "messages": [],
+        **overrides,
+    }
 
+
+def _pair(user: str, assistant: str, created_at: int) -> list[dict]:
+    return [
+        {"id": f"u-{created_at}", "role": "user", "content": user, "createdAt": created_at},
+        {"id": f"a-{created_at}", "role": "assistant", "content": assistant, "createdAt": created_at},
+    ]
+
+
+def test_import_inserts_conversations_and_folders_the_server_lacks(db_path):
     result = history.import_conversations(
         conversations_in=[
-            {
-                "conversationId": "existing",
-                "title": "should not overwrite",
-                "titleCustom": True,
-                "updatedAt": 1,
-                "pinned": False,
-                "folderId": None,
-                "messages": [],
-            },
-            {
-                "conversationId": "imported",
-                "title": "Imported chat",
-                "titleCustom": False,
-                "updatedAt": 123,
-                "pinned": True,
-                "folderId": None,
-                "messages": [_user_msg("hi"), _assistant_msg("hello")],
-            },
+            _legacy_conv(
+                "imported",
+                title="Imported chat",
+                pinned=True,
+                folderId="f1",
+                messages=_pair("hi", "hello", 10),
+            )
         ],
         folders_in=[{"id": "f1", "name": "Old folder", "createdAt": 1, "collapsed": False}],
     )
 
-    assert result == {"conversations_imported": 1, "folders_imported": 1}
-    assert history.get("existing")["title"] != "should not overwrite"
+    assert result == {"conversations_imported": 1, "conversations_merged": 0, "folders_imported": 1}
     imported = history.get("imported")
     assert imported["title"] == "Imported chat"
     assert imported["pinned"] is True
+    assert imported["folder_id"] == "f1"
     assert len(imported["messages"]) == 2
     [folder] = history.list_folders()
     assert folder["id"] == "f1"
 
 
-def test_import_conversations_reenters_the_ttl_registry(db_path):
-    history.import_conversations(
+def test_import_merges_turns_only_the_browser_had(db_path):
+    # Started before the upgrade (only the browser saw turn 1), continued
+    # after it (the server recorded turn 2, and so did the browser).
+    history.record_turn("t1", *_pair("second question", "second answer", 200))
+
+    result = history.import_conversations(
         conversations_in=[
-            {"conversationId": "imported", "title": "x", "updatedAt": 1, "messages": []}
+            _legacy_conv(
+                "t1",
+                messages=[
+                    *_pair("first question", "first answer", 100),
+                    *_pair("second question", "second answer", 190),
+                ],
+            )
         ],
         folders_in=[],
     )
+
+    assert result["conversations_merged"] == 1
+    contents = [message["content"] for message in history.get("t1")["messages"]]
+    assert contents == ["first question", "first answer", "second question", "second answer"]
+
+
+def test_import_keeps_turns_only_the_server_has(db_path):
+    history.record_turn("t1", *_pair("from the browser", "ok", 100))
+    history.record_turn("t1", *_pair("from the phone, later", "ok too", 300))
+
+    history.import_conversations(
+        conversations_in=[_legacy_conv("t1", messages=_pair("from the browser", "ok", 90))],
+        folders_in=[],
+    )
+
+    contents = [message["content"] for message in history.get("t1")["messages"]]
+    assert contents == ["from the browser", "ok", "from the phone, later", "ok too"]
+
+
+def test_import_does_not_collapse_a_message_genuinely_sent_twice(db_path):
+    history.record_turn("t1", *_pair("evet", "tamam", 100))
+
+    history.import_conversations(
+        conversations_in=[
+            _legacy_conv("t1", messages=[*_pair("evet", "tamam", 90), *_pair("evet", "tamam", 150)])
+        ],
+        folders_in=[],
+    )
+
+    assert len(history.get("t1")["messages"]) == 4
+
+
+def test_import_is_a_no_op_the_second_time(db_path):
+    payload = [_legacy_conv("t1", folderId="f1", messages=_pair("a", "b", 10))]
+    folders = [{"id": "f1", "name": "F", "createdAt": 1, "collapsed": False}]
+    history.import_conversations(conversations_in=payload, folders_in=folders)
+
+    again = history.import_conversations(conversations_in=payload, folders_in=folders)
+
+    assert again == {"conversations_imported": 0, "conversations_merged": 0, "folders_imported": 0}
+    assert len(history.get("t1")["messages"]) == 2
+
+
+def test_import_fills_a_missing_folder_but_never_moves_a_filed_one(db_path):
+    history.record_turn("unfiled", *_pair("a", "b", 10))
+    history.record_turn("filed", *_pair("a", "b", 10))
+    history.set_folder("filed", "server-folder")
+
+    history.import_conversations(
+        conversations_in=[
+            _legacy_conv("unfiled", folderId="browser-folder", messages=_pair("a", "b", 10)),
+            _legacy_conv("filed", folderId="browser-folder", messages=_pair("a", "b", 10)),
+        ],
+        folders_in=[],
+    )
+
+    assert history.get("unfiled")["folder_id"] == "browser-folder"
+    assert history.get("filed")["folder_id"] == "server-folder"
+
+
+def test_import_applies_a_custom_title_only_over_an_auto_derived_one(db_path):
+    history.record_turn("auto", *_pair("hello there", "hi", 10))
+    history.record_turn("renamed", *_pair("hello there", "hi", 10))
+    history.rename("renamed", "Chosen on the server")
+
+    history.import_conversations(
+        conversations_in=[
+            _legacy_conv("auto", title="Chosen in the browser", titleCustom=True),
+            _legacy_conv("renamed", title="Chosen in the browser", titleCustom=True),
+        ],
+        folders_in=[],
+    )
+
+    assert history.get("auto")["title"] == "Chosen in the browser"
+    assert history.get("auto")["title_custom"] is True
+    assert history.get("renamed")["title"] == "Chosen on the server"
+
+
+def test_import_conversations_reenters_the_ttl_registry(db_path):
+    history.import_conversations(conversations_in=[_legacy_conv("imported")], folders_in=[])
 
     registry_row = conversations.get("imported")
 
@@ -261,7 +359,7 @@ def test_import_conversations_skips_entries_without_an_id(db_path):
         folders_in=[{"name": "no id"}],
     )
 
-    assert result == {"conversations_imported": 0, "folders_imported": 0}
+    assert result == {"conversations_imported": 0, "conversations_merged": 0, "folders_imported": 0}
 
 
 # -- TurnRecorder -----------------------------------------------------------------

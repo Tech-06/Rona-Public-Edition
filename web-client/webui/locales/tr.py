@@ -21,4 +21,9 @@ STRINGS: dict[str, str] = {
     "webui.unsupported_content_type": "Desteklenmeyen içerik türü",
     "webui.cross_site_blocked": "Siteler arası istek engellendi",
     "webui.frontend_not_built": "Frontend derlenmemiş",
+    "webui.frontend_stale": (
+        "Arayüz derlemesi kaynak kodundan eski (git pull sonrası npm run build "
+        "çalıştırılmamış olabilir); tarayıcılar hâlâ eski arayüzü alıyor. "
+        "web-client/frontend içinde 'npm ci && npm run build' çalıştır."
+    ),
 }

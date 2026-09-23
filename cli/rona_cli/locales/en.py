@@ -88,6 +88,10 @@ STRINGS: dict[str, str] = {
     "web.help_stop": "Stop the web dashboard",
     "web.help_restart": "Restart the web dashboard",
     "web.help_status": "Show the web dashboard's status",
+    "web.frontend_stale": (
+        "The compiled frontend is older than its source -- browsers still get the old UI "
+        "(not rebuilt after git pull). To rebuild: cd {path} && npm ci && npm run build"
+    ),
     # -- commands/edit/__init__.py --------------------------------------------------
     "edit.help_group": "Edit configuration",
     # -- commands/edit/auth.py -------------------------------------------------------

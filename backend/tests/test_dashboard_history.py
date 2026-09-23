@@ -193,7 +193,11 @@ def test_import_history_adds_conversations_and_folders(client):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"conversationsImported": 1, "foldersImported": 1}
+    assert response.json() == {
+        "conversationsImported": 1,
+        "conversationsMerged": 0,
+        "foldersImported": 1,
+    }
     listed = api.get("/api/history").json()
     assert listed["conversations"][0]["conversationId"] == "migrated"
     assert listed["folders"][0]["id"] == "f1"

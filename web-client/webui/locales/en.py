@@ -23,4 +23,9 @@ STRINGS: dict[str, str] = {
     "webui.unsupported_content_type": "Unsupported content type",
     "webui.cross_site_blocked": "Cross-site request blocked",
     "webui.frontend_not_built": "Frontend not built",
+    "webui.frontend_stale": (
+        "The compiled frontend is older than its source (git pull without "
+        "npm run build?); browsers are still getting the old UI. Run "
+        "'npm ci && npm run build' in web-client/frontend."
+    ),
 }

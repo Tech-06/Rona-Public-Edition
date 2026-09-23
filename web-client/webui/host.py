@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from webui import db, i18n, proxy
+from webui import db, frontend_build, i18n, proxy
 from webui.config import get_settings
 
 settings = get_settings()
@@ -96,6 +96,9 @@ async def web_healthz():
         "service": "rona-web",
         "pid": os.getpid(),
         "uptime_seconds": round(time.time() - STARTED_AT, 2),
+        # Read by `rona web status/start/restart` to warn about a `git pull`
+        # that wasn't followed by `npm run build` (see frontend_build.py).
+        "frontend_stale": frontend_build.is_stale(),
     }
 
 

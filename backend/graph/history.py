@@ -475,32 +475,83 @@ def export_all() -> dict[str, Any]:
     }
 
 
+def _message_key(message: dict[str, Any]) -> tuple[str, str]:
+    return (str(message.get("role") or ""), str(message.get("content") or "").strip())
+
+
+def _created_at(message: dict[str, Any]) -> float:
+    try:
+        return float(message.get("createdAt") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _merge_messages(
+    server: list[dict[str, Any]], incoming: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Union of two copies of the same conversation's transcript.
+
+    The case this exists for: a conversation started before the upgrade
+    (so its early turns only ever reached one browser's localStorage) and
+    continued after it (so its later turns were recorded here too). The
+    server row then holds only the tail, the browser's copy holds
+    everything, and neither "keep the server's" nor "keep the browser's"
+    is right once a second device has added turns of its own.
+
+    A turn present in both copies is matched on role+content -- the ids
+    and timestamps differ, since one side was stamped by the browser and
+    the other by the server -- counting occurrences, so a message that was
+    genuinely sent twice isn't collapsed into one. The server's copy wins
+    for matched turns; whatever only the incoming copy has is added, and
+    the result is ordered by createdAt (a stable sort, so the two halves
+    of a same-timestamp user/assistant pair keep their order).
+    """
+    remaining: dict[tuple[str, str], int] = {}
+    for message in server:
+        key = _message_key(message)
+        remaining[key] = remaining.get(key, 0) + 1
+    extra: list[dict[str, Any]] = []
+    for message in incoming:
+        key = _message_key(message)
+        if remaining.get(key, 0) > 0:
+            remaining[key] -= 1
+            continue
+        extra.append(message)
+    if not extra:
+        return server
+    return sorted([*server, *extra], key=_created_at)
+
+
 def import_conversations(
     conversations_in: list[dict[str, Any]],
     folders_in: list[dict[str, Any]],
 ) -> dict[str, int]:
     """One-time migration path for the pre-server localStorage format
-    (web-client/frontend/src/lib/storage.ts's old per-origin STORAGE_KEY /
-    FOLDERS_KEY shape, one call per device being migrated).
+    (web-client/frontend/src/lib/storage.ts's old per-origin keys), one call
+    per browser being migrated.
 
-    Only ever ADDS conversations/folders that don't already exist
-    server-side -- never overwrites -- so importing from a second device
-    can't clobber history a first device already migrated, and importing
-    the same device's export twice is a harmless no-op.
+    A conversation the server has never seen is inserted as-is. One it
+    already has is *merged*, never overwritten: its transcript becomes the
+    union of both copies (see _merge_messages), and the browser's copy only
+    fills in what the server row lacks -- a folder when it has none, a
+    user-chosen title when its own is still auto-derived. That is what
+    makes importing safe from any number of devices, in any order, any
+    number of times: a second import of the same data changes nothing.
 
     `conversations_in` items: {conversationId, title, titleCustom,
     updatedAt, pinned, folderId, messages}.
     `folders_in` items: {id, name, createdAt, collapsed}.
 
-    Every imported conversation is touch()ed in graph.conversations so it
-    gets a registry row and re-enters the normal TTL/purge lifecycle,
+    Every newly inserted conversation is touch()ed in graph.conversations
+    so it gets a registry row and re-enters the normal TTL/purge lifecycle,
     exactly like conversations.reconcile() does for pre-registry
     conversations at startup -- otherwise it would sit as a permanent,
-    unpurgeable orphan the registry has never seen.
+    unpurgeable orphan the registry has never seen. A pin carried by the
+    browser's copy is applied either way; an unpinned copy never unpins.
     """
     connection = _get_connection()
     if connection is None:
-        return {"conversations_imported": 0, "folders_imported": 0}
+        return {"conversations_imported": 0, "conversations_merged": 0, "folders_imported": 0}
     imported_thread_ids: list[str] = []
     pins_to_apply: list[str] = []
     try:
@@ -527,37 +578,70 @@ def import_conversations(
             folders_imported += 1
 
         conversations_imported = 0
+        conversations_merged = 0
         for conv in conversations_in:
             thread_id = str(conv.get("conversationId") or "").strip()
             if not thread_id:
                 continue
-            cursor.execute("SELECT 1 FROM chat_history WHERE thread_id = ?", (thread_id,))
-            if cursor.fetchone() is not None:
-                continue
-            now = _now_ms()
             title = str(conv.get("title") or "").strip()
+            title_custom = bool(conv.get("titleCustom")) and bool(title)
+            folder_id = conv.get("folderId") or None
             messages = conv.get("messages")
             if not isinstance(messages, list):
                 messages = []
-            updated_at = int(conv.get("updatedAt") or now)
-            cursor.execute(
-                "INSERT INTO chat_history "
-                "(thread_id, title, title_custom, folder_id, messages, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    thread_id,
-                    title,
-                    int(bool(conv.get("titleCustom"))),
-                    conv.get("folderId"),
-                    json.dumps(messages, ensure_ascii=False),
-                    updated_at,
-                    updated_at,
-                ),
-            )
-            conversations_imported += 1
-            imported_thread_ids.append(thread_id)
+            messages = [message for message in messages if isinstance(message, dict)]
+            updated_at = int(conv.get("updatedAt") or _now_ms())
             if conv.get("pinned"):
                 pins_to_apply.append(thread_id)
+
+            cursor.execute("SELECT * FROM chat_history WHERE thread_id = ?", (thread_id,))
+            existing = cursor.fetchone()
+            if existing is None:
+                cursor.execute(
+                    "INSERT INTO chat_history "
+                    "(thread_id, title, title_custom, folder_id, messages, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        thread_id,
+                        title,
+                        int(title_custom),
+                        folder_id,
+                        json.dumps(messages, ensure_ascii=False),
+                        updated_at,
+                        updated_at,
+                    ),
+                )
+                conversations_imported += 1
+                imported_thread_ids.append(thread_id)
+                continue
+
+            server_messages = json.loads(existing["messages"] or "[]")
+            merged = _merge_messages(server_messages, messages)
+            new_folder_id = existing["folder_id"] or folder_id
+            if title_custom and not existing["title_custom"]:
+                new_title, new_title_custom = title, True
+            else:
+                new_title, new_title_custom = existing["title"], bool(existing["title_custom"])
+            changed = (
+                merged is not server_messages
+                or new_folder_id != existing["folder_id"]
+                or new_title_custom != bool(existing["title_custom"])
+            )
+            if not changed:
+                continue
+            cursor.execute(
+                "UPDATE chat_history SET title = ?, title_custom = ?, folder_id = ?, "
+                "messages = ?, updated_at = ? WHERE thread_id = ?",
+                (
+                    new_title,
+                    int(new_title_custom),
+                    new_folder_id,
+                    json.dumps(merged, ensure_ascii=False),
+                    max(existing["updated_at"], updated_at),
+                    thread_id,
+                ),
+            )
+            conversations_merged += 1
 
         connection.commit()
     finally:
@@ -570,5 +654,6 @@ def import_conversations(
 
     return {
         "conversations_imported": conversations_imported,
+        "conversations_merged": conversations_merged,
         "folders_imported": folders_imported,
     }

@@ -9,6 +9,10 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
+    // Everything behind these endpoints is live server state (the shared
+    // conversation list above all) -- a response reused from the HTTP
+    // cache would show one device a stale copy of what another just wrote.
+    cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",

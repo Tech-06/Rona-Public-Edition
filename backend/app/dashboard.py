@@ -727,11 +727,12 @@ class HistoryImportPayload(BaseModel):
 async def import_history(payload: HistoryImportPayload):
     """One-time migration for a browser's pre-server localStorage history
     (see graph.history.import_conversations's docstring). Safe to call more
-    than once, from more than one device: only ever adds conversations/
-    folders the server doesn't already have."""
+    than once, from more than one device: a conversation the server already
+    has is merged with the incoming copy, never overwritten by it."""
     result = history.import_conversations(payload.conversations, payload.folders)
     return {
         "conversationsImported": result["conversations_imported"],
+        "conversationsMerged": result["conversations_merged"],
         "foldersImported": result["folders_imported"],
     }
 

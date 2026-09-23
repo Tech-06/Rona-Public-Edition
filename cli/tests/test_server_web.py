@@ -130,6 +130,37 @@ def test_web_describe_reports_running_when_dashboard_is_up(tmp_path, fake_server
     assert data["pid"] == 4242
 
 
+def _web_status(tmp_path, fake_server, capsys, *, frontend_stale: bool) -> str:
+    import argparse
+
+    port = fake_server(
+        {
+            "/host/healthz": {
+                "service": "rona-web",
+                "pid": 1,
+                "uptime_seconds": 5,
+                "frontend_stale": frontend_stale,
+            }
+        }
+    )
+    root = _make_root(tmp_path)
+    (root / "web-client" / ".env").write_text(
+        f"WEB_HOST=127.0.0.1\nWEB_PORT={port}\n", encoding="utf-8"
+    )
+    web._cmd_status(argparse.Namespace(root=str(root), json=False))
+    return capsys.readouterr().out
+
+
+def test_web_status_warns_when_the_frontend_build_is_stale(tmp_path, fake_server, capsys):
+    output = _web_status(tmp_path, fake_server, capsys, frontend_stale=True)
+    assert "npm run build" in output
+
+
+def test_web_status_is_quiet_when_the_frontend_build_is_current(tmp_path, fake_server, capsys):
+    output = _web_status(tmp_path, fake_server, capsys, frontend_stale=False)
+    assert "npm run build" not in output
+
+
 def test_web_describe_reports_not_running_when_closed(tmp_path):
     root = _make_root(tmp_path)
     closed_port = _free_port()

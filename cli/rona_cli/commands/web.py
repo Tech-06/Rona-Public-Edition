@@ -50,6 +50,15 @@ def _fail(args: argparse.Namespace, message: str) -> None:
         ui.error(message)
 
 
+def _warn_if_frontend_stale(paths: RonaPaths, data: dict[str, Any]) -> None:
+    # web-client/webui/dist is gitignored: a `git pull` updates the frontend's
+    # source but not the build every browser is actually served, so the new
+    # UI silently never arrives. The dashboard itself detects that (see
+    # webui/frontend_build.py); this is where the operator gets to hear it.
+    if data.get("frontend_stale"):
+        ui.warn(i18n.t("web.frontend_stale", path=paths.web_dir / "frontend"))
+
+
 def _delegate(args: argparse.Namespace, action: str) -> int:
     paths = _resolve(args)
     if paths is None:
@@ -67,6 +76,8 @@ def _delegate(args: argparse.Namespace, action: str) -> int:
                 ensure_ascii=False,
             )
         )
+    elif action != "stop" and result.returncode == 0:
+        _warn_if_frontend_stale(paths, describe(paths))
     return result.returncode
 
 
@@ -100,6 +111,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
                 uptime=data.get("uptime_seconds", "?"),
             )
         )
+        _warn_if_frontend_stale(paths, data)
     else:
         ui.warn(i18n.t("web.status_stopped", detail=data.get("detail", "")))
     return 0

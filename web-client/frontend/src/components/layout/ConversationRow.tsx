@@ -1,5 +1,4 @@
 import { useRef, useState, type KeyboardEvent } from "react";
-import { dashboardApi } from "../../api/dashboard";
 import { DND_MIME } from "../../lib/dnd";
 import {
   notifyConversationsChanged,
@@ -77,20 +76,17 @@ export function ConversationRow({
 
   async function togglePin() {
     const nextPinned = !conversation.pinned;
-    // Optimistic: write locally first so the UI reacts instantly, then
-    // sync to the backend (pinning must reach the server so its TTL
-    // purge actually exempts this conversation). On failure, revert the
-    // local state rather than leave it out of sync with what the server
-    // will still purge.
-    setConversationPinned(conversation.conversationId, nextPinned);
+    // Optimistic: the cache flips immediately so the UI reacts instantly,
+    // and setConversationPinned reverts it itself if the server refuses
+    // (pinning must reach the server so its TTL purge actually exempts
+    // this conversation).
+    const request = setConversationPinned(conversation.conversationId, nextPinned);
     notifyConversationsChanged();
     onCloseMenu();
     try {
-      await dashboardApi.setConversationPinned(conversation.conversationId, nextPinned);
+      await request;
       onAnnounce(nextPinned ? t("row.pinned") : t("row.unpinned"));
     } catch {
-      setConversationPinned(conversation.conversationId, !nextPinned);
-      notifyConversationsChanged();
       onAnnounce(t("row.pin_save_failed"));
     }
   }

@@ -1,3 +1,7 @@
+import os
+
+from fastapi.testclient import TestClient
+
 import webui.server as server_module
 from webui.config import Settings
 
@@ -85,3 +89,35 @@ def test_localized_index_html_missing_dist_returns_none(tmp_path, monkeypatch):
     monkeypatch.setattr(server_module, "get_settings", lambda: _settings())
 
     assert server_module._localized_index_html() is None
+
+
+def test_localized_index_html_rereads_after_a_rebuild(tmp_path, monkeypatch):
+    # A rebuild while the server keeps running replaces index.html (and
+    # deletes the hashed assets the old one pointed at) -- the cache must
+    # notice, or every browser gets an index.html whose scripts now 404.
+    _reset_cache(monkeypatch)
+    index_path = tmp_path / "index.html"
+    index_path.write_text(FAKE_INDEX_HTML, encoding="utf-8")
+    os.utime(index_path, (1000, 1000))
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    monkeypatch.setattr(server_module, "get_settings", lambda: _settings())
+    server_module._localized_index_html()
+
+    rebuilt = FAKE_INDEX_HTML.replace('<div id="root">', '<div id="root" data-build="2">')
+    index_path.write_text(rebuilt, encoding="utf-8")
+    os.utime(index_path, (2000, 2000))
+
+    assert 'data-build="2"' in server_module._localized_index_html()
+
+
+def test_spa_fallback_tells_browsers_to_revalidate_index_html(tmp_path, monkeypatch):
+    _reset_cache(monkeypatch)
+    (tmp_path / "index.html").write_text(FAKE_INDEX_HTML, encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    monkeypatch.setattr(server_module, "get_settings", lambda: _settings())
+    client = TestClient(server_module.create_app(), base_url="http://localhost")
+
+    response = client.get("/any/spa/route")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
