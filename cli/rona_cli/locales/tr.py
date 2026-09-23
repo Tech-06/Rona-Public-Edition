@@ -88,9 +88,20 @@ STRINGS: dict[str, str] = {
     "web.help_stop": "Web panelini durdur",
     "web.help_restart": "Web panelini yeniden başlat",
     "web.help_status": "Web panelinin durumunu göster",
+    "web.help_build": "Arayüzü derle (npm ci/install + npm run build)",
     "web.frontend_stale": (
         "Arayüz derlemesi kaynak kodundan eski -- tarayıcılar hâlâ eski arayüzü alıyor "
-        "(git pull sonrası derlenmemiş). Derlemek için: cd {path} && npm ci && npm run build"
+        "(git pull sonrası derlenmemiş). Derlemek için: rona web build"
+    ),
+    "web.build_npm_not_found": "npm bulunamadı; arayüz derlenemedi.",
+    "web.build_installing": "Frontend bağımlılıkları kuruluyor ({cmd})...",
+    "web.build_install_failed": "npm install/ci başarısız oldu.",
+    "web.build_building": "Frontend derleniyor (npm run build)...",
+    "web.build_failed": "npm run build başarısız oldu.",
+    "web.build_done": "Frontend derlemesi tamamlandı.",
+    "web.build_restart_hint": (
+        "Backend ya da web panelinin Python kodu da değiştiyse: "
+        "rona server restart && rona web restart"
     ),
     # -- commands/edit/__init__.py --------------------------------------------------
     "edit.help_group": "Yapılandırmayı düzenle",

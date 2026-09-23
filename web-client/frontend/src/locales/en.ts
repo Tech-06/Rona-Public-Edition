@@ -23,6 +23,10 @@ export const en: Record<keyof typeof tr, string> = {
     "Choose which language the dashboard is shown in. This only affects this browser.",
   "appearance.language_tr": "Türkçe",
   "appearance.language_en": "English",
+  "appearance.install_title": "App",
+  "appearance.install_description": "Add Rona to your home screen and open it as its own app instead of a browser tab.",
+  "appearance.install_button": "Install as app",
+  "appearance.install_insecure_hint": "To install it as an app, open the dashboard over HTTPS.",
 
   // -- lib/toolLabels.ts ---------------------------------------------------------------
   "tool.get_time": "Checking the time",

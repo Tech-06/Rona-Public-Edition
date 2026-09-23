@@ -3,6 +3,7 @@ import os
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
@@ -153,12 +154,102 @@ def _web_status(tmp_path, fake_server, capsys, *, frontend_stale: bool) -> str:
 
 def test_web_status_warns_when_the_frontend_build_is_stale(tmp_path, fake_server, capsys):
     output = _web_status(tmp_path, fake_server, capsys, frontend_stale=True)
-    assert "npm run build" in output
+    assert "rona web build" in output
 
 
 def test_web_status_is_quiet_when_the_frontend_build_is_current(tmp_path, fake_server, capsys):
     output = _web_status(tmp_path, fake_server, capsys, frontend_stale=False)
-    assert "npm run build" not in output
+    assert "rona web build" not in output
+
+
+# -- rona web build ---------------------------------------------------------------
+
+
+def _build_frontend_dir(root, *, lockfile: bool):
+    frontend_dir = root / "web-client" / "frontend"
+    frontend_dir.mkdir(parents=True)
+    if lockfile:
+        (frontend_dir / "package-lock.json").write_text("{}", encoding="utf-8")
+    return frontend_dir
+
+
+def test_build_uses_npm_ci_when_a_lockfile_exists(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    frontend_dir = _build_frontend_dir(root, lockfile=True)
+    monkeypatch.setattr(web.shutil, "which", lambda _name: "/usr/bin/npm")
+    calls = []
+
+    def _fake_run(cmd, cwd, check, shell):
+        calls.append((cmd, cwd))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(web.subprocess, "run", _fake_run)
+
+    code = web._cmd_build(SimpleNamespace(root=str(root), json=False))
+
+    assert code == 0
+    assert [cmd for cmd, _ in calls] == [["/usr/bin/npm", "ci"], ["/usr/bin/npm", "run", "build"]]
+    assert all(cwd == frontend_dir for _, cwd in calls)
+
+
+def test_build_uses_npm_install_without_a_lockfile(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    _build_frontend_dir(root, lockfile=False)
+    monkeypatch.setattr(web.shutil, "which", lambda _name: "/usr/bin/npm")
+    calls = []
+    monkeypatch.setattr(
+        web.subprocess,
+        "run",
+        lambda cmd, cwd, check, shell: calls.append(cmd) or SimpleNamespace(returncode=0),
+    )
+
+    code = web._cmd_build(SimpleNamespace(root=str(root), json=False))
+
+    assert code == 0
+    assert calls[0] == ["/usr/bin/npm", "install"]
+
+
+def test_build_stops_after_a_failed_install(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    _build_frontend_dir(root, lockfile=True)
+    monkeypatch.setattr(web.shutil, "which", lambda _name: "/usr/bin/npm")
+    calls = []
+
+    def _fake_run(cmd, cwd, check, shell):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(web.subprocess, "run", _fake_run)
+
+    code = web._cmd_build(SimpleNamespace(root=str(root), json=False))
+
+    assert code == 1
+    assert len(calls) == 1  # never reached "npm run build"
+
+
+def test_build_fails_without_npm(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    _build_frontend_dir(root, lockfile=True)
+    monkeypatch.setattr(web.shutil, "which", lambda _name: None)
+    calls = []
+    monkeypatch.setattr(web.subprocess, "run", lambda *a, **k: calls.append(1))
+
+    code = web._cmd_build(SimpleNamespace(root=str(root), json=False))
+
+    assert code == 1
+    assert calls == []
+
+
+def test_build_json_mode_prints_ok_on_success(tmp_path, monkeypatch, capsys):
+    root = _make_root(tmp_path)
+    _build_frontend_dir(root, lockfile=True)
+    monkeypatch.setattr(web.shutil, "which", lambda _name: "/usr/bin/npm")
+    monkeypatch.setattr(web.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0))
+
+    code = web._cmd_build(SimpleNamespace(root=str(root), json=True))
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True}
 
 
 def test_web_describe_reports_not_running_when_closed(tmp_path):

@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <!-- Matches --panel (see src/index.css) so the mobile status bar/task
+         switcher chrome doesn't clash with the top bar right under it.
+         Kept in sync with the resolved theme by the inline script below
+         (first paint) and lib/theme.ts's applyTheme() (later switches). -->
+    <meta name="theme-color" content="#171717" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>Rona</title>
     <script>
       (function () {
@@ -22,6 +30,8 @@
         root.classList.toggle("dark", dark);
         root.style.colorScheme = dark ? "dark" : "light";
         root.style.backgroundColor = dark ? "#0f1115" : "#ffffff";
+        var themeColorMeta = document.querySelector('meta[name="theme-color"]');
+        if (themeColorMeta) themeColorMeta.setAttribute("content", dark ? "#171717" : "#f7f7f8");
       })();
     </script>
   </head>

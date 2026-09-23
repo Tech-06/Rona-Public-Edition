@@ -22,6 +22,10 @@ export const tr = {
     "Panelin hangi dilde görüneceğini seç. Bu seçim yalnızca bu tarayıcıyı etkiler.",
   "appearance.language_tr": "Türkçe",
   "appearance.language_en": "English",
+  "appearance.install_title": "Uygulama",
+  "appearance.install_description": "Rona'yı ana ekranına ekle, tarayıcı yerine ayrı bir uygulama olarak aç.",
+  "appearance.install_button": "Uygulama olarak yükle",
+  "appearance.install_insecure_hint": "Uygulama olarak yüklemek için paneli HTTPS üzerinden aç.",
 
   // -- lib/toolLabels.ts ---------------------------------------------------------------
   "tool.get_time": "Saat kontrol ediliyor",

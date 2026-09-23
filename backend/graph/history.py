@@ -1,8 +1,8 @@
 """Durable, server-side chat history shared by every client that connects
 to this backend -- the point being that a phone and a desktop browser (or
-two browsers on two different addresses, e.g. before/after switching to a
-Tailscale HTTPS hostname) see the *same* conversation list and messages,
-instead of each keeping its own copy in localStorage.
+two browsers on two different addresses, e.g. before/after switching to an
+HTTPS hostname) see the *same* conversation list and messages, instead of
+each keeping its own copy in localStorage.
 
 Persisted in the backend's own `rona.db` (via toolbox.db), the same file
 `graph.conversations` already uses for the pin/TTL registry. That registry

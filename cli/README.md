@@ -61,7 +61,21 @@ otherwise spawns/tracks `backend/run.py` itself via a pid file at
 
 Delegates to the web dashboard's own `python -m webui start|stop|restart|
 status` (port 8016), which already has its own lock file and health
-polling.
+polling. `status` (and a successful `start`/`restart`) also warns if the
+compiled frontend is older than its source -- see `rona web build` below.
+
+### `rona web build`
+
+Compiles the frontend (`npm ci`/`install` + `npm run build` in
+`web-client/frontend`, mirroring what the installer does on first install).
+Needed after a `git pull`: `web-client/webui/dist` is a gitignored build
+artifact, so pulling updates the frontend's source but not what a browser
+actually gets served -- the dashboard detects that mismatch itself (via
+`/host/healthz`'s `frontend_stale` field) and `rona web status` surfaces it
+as a warning naming this command. A running panel picks up the rebuilt
+`index.html` on its own, no restart needed for the frontend half; if the
+backend or the dashboard's own Python code also changed, follow up with
+`rona server restart && rona web restart`.
 
 ### `rona edit model flash|pro|embedding [--name --url --key --headers --test]`
 

@@ -26,6 +26,6 @@ STRINGS: dict[str, str] = {
     "webui.frontend_stale": (
         "The compiled frontend is older than its source (git pull without "
         "npm run build?); browsers are still getting the old UI. Run "
-        "'npm ci && npm run build' in web-client/frontend."
+        "'rona web build', or 'npm ci && npm run build' in web-client/frontend."
     ),
 }

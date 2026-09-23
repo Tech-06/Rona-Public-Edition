@@ -88,9 +88,20 @@ STRINGS: dict[str, str] = {
     "web.help_stop": "Stop the web dashboard",
     "web.help_restart": "Restart the web dashboard",
     "web.help_status": "Show the web dashboard's status",
+    "web.help_build": "Build the frontend (npm ci/install + npm run build)",
     "web.frontend_stale": (
         "The compiled frontend is older than its source -- browsers still get the old UI "
-        "(not rebuilt after git pull). To rebuild: cd {path} && npm ci && npm run build"
+        "(not rebuilt after git pull). To rebuild: rona web build"
+    ),
+    "web.build_npm_not_found": "npm not found; the frontend could not be built.",
+    "web.build_installing": "Installing frontend dependencies ({cmd})...",
+    "web.build_install_failed": "npm install/ci failed.",
+    "web.build_building": "Building the frontend (npm run build)...",
+    "web.build_failed": "npm run build failed.",
+    "web.build_done": "Frontend build complete.",
+    "web.build_restart_hint": (
+        "If the backend or the web dashboard's Python code also changed: "
+        "rona server restart && rona web restart"
     ),
     # -- commands/edit/__init__.py --------------------------------------------------
     "edit.help_group": "Edit configuration",

@@ -121,3 +121,112 @@ def test_spa_fallback_tells_browsers_to_revalidate_index_html(tmp_path, monkeypa
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
+
+
+# -- root-level PWA files (manifest, sw.js, offline.html, favicon) --------------
+
+
+def test_root_static_file_serves_a_whitelisted_file(tmp_path, monkeypatch):
+    (tmp_path / "sw.js").write_text("self.addEventListener('fetch', () => {});", encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+
+    response = server_module._root_static_file("sw.js")
+
+    assert response is not None
+    assert response.media_type == "text/javascript"
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_root_static_file_returns_none_outside_the_whitelist(tmp_path, monkeypatch):
+    (tmp_path / "secrets.env").write_text("TOKEN=x", encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+
+    assert server_module._root_static_file("secrets.env") is None
+
+
+def test_root_static_file_returns_none_when_the_file_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+
+    assert server_module._root_static_file("sw.js") is None
+
+
+def test_manifest_is_served_with_its_media_type_and_no_cache(tmp_path, monkeypatch):
+    (tmp_path / "manifest.webmanifest").write_text('{"name": "Rona"}', encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    client = TestClient(server_module.create_app(), base_url="http://localhost")
+
+    response = client.get("/manifest.webmanifest")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/manifest+json")
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.json() == {"name": "Rona"}
+
+
+def test_sw_js_is_served_with_no_cache(tmp_path, monkeypatch):
+    (tmp_path / "sw.js").write_text("self.addEventListener('fetch', () => {});", encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    client = TestClient(server_module.create_app(), base_url="http://localhost")
+
+    response = client.get("/sw.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert "addEventListener" in response.text
+
+
+def test_offline_html_is_served(tmp_path, monkeypatch):
+    (tmp_path / "offline.html").write_text("<!doctype html><title>offline</title>", encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    client = TestClient(server_module.create_app(), base_url="http://localhost")
+
+    response = client.get("/offline.html")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_a_path_not_on_the_whitelist_falls_back_to_the_spa(tmp_path, monkeypatch):
+    _reset_cache(monkeypatch)
+    (tmp_path / "index.html").write_text(FAKE_INDEX_HTML, encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    monkeypatch.setattr(server_module, "get_settings", lambda: _settings())
+    client = TestClient(server_module.create_app(), base_url="http://localhost")
+
+    response = client.get("/robots.txt")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+
+
+def test_a_whitelisted_name_missing_from_dist_falls_back_to_the_spa(tmp_path, monkeypatch):
+    # sw.js is a real (whitelisted) filename, but this build simply never
+    # produced one -- _root_static_file must say "no" rather than 404,
+    # letting the ordinary SPA fallback handle it like any other route.
+    _reset_cache(monkeypatch)
+    (tmp_path / "index.html").write_text(FAKE_INDEX_HTML, encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    monkeypatch.setattr(server_module, "get_settings", lambda: _settings())
+    client = TestClient(server_module.create_app(), base_url="http://localhost")
+
+    response = client.get("/sw.js")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+
+
+def test_icons_directory_is_mounted_when_present(tmp_path, monkeypatch):
+    _reset_cache(monkeypatch)
+    icons_dir = tmp_path / "icons"
+    icons_dir.mkdir()
+    (icons_dir / "icon-192.png").write_bytes(b"\x89PNG\r\n fake")
+    (tmp_path / "index.html").write_text(FAKE_INDEX_HTML, encoding="utf-8")
+    monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
+    monkeypatch.setattr(server_module, "get_settings", lambda: _settings())
+    client = TestClient(server_module.create_app(), base_url="http://localhost")
+
+    response = client.get("/icons/icon-192.png")
+
+    assert response.status_code == 200
+    assert response.content == b"\x89PNG\r\n fake"

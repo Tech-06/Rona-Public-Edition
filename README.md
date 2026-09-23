@@ -14,6 +14,8 @@ Rona; kendi sunucunuzda barındırdığınız, herhangi bir OpenAI API uyumlu di
 - [Kurulum ve Çalıştırma](#kurulum-ve-çalıştırma)
   - [Hızlı kurulum](#hızlı-kurulum-önerilen)
   - [`rona` komut referansı](#rona-komut-referansı)
+  - [Güncelleme](#güncelleme)
+  - [Telefona uygulama olarak kurma (PWA)](#telefona-uygulama-olarak-kurma-pwa)
   - [Kaldırma](#kaldırma)
   - [İleri düzey: elle kurulum](#i̇leri-düzey-elle-kurulum)
 - [Yapılandırma Referansı](#yapılandırma-referansı)
@@ -117,6 +119,8 @@ Kişilik, çıktı biçimi, kullanıcı profili, araç kullanım kuralları, alt
 
 ### Web paneli
 React + Vite + TypeScript ile yazılmış bir tek sayfa uygulaması: canlı akışlı, markdown destekli bir sohbet arayüzü ve tam bir yönetim paneli (sunucu durumu, dış bağlantı sağlık kontrolü, canlı log takibi, zamanlanmış görev ve alt ajan listeleri, notlar/kişiler/anılar için veri tarayıcısı, araç kataloğu, `.env` düzenleyici). Panel, backend'e yalnızca HTTP üzerinden bağlanan bağımsız bir FastAPI "backend-for-frontend" katmanı üzerinde çalışır ve backend'in Python koduna hiçbir şekilde bağımlı değildir.
+
+Sohbet geçmişi backend'in `rona.db`'sinde tutulur, böylece hangi cihazdan (bilgisayar, telefon) bağlanırsanız bağlanın aynı listeyi görürsünüz. Panel aynı zamanda bir PWA'dır: HTTPS üzerinden açıldığında (bkz. [Telefona uygulama olarak kurma](#telefona-uygulama-olarak-kurma-pwa)) telefonun ana ekranına eklenip ayrı bir uygulama gibi çalıştırılabilir, sunucuya ulaşılamadığında kendi çevrimdışı sayfasını gösterir.
 
 ### Kurulum aracı
 Depo kökündeki `install.ps1`/`install.sh`, platform bağımsız, stdlib-only bir Python kurulum aracına (`installer/`) devreder: bileşen seçimi, ön koşul (Python/Node.js) tespiti ve kurulumu, her bileşen için sanal ortam + bağımlılık kurulumu, `AUTH_TOKEN` üretimi, model yapılandırma sihirbazı ve `rona`'yı PATH'e ekleme. Bkz. [Hızlı kurulum](#hızlı-kurulum-önerilen).
@@ -229,6 +233,7 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona status` | Backend, web paneli ve kurulu araç paketlerinin özet durumu |
 | `rona server start\|stop\|restart\|status` | Backend sürecini yönet |
 | `rona web start\|stop\|restart\|status` | Web panelini yönet |
+| `rona web build` | Web panelinin arayüzünü derle (npm ci/install + npm run build); güncellemeden sonra gerekir, bkz. [Güncelleme](#güncelleme) |
 | `rona edit model flash\|pro\|embedding [--name --url --key --headers --test]` | Model ayarlarını düzenle; `--test` kaydetmeden önce gerçek bir API çağrısıyla doğrular |
 | `rona edit auth get\|reset\|set` | Paylaşılan `AUTH_TOKEN`'ı görüntüle/yeniden üret/ayarla (her zaman iki `.env` dosyasına birden yazar) |
 | `rona edit env [--web]` | `.env` dosyasını `$EDITOR`'da aç (varsayılan: backend) |
@@ -242,6 +247,45 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona log tail [--level --grep]` | Canlı log akışını izle (backend kapalıysa yerel log dosyasına döner) |
 
 Her komut `--json` ile makine tarafından okunabilir çıktı, `--root <yol>` ile (otomatik bulunamadığı durumlarda) farklı bir kurulum kökü belirtmeyi destekler. Tam ayrıntılar için [cli/README.md](cli/README.md).
+
+`rona web status` (ve başarılı bir `start`/`restart`), arayüz derlemesi kaynak koddan eskiyse bunu ayrıca bir uyarı olarak gösterir.
+
+### Güncelleme
+
+`git pull`, backend'in ve CLI'ın Python kodunu hemen günceller, ama web panelinin derlenmiş arayüzünü **güncellemez** -- `web-client/webui/dist/` bir derleme çıktısıdır ve `.gitignore` ile depodan hariç tutulur, dolayısıyla bir `git pull` onu olduğu gibi bırakır. Güncellemeden sonra sırayla:
+
+```bash
+git pull
+rona web build
+rona server restart
+rona web restart
+```
+
+`rona web build`, `web-client/frontend` içinde `npm ci`/`install` ve `npm run build` çalıştırır. Arayüz derlemesi kaynak koddan eskiyse `rona web status` zaten bunu bir uyarı olarak gösterir ve bu komutu önerir. Derleme bittiğinde çalışan panel yeni `index.html`'i kendiliğinden fark edip sunar -- yalnızca backend'in ya da web panelinin kendi Python kodu da değiştiyse (bir `git pull` sonrası genelde böyledir) yeniden başlatma adımları gerekir.
+
+Tüm bileşenleri sıfırdan kurmak isterseniz [Hızlı kurulum](#hızlı-kurulum-önerilen)'daki `./install.sh --repair` de aynı işi yapar, ama her sanal ortamı yeniden kurduğu için daha yavaştır.
+
+`rona.db`'nin şeması (yeni tablolar dahil) backend her açıldığında kendini kontrol edip gerekirse günceller; elle bir veritabanı göçü adımı yoktur.
+
+### Telefona uygulama olarak kurma (PWA)
+
+Web paneli bir PWA'dır (Progressive Web App): Android'de Chrome'un "Uygulamayı yükle" seçeneğiyle ana ekrana eklenebilir ve adres çubuğu olmadan, ayrı bir uygulama gibi açılır. Sohbet geçmişi backend'de (`rona.db`) tutulduğu için hangi cihazdan bağlanırsanız bağlanın aynı listeyi görürsünüz.
+
+Chrome bu seçeneği **yalnızca HTTPS üzerinden** sunar. Paneli şu an `http://<makine>:8016` gibi düz bir adresten kullanıyorsanız, önce onu HTTPS üzerinden erişilebilir hale getirmeniz gerekir. Bunu nasıl yapacağınız sunucunuzu nasıl işlettiğinize bağlıdır -- kendi alan adınız ve bir TLS sertifikasıyla bir ters proxy (nginx/Caddy gibi), bir tünel servisi, ya da cihazlarınızı birbirine bağlayan bir VPN/mesh ağı, hangisini zaten kullanıyorsanız onunla devam edebilirsiniz; bu depo belirli bir yöntemi zorunlu kılmaz.
+
+HTTPS adresiniz hazır olduğunda:
+
+1. Önce [Güncelleme](#güncelleme) adımlarını uygulayın.
+2. Eski adresi (`http://<makine>:8016`) her cihazda (telefon dahil) **yeni sürümle bir kez açın**. O tarayıcının localStorage'ındaki eski sohbetler ve klasörler, sunucudaki ortak geçmişe otomatik olarak birleştirilir; yerel kopya silinmez, yalnızca bir daha okunmaz.
+3. `web-client/.env` içinde `WEB_ALLOWED_HOSTS`'a HTTPS ile eriştiğiniz adı ekleyin (ör. `rona.example.com`), ardından:
+   ```bash
+   rona web restart
+   ```
+   Bu adı eklemezseniz `TrustedHostMiddleware` isteği 400 ile reddeder.
+4. Telefonda Chrome'da HTTPS adresinizi açın. Chrome menüsünden **"Uygulamayı yükle"**yi, ya da panel içinden **Ayarlar → Görünüm → "Uygulama olarak yükle"**yi seçin.
+5. İsteğe bağlı: düz HTTP erişimini kapatmak isterseniz `WEB_HOST=127.0.0.1` yapıp eski adresi `WEB_ALLOWED_HOSTS`'tan çıkarın -- panele yalnızca HTTPS adresiniz üzerinden erişilebilir kalır.
+
+Sunucuya ulaşılamadığında uygulama kendi çevrimdışı sayfasını gösterir; bağlantı geri gelince otomatik olarak yeniden yüklenir. Paneli `127.0.0.1` dışına açarken dikkat etmeniz gerekenler için bkz. [Güvenlik Notları](#güvenlik-notları).
 
 ### Kaldırma
 
@@ -614,13 +658,15 @@ flowchart LR
   ```
 
   `await_confirmation` düğümü, LangGraph'ın `interrupt()` mekanizmasıyla yürütmeyi gerçekten durdurur ve konuşmayı checkpoint'e yazar; kullanıcının yanıtı geldiğinde kaldığı yerden devam eder.
+
+  Aynı pakette `conversations.py` her konuşmanın sabitlenme/TTL durumunu, `history.py` ise başlığını, klasörünü ve mesaj dökümünü `rona.db`'de tutar -- web paneli ve CLI'ın paylaştığı, cihazdan bağımsız ortak sohbet geçmişinin kaynağı budur.
 - **`toolbox/`** — çekirdek araçlar: `tools.json` içinde tanımlı şemalar, `toolbox/tools/` altında bunların Python uygulamaları, ve yerel verilerin (kişiler, anılar, görevler, alt ajan kayıtları) tutulduğu `rona.db` SQLite veritabanına erişim (`db.py`, `registry.py`). İsteğe bağlı araç paketleri `toolbox/custom/<paket_id>/` altına kurulur (`packages.py`) ve `registry.py` tarafından çekirdekle birleştirilir; kurulum/kaldırma/sağlık kontrolü `manager.py`'nin işi, paket kaynağından (yerel/git/https) çekme ise `sources.py`'nin (bkz. [Rona Tools](https://github.com/Tech-06/Rona-Tools)).
 - **`trigger/`** — `APScheduler` tabanlı zamanlayıcı (`scheduler.py`), görev tanımlarının doğrulanması ve kalıcılığı (`store.py`) ve tetiklendiğinde çalışan headless ajan (`executor.py`).
 - **`subagents/`** — arka plan görevlerini kendi tur limiti ve kendi araç alt kümesiyle çalıştıran asenkron çalıştırıcı (`runner.py`) ve durum kaydı (`store.py`).
 - **`prompts/`** — sistem promptu, sırasıyla `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `subagents.md`, `trigger.md` dosyalarının birleştirilmesiyle oluşur (bkz. [Kimliği ve Davranışı Özelleştirme](#kimliği-ve-davranışı-özelleştirme)).
-- **Depolama** — `rona.db` (notlar, kişiler, anılar, zamanlanmış görevler ve çalıştırmaları, alt ajan çalıştırmaları) ve `rona_checkpoints.db` (LangGraph'ın konuşma durumu checkpoint'leri); her ikisi de `create_db.py` ile oluşturulur ve `.gitignore` ile depodan hariç tutulur.
+- **Depolama** — `rona.db` (notlar, kişiler, anılar, zamanlanmış görevler ve çalıştırmaları, alt ajan çalıştırmaları, sohbet geçmişi ve klasörleri) ve `rona_checkpoints.db` (LangGraph'ın konuşma durumu checkpoint'leri); her ikisi de `create_db.py` ile oluşturulur ve `.gitignore` ile depodan hariç tutulur.
 
-Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/izleme amaçlı geniş bir `/api/*` uç nokta kümesi (durum, bağlantı sağlık kontrolü, yapılandırma okuma/yazma, görev ve alt ajan CRUD işlemleri, hafıza CRUD/arama/istatistik, birleşik çalışma geçmişi, veri tarayıcı, canlı log akışı) `app/dashboard.py` içinde tanımlıdır ve hem web paneli hem `rona` CLI'ı tarafından kullanılır. Tüm uç noktalar bearer token ile korunur.
+Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/izleme amaçlı geniş bir `/api/*` uç nokta kümesi (durum, bağlantı sağlık kontrolü, yapılandırma okuma/yazma, görev ve alt ajan CRUD işlemleri, hafıza CRUD/arama/istatistik, sohbet geçmişi ve klasör CRUD'u, birleşik çalışma geçmişi, veri tarayıcı, canlı log akışı) `app/dashboard.py` içinde tanımlıdır ve hem web paneli hem `rona` CLI'ı tarafından kullanılır. Tüm uç noktalar bearer token ile korunur.
 
 ### CLI (`cli/`)
 
@@ -639,12 +685,13 @@ Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/i
 
 `web-client/`, backend'den tamamen bağımsız, kendi `.env`'ini okuyan bir **FastAPI BFF (backend-for-frontend)** katmanıdır:
 
-- **`webui/server.py`** — `/api/*`, `/chat`, `/chat/stream`, `/health` isteklerini backend'e proxy'ler (`proxy.py`); derlenmiş React arayüzünü (`frontend/`'den `npm run build` ile üretilen `webui/dist/`) statik dosya olarak sunar; bir CSRF koruma ara katmanı (güvenli olmayan metodlarda `Content-Type`/`Sec-Fetch-Site` kontrolü) ve `TrustedHostMiddleware` uygular.
+- **`webui/server.py`** — `/api/*`, `/chat`, `/chat/stream`, `/health` isteklerini backend'e proxy'ler (`proxy.py`); derlenmiş React arayüzünü (`frontend/`'den `npm run build` ile üretilen `webui/dist/`) statik dosya olarak sunar; PWA dosyalarını (`manifest.webmanifest`, `sw.js`, `offline.html`, ikonlar) ve `index.html`'i her zaman `Cache-Control: no-cache` ile sunar, böylece bir `npm run build` panel yeniden başlatılmadan tarayıcılara yansır; bir CSRF koruma ara katmanı (güvenli olmayan metodlarda `Content-Type`/`Sec-Fetch-Site` kontrolü) ve `TrustedHostMiddleware` uygular.
+- **`webui/frontend_build.py`** — derlenmiş arayüzün (`webui/dist/`) kaynak koddan (`frontend/src`, `frontend/public`, ...) eski olup olmadığını değiştirilme zamanlarını karşılaştırarak tespit eder; sonucu `/host/healthz`'in `frontend_stale` alanında bildirir. `rona web status`/`start`/`restart` bunu okuyup bir `git pull` sonrası unutulan derlemeyi uyarı olarak gösterir (bkz. [Güncelleme](#güncelleme)).
 - **`webui/host.py`** — yalnızca yerel geliştirme kolaylığı için: `BACKEND_DIR` altında backend sürecini başlatıp durdurma, logunu kuyruklama, `systemctl` varsa onun üzerinden yönetme (`/host/*` uç noktaları). Backend farklı bir makinede çalışıyorsa bu uç noktalar devre dışı kalır, panel yine de proxy üzerinden backend'e bağlanmaya devam eder.
 - **`webui/db.py`** — `BACKEND_DIR` içindeki `rona.db`'yi salt okunur açıp bazı yönetim görünümlerini (`/host/db/tasks`, `/host/db/subagents`) "degraded" (backend API'sinden değil, doğrudan dosyadan) modda sunar; dosya bulunamazsa boş sonuç döner.
 - **`webui/supervisor.py`** — `python -m webui start|stop|restart|status` komutunu uygulayan, panelin kendi `uvicorn` sürecini yöneten basit bir denetleyici.
 - **`webui/i18n.py`** + **`webui/locales/{tr,en}.py`** — panelin kendi (proxy/host) hata mesajlarının dil kataloğu; `UI_LANGUAGE` `.env`'inden okunur. SPA fallback bunu `frontend/dist/index.html`'e sunmadan önce `<html lang>` ve `window.__RONA_LANG__` olarak sayfaya işler, böylece React ilk boyamadan önce doğru dilde açılır (tarayıcıdaki `localStorage["rona:lang"]` seçimi bunu ezip `.env`'e hiç dokunmadan geçersiz kılabilir).
-- **`frontend/`** — React + Vite + TypeScript kaynak kodu: canlı akışlı sohbet arayüzü (`components/chat/`) ve durum/bağlantı/yapılandırma/araç/görev/alt ajan/log/veri panellerinden oluşan yönetim arayüzü (`components/dashboard/`); `lib/i18n.ts` + `locales/{tr,en}.ts` + `components/LanguageProvider.tsx` frontend'in kendi dil kataloğu ve Context'idir.
+- **`frontend/`** — React + Vite + TypeScript kaynak kodu: canlı akışlı sohbet arayüzü (`components/chat/`) ve durum/bağlantı/yapılandırma/araç/görev/alt ajan/log/veri panellerinden oluşan yönetim arayüzü (`components/dashboard/`); `lib/i18n.ts` + `locales/{tr,en}.ts` + `components/LanguageProvider.tsx` frontend'in kendi dil kataloğu ve Context'idir. `lib/storage.ts`, sohbet listesini/klasörleri/mesajları artık tarayıcı `localStorage`'ında değil backend'in `/api/history*` uç noktalarında tutar (iyimser yazma + arka planda senkron); bir tarayıcının güncelleme öncesinden kalan eski `localStorage` geçmişi ilk açılışta otomatik olarak sunucuyla birleştirilir, silinmeden. `public/` altındaki `manifest.webmanifest`, `sw.js` ve `offline.html`, panelin PWA olarak kurulabilmesini ve sunucuya ulaşılamadığında kendi çevrimdışı sayfasını göstermesini sağlar (bkz. [Telefona uygulama olarak kurma](#telefona-uygulama-olarak-kurma-pwa)).
 
 ### Kurulum aracı (`installer/`)
 

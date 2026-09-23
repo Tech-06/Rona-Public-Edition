@@ -14,6 +14,8 @@ Rona is a self-hosted personal AI assistant platform that connects to any OpenAI
 - [Installation & Running](#installation--running)
   - [Quick install](#quick-install-recommended)
   - [`rona` command reference](#rona-command-reference)
+  - [Updating](#updating)
+  - [Installing as an app on your phone (PWA)](#installing-as-an-app-on-your-phone-pwa)
   - [Uninstallation](#uninstallation)
   - [Advanced: manual installation](#advanced-manual-installation)
 - [Configuration Reference](#configuration-reference)
@@ -117,6 +119,8 @@ A stdlib-only Python package with no third-party dependencies, installed with `p
 
 ### Web dashboard
 A single-page application written in React + Vite + TypeScript: a streaming, markdown-aware chat interface plus a full admin dashboard (server status, external-connection health checks, live log tailing, scheduled-task and subagent lists, a data browser for notes/people/memories, a tool catalog, and a `.env` editor). The dashboard runs on top of an independent FastAPI "backend-for-frontend" layer that talks to the backend purely over HTTP and never imports any of its Python code.
+
+Chat history lives in the backend's `rona.db`, so you see the same list no matter which device (desktop, phone) you connect from. The dashboard is also a PWA: opened over HTTPS (see [Installing as an app on your phone](#installing-as-an-app-on-your-phone-pwa)) it can be added to a phone's home screen and run as its own app, and shows its own offline page when the server can't be reached.
 
 ### Installer
 `install.ps1`/`install.sh` at the repository root hand off to a platform-independent, stdlib-only Python installer (`installer/`): a language question (Turkish/English) asked first and applied to every installed component, component selection, prerequisite (Python/Node.js) detection and installation, a venv + dependencies for each component, `AUTH_TOKEN` generation, an interactive model-configuration wizard, an opt-in optional-tool-package selection step, and putting `rona` on PATH. A matching `uninstall.ps1`/`uninstall.sh` reverses exactly what it created. See [Quick install](#quick-install-recommended) and [Uninstallation](#uninstallation).
@@ -229,6 +233,7 @@ Once the installer is done, you manage Rona from your terminal with `rona`:
 | `rona status` | A combined status snapshot: backend, web dashboard, installed tool packages |
 | `rona server start\|stop\|restart\|status` | Manage the backend process |
 | `rona web start\|stop\|restart\|status` | Manage the web dashboard |
+| `rona web build` | Build the web dashboard's frontend (npm ci/install + npm run build); needed after an update, see [Updating](#updating) |
 | `rona edit model flash\|pro\|embedding [--name --url --key --headers --test]` | Edit model settings; `--test` verifies with a real API call before saving |
 | `rona edit auth get\|reset\|set` | View/regenerate/set the shared `AUTH_TOKEN` (always writes both `.env` files) |
 | `rona edit env [--web]` | Open `.env` in `$EDITOR` (defaults to the backend's) |
@@ -242,6 +247,45 @@ Once the installer is done, you manage Rona from your terminal with `rona`:
 | `rona log tail [--level --grep]` | Follow the live log (falls back to the local log file when the backend is down) |
 
 Every command supports `--json` for machine-readable output and `--root <path>` for pointing at a different installation root (when it can't be found automatically). See [cli/README.md](cli/README.md) for the full reference.
+
+`rona web status` (and a successful `start`/`restart`) also warns when the compiled frontend is older than its source.
+
+### Updating
+
+`git pull` updates the backend's and the CLI's Python code right away, but it does **not** update the web dashboard's compiled frontend -- `web-client/webui/dist/` is a build artifact excluded from the repository via `.gitignore`, so a `git pull` leaves it exactly as it was. After updating:
+
+```bash
+git pull
+rona web build
+rona server restart
+rona web restart
+```
+
+`rona web build` runs `npm ci`/`install` and `npm run build` inside `web-client/frontend`. If the compiled frontend is older than its source, `rona web status` already reports that as a warning and suggests this same command. Once the build finishes, a running dashboard picks up the new `index.html` on its own -- a restart is only needed if the backend's or the dashboard's own Python code also changed (which is usually the case after a `git pull`).
+
+If you'd rather reinstall everything from scratch, [Quick install](#quick-install-recommended)'s `./install.sh --repair` does the same thing, just slower, since it also reinstalls every virtual environment.
+
+`rona.db`'s schema (including new tables) checks and upgrades itself every time the backend starts; there is no manual database migration step.
+
+### Installing as an app on your phone (PWA)
+
+The web dashboard is a PWA (Progressive Web App): on Android, Chrome's "Install app" option adds it to the home screen, where it opens as its own app with no address bar. Since chat history now lives on the backend (`rona.db`), you see the same list no matter which device you connect from.
+
+Chrome only offers that option over **HTTPS**. If you currently use the dashboard over a plain address like `http://<machine>:8016`, you'll first need to make it reachable over HTTPS. How you do that depends on how you run your server -- a reverse proxy (nginx, Caddy, ...) with your own domain and a TLS certificate, a tunneling service, or a VPN/mesh network connecting your devices -- whichever you're already using works fine; this repository doesn't require any particular one.
+
+Once you have an HTTPS address for it:
+
+1. Apply the [Updating](#updating) steps first.
+2. Open the old address (`http://<machine>:8016`) **once, with the new version**, on every device (including your phone). That browser's old localStorage chats and folders are automatically merged into the server's shared history; the local copy is never deleted, it's just never read again.
+3. Add the HTTPS name you're using (e.g. `rona.example.com`) to `WEB_ALLOWED_HOSTS` in `web-client/.env`, then:
+   ```bash
+   rona web restart
+   ```
+   Without this addition, `TrustedHostMiddleware` rejects the request with a 400.
+4. On your phone, open your HTTPS address in Chrome. Use **"Install app"** from Chrome's menu, or **Settings → Appearance → "Install as app"** inside the dashboard itself.
+5. Optional: to close off plain-HTTP access, set `WEB_HOST=127.0.0.1` and remove the old address from `WEB_ALLOWED_HOSTS` -- the dashboard then stays reachable only over your HTTPS address.
+
+When the server is unreachable, the app shows its own offline page and reloads automatically once the connection comes back. See [Security Notes](#security-notes) for what to keep in mind when exposing the dashboard beyond `127.0.0.1`.
 
 ### Uninstallation
 
@@ -614,13 +658,15 @@ flowchart LR
   ```
 
   The `await_confirmation` node genuinely suspends execution via LangGraph's `interrupt()` and persists the conversation to the checkpoint store; it resumes exactly where it left off once the user's reply arrives.
+
+  In the same package, `conversations.py` tracks each conversation's pin/TTL state and `history.py` stores its title, folder, and message transcript in `rona.db` -- this is the source of the shared, device-independent chat history the web dashboard and the CLI both read from.
 - **`toolbox/`** — the core tools: schemas defined in `tools.json`, their Python implementations under `toolbox/tools/`, and access to the `rona.db` SQLite database (`db.py`, `registry.py`) that holds local data: people, memories, tasks, and subagent records. Optional tool packages install into `toolbox/custom/<package_id>/` (`packages.py`) and are merged with the core by `registry.py`; install/uninstall/health-checks are `manager.py`'s job, fetching from a package source (local/git/https) is `sources.py`'s (see [Rona Tools](https://github.com/Tech-06/Rona-Tools)).
 - **`trigger/`** — the `APScheduler`-based scheduler (`scheduler.py`), task validation and persistence (`store.py`), and the headless agent that runs when a task fires (`executor.py`).
 - **`subagents/`** — the async runner that executes background work with its own round limit and its own tool subset (`runner.py`), plus run-state storage (`store.py`).
 - **`prompts/`** — the system prompt, assembled from `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `subagents.md`, and `trigger.md`, in that order (see [Customizing Identity and Behavior](#customizing-identity-and-behavior)).
-- **Storage** — `rona.db` (notes, people, memories, scheduled tasks and their runs, subagent runs) and `rona_checkpoints.db` (LangGraph's conversation-state checkpoints); both are created by `create_db.py` and excluded from the repository via `.gitignore`.
+- **Storage** — `rona.db` (notes, people, memories, scheduled tasks and their runs, subagent runs, chat history and folders) and `rona_checkpoints.db` (LangGraph's conversation-state checkpoints); both are created by `create_db.py` and excluded from the repository via `.gitignore`.
 
-The backend's core endpoints are `/health`, `/chat`, and `/chat/stream`; a broad set of `/api/*` management/monitoring endpoints (status, connection health checks, reading/writing configuration, task and subagent CRUD, memory CRUD/search/stats, combined run history, a data browser, live log streaming) is defined in `app/dashboard.py` and consumed by both the web dashboard and the `rona` CLI. Every endpoint is protected by the bearer token.
+The backend's core endpoints are `/health`, `/chat`, and `/chat/stream`; a broad set of `/api/*` management/monitoring endpoints (status, connection health checks, reading/writing configuration, task and subagent CRUD, memory CRUD/search/stats, chat history and folder CRUD, combined run history, a data browser, live log streaming) is defined in `app/dashboard.py` and consumed by both the web dashboard and the `rona` CLI. Every endpoint is protected by the bearer token.
 
 ### CLI (`cli/`)
 
@@ -639,12 +685,13 @@ The backend's core endpoints are `/health`, `/chat`, and `/chat/stream`; a broad
 
 `web-client/` is a **FastAPI BFF (backend-for-frontend)** layer, completely independent from the backend and reading its own `.env`:
 
-- **`webui/server.py`** — proxies `/api/*`, `/chat`, `/chat/stream`, and `/health` requests to the backend (`proxy.py`); serves the built React frontend (produced from `frontend/` via `npm run build` into `webui/dist/`) as static files; applies a CSRF-guard middleware (checking `Content-Type`/`Sec-Fetch-Site` on unsafe methods) and `TrustedHostMiddleware`.
+- **`webui/server.py`** — proxies `/api/*`, `/chat`, `/chat/stream`, and `/health` requests to the backend (`proxy.py`); serves the built React frontend (produced from `frontend/` via `npm run build` into `webui/dist/`) as static files; serves the PWA files (`manifest.webmanifest`, `sw.js`, `offline.html`, icons) and `index.html` with `Cache-Control: no-cache` always set, so an `npm run build` reaches browsers without restarting the dashboard; applies a CSRF-guard middleware (checking `Content-Type`/`Sec-Fetch-Site` on unsafe methods) and `TrustedHostMiddleware`.
+- **`webui/frontend_build.py`** — detects whether the compiled frontend (`webui/dist/`) is older than its source (`frontend/src`, `frontend/public`, ...) by comparing modification times, and reports it in `/host/healthz`'s `frontend_stale` field. `rona web status`/`start`/`restart` read this and warn about a forgotten build after a `git pull` (see [Updating](#updating)).
 - **`webui/host.py`** — local-development convenience only: starting/stopping the backend process under `BACKEND_DIR`, tailing its log, and managing it through `systemctl` when available (the `/host/*` endpoints). If the backend runs on a different machine, these endpoints simply become unavailable while the dashboard keeps proxying to it normally.
 - **`webui/db.py`** — opens the `rona.db` under `BACKEND_DIR` read-only and serves a couple of "degraded" admin views (`/host/db/tasks`, `/host/db/subagents`) straight from the file rather than through the backend API; it returns an empty result if the file can't be found.
 - **`webui/supervisor.py`** — a small supervisor implementing `python -m webui start|stop|restart|status`, managing the dashboard's own `uvicorn` process.
 - **`webui/i18n.py`** + **`webui/locales/{tr,en}.py`** — the language catalog for the dashboard's own (proxy/host) error messages; read from the `.env`'s `UI_LANGUAGE`. The SPA fallback substitutes this into `frontend/dist/index.html` before serving it, as `<html lang>` and `window.__RONA_LANG__`, so React opens in the right language before its first paint (a browser's `localStorage["rona:lang"]` choice can override this without ever touching `.env`).
-- **`frontend/`** — the React + Vite + TypeScript source: the streaming chat interface (`components/chat/`) and the admin dashboard made up of status/connections/config/tools/tasks/subagents/logs/data panels (`components/dashboard/`); `lib/i18n.ts` + `locales/{tr,en}.ts` + `components/LanguageProvider.tsx` are the frontend's own language catalog and Context.
+- **`frontend/`** — the React + Vite + TypeScript source: the streaming chat interface (`components/chat/`) and the admin dashboard made up of status/connections/config/tools/tasks/subagents/logs/data panels (`components/dashboard/`); `lib/i18n.ts` + `locales/{tr,en}.ts` + `components/LanguageProvider.tsx` are the frontend's own language catalog and Context. `lib/storage.ts` now keeps the conversation list, folders, and messages in the backend's `/api/history*` endpoints instead of the browser's `localStorage` (optimistic writes + background sync); a browser's pre-upgrade `localStorage` history is automatically merged into the server on first load, without being deleted. `manifest.webmanifest`, `sw.js`, and `offline.html` under `public/` let the dashboard be installed as a PWA and show its own offline page when the server can't be reached (see [Installing as an app on your phone](#installing-as-an-app-on-your-phone-pwa)).
 
 ### Installer (`installer/`)
 

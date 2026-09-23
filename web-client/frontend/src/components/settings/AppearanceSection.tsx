@@ -1,13 +1,26 @@
+import { useState } from "react";
+import { useInstallPrompt } from "../../hooks/useInstallPrompt";
 import { useLanguage, useT } from "../LanguageProvider";
 import type { ThemeMode } from "../../lib/theme";
 import type { Locale } from "../../lib/i18n";
 import { useTheme } from "../ThemeProvider";
-import { CheckIcon, MonitorIcon, MoonIcon, SunIcon } from "../ui/icons";
+import { CheckIcon, DownloadIcon, MonitorIcon, MoonIcon, SunIcon } from "../ui/icons";
 
 export function AppearanceSection() {
   const t = useT();
   const { mode, setMode } = useTheme();
   const { locale, setLocale } = useLanguage();
+  const { canInstall, isStandalone, isSecure, promptInstall } = useInstallPrompt();
+  const [installing, setInstalling] = useState(false);
+
+  async function handleInstall() {
+    setInstalling(true);
+    try {
+      await promptInstall();
+    } finally {
+      setInstalling(false);
+    }
+  }
 
   const themeOptions: Array<{ mode: ThemeMode; label: string; icon: typeof SunIcon }> = [
     { mode: "system", label: t("appearance.theme_system"), icon: MonitorIcon },
@@ -74,6 +87,32 @@ export function AppearanceSection() {
           })}
         </div>
       </div>
+
+      {/* Hidden once the app is already running standalone (nothing left
+       * to offer), and once a browser neither has an install prompt to
+       * show nor needs the HTTPS hint -- e.g. Firefox/iOS Safari, which
+       * never fire beforeinstallprompt but also aren't on plain HTTP. */}
+      {!isStandalone && (canInstall || !isSecure) && (
+        <div className="rounded-xl border border-line bg-panel p-4">
+          <p className="text-sm font-semibold text-fg-soft">{t("appearance.install_title")}</p>
+          <p className="mt-1 text-xs text-fg-subtle">
+            {canInstall
+              ? t("appearance.install_description")
+              : t("appearance.install_insecure_hint")}
+          </p>
+          {canInstall && (
+            <button
+              type="button"
+              onClick={handleInstall}
+              disabled={installing}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-sm font-medium text-accent-text transition-colors hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <DownloadIcon className="h-4 w-4" />
+              {t("appearance.install_button")}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

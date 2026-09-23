@@ -24,6 +24,7 @@ STRINGS: dict[str, str] = {
     "webui.frontend_stale": (
         "Arayüz derlemesi kaynak kodundan eski (git pull sonrası npm run build "
         "çalıştırılmamış olabilir); tarayıcılar hâlâ eski arayüzü alıyor. "
-        "web-client/frontend içinde 'npm ci && npm run build' çalıştır."
+        "'rona web build' ya da web-client/frontend içinde "
+        "'npm ci && npm run build' çalıştır."
     ),
 }

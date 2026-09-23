@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Rona</title>
+    <!--
+      This file is served straight out of public/ (Vite copies it as-is --
+      no Tailwind/PostCSS processing happens on anything under public/), so
+      it can't use the app's utility classes and has to bring its own tiny
+      stylesheet. It intentionally mirrors index.html's own inline
+      bootstrap script and lib/theme.ts's storage key/values, plus a subset
+      of index.css's color tokens, so it doesn't visually clash with the
+      app when the service worker (sw.js) falls back to it.
+    -->
+    <style>
+      :root {
+        --app: 255 255 255;
+        --panel: 247 247 248;
+        --line: 226 226 230;
+        --fg: 24 24 27;
+        --fg-muted: 113 113 122;
+        --accent: 2 132 199;
+        --accent-hover: 3 105 161;
+        --accent-fg: 255 255 255;
+      }
+      :root.dark {
+        --app: 33 33 33;
+        --panel: 23 23 23;
+        --line: 63 63 63;
+        --fg: 236 236 236;
+        --fg-muted: 163 163 163;
+        --accent: 2 132 199;
+        --accent-hover: 14 165 233;
+        --accent-fg: 255 255 255;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        padding-bottom: max(24px, env(safe-area-inset-bottom));
+        background: rgb(var(--app));
+        color: rgb(var(--fg));
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      .card {
+        max-width: 360px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .badge {
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        background: rgb(var(--panel));
+        border: 1px solid rgb(var(--line));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .badge svg {
+        width: 28px;
+        height: 28px;
+        color: rgb(var(--fg-muted));
+      }
+      h1 {
+        font-size: 17px;
+        font-weight: 600;
+        margin: 0;
+      }
+      p {
+        margin: 0;
+        color: rgb(var(--fg-muted));
+      }
+      button {
+        margin-top: 8px;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        background: rgb(var(--accent));
+        color: rgb(var(--accent-fg));
+      }
+      button:hover {
+        background: rgb(var(--accent-hover));
+      }
+    </style>
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var dark = true;
+        try {
+          var stored = localStorage.getItem("rona:theme");
+          var mode = stored === "light" || stored === "dark" ? stored : "system";
+          dark =
+            mode === "dark" ||
+            (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        } catch (e) {
+          // private mode / storage unavailable: fall back to dark
+        }
+        root.classList.toggle("dark", dark);
+        root.style.colorScheme = dark ? "dark" : "light";
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="card">
+      <div class="badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+          <path d="M12 18h.01M8.5 14.5a5 5 0 0 1 7 0M5.5 11a9 9 0 0 1 13 0M2.5 7.5a13 13 0 0 1 19 0" />
+        </svg>
+      </div>
+      <h1 data-t="title">Rona sunucusuna ulaşılamıyor</h1>
+      <p data-t="detail">Bağlantını kontrol et, sonra tekrar dene.</p>
+      <button type="button" onclick="location.reload()" data-t="retry">Tekrar dene</button>
+    </div>
+    <script>
+      (function () {
+        var STRINGS = {
+          tr: {
+            title: "Rona sunucusuna ulaşılamıyor",
+            detail: "Bağlantını kontrol et, sonra tekrar dene.",
+            retry: "Tekrar dene",
+          },
+          en: {
+            title: "Can't reach the Rona server",
+            detail: "Check your connection, then try again.",
+            retry: "Try again",
+          },
+        };
+        var lang = "tr";
+        try {
+          var stored = localStorage.getItem("rona:lang");
+          if (stored === "tr" || stored === "en") lang = stored;
+        } catch (e) {
+          // private mode / storage unavailable: fall back to tr
+        }
+        document.documentElement.lang = lang;
+        var strings = STRINGS[lang];
+        document.querySelectorAll("[data-t]").forEach(function (node) {
+          var key = node.getAttribute("data-t");
+          if (strings[key]) node.textContent = strings[key];
+        });
+        // The server coming back is the one thing worth reacting to on its
+        // own -- a background reload, not just re-showing the button.
+        window.addEventListener("online", function () {
+          location.reload();
+        });
+      })();
+    </script>
+  </body>
+</html>

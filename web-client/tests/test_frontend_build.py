@@ -42,6 +42,19 @@ def test_not_stale_when_the_build_is_newer(tmp_path):
     assert frontend_build.is_stale(frontend, dist_index) is False
 
 
+def test_a_public_file_change_counts_as_stale(tmp_path):
+    # public/ is where the PWA files live (manifest, sw.js, icons, ...) --
+    # a change there (e.g. bumping the service worker) must be caught the
+    # same way a src/ change is.
+    frontend = tmp_path / "frontend"
+    dist_index = tmp_path / "dist" / "index.html"
+    _touch(frontend / "src" / "main.tsx", 1000)
+    _touch(dist_index, 2000)
+    _touch(frontend / "public" / "sw.js", 3000)
+
+    assert frontend_build.is_stale(frontend, dist_index) is True
+
+
 def test_package_lock_alone_does_not_count_as_a_source_change(tmp_path):
     frontend = tmp_path / "frontend"
     dist_index = tmp_path / "dist" / "index.html"

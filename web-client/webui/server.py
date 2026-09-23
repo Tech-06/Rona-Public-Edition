@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -43,8 +43,34 @@ _index_html_cache: tuple[float, str] | None = None
 # files, so browsers must revalidate it on every load -- otherwise a phone
 # can keep running an old bundle for as long as its cache sees fit, long
 # after the server was rebuilt. The hashed /assets/* files themselves stay
-# freely cacheable.
-_INDEX_HTML_HEADERS = {"Cache-Control": "no-cache"}
+# freely cacheable. The same reasoning applies to every other file the SPA
+# fallback serves by name below (manifest.webmanifest, sw.js, ...): none of
+# them are content-hashed, so they all get the same no-cache treatment.
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
+
+# Root-level files `npm run build` copies from frontend/public/ verbatim
+# (see vite.config.ts -- public/ is Vite's default, untouched-by-the-bundler
+# static dir). Only these exact names are ever served from DIST_DIR's root;
+# `spa_fallback` below rejects everything else, including a path that
+# merely resolves onto the same directory (FastAPI's `path` converter
+# never yields `..` segments, so there is no traversal to guard against
+# beyond this whitelist).
+_ROOT_FILES = {
+    "manifest.webmanifest": "application/manifest+json",
+    "sw.js": "text/javascript",
+    "offline.html": "text/html",
+    "favicon.svg": "image/svg+xml",
+}
+
+
+def _root_static_file(full_path: str) -> FileResponse | None:
+    media_type = _ROOT_FILES.get(full_path)
+    if media_type is None:
+        return None
+    file_path = DIST_DIR / full_path
+    if not file_path.is_file():
+        return None
+    return FileResponse(file_path, media_type=media_type, headers=_NO_CACHE_HEADERS)
 
 
 def _localized_index_html() -> str | None:
@@ -121,12 +147,18 @@ def create_app() -> FastAPI:
         assets_dir = DIST_DIR / "assets"
         if assets_dir.is_dir():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        icons_dir = DIST_DIR / "icons"
+        if icons_dir.is_dir():
+            app.mount("/icons", StaticFiles(directory=icons_dir), name="icons")
 
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str):
+            root_file = _root_static_file(full_path)
+            if root_file is not None:
+                return root_file
             content = _localized_index_html()
             if content is not None:
-                return HTMLResponse(content, headers=_INDEX_HTML_HEADERS)
+                return HTMLResponse(content, headers=_NO_CACHE_HEADERS)
             return JSONResponse({"detail": i18n.t("webui.frontend_not_built")}, status_code=404)
 
     return app
