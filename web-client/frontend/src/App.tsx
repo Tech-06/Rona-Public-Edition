@@ -88,10 +88,11 @@ export default function App() {
   // without prop-drilling a callback through the whole settings tree.
   useEffect(() => onConversationsChanged(refreshConversations), [refreshConversations]);
 
-  // Closes the loop on the backend's TTL purge: removes locally any
-  // conversation id the server reports as purged (never based on mere
-  // absence - see the hook's own comment for why that distinction matters).
-  useConversationSync(activeConversationId, refreshConversations);
+  // Keeps the local conversation cache in step with the server-side
+  // history shared by every device (see the hook's own comment) --
+  // including the one-time migration of a browser's pre-server
+  // localStorage history on first run after upgrading.
+  useConversationSync(refreshConversations);
 
   // The drawer is a mobile-only concept; force it closed when the
   // viewport crosses into the desktop breakpoint, where the sidebar is

@@ -42,6 +42,38 @@ MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
             ),
         ),
     ),
+    (
+        2,
+        (
+            # Mirrors graph/history.py's SCHEMA/FOLDERS_SCHEMA/INDEX, literal
+            # for the same independence-from-`app` reason as migration 1
+            # above. graph.history.ensure_schema() also self-heals this at
+            # every app startup regardless of whether this migration ran.
+            """
+            CREATE TABLE IF NOT EXISTS chat_history (
+                thread_id    TEXT PRIMARY KEY,
+                title        TEXT NOT NULL DEFAULT '',
+                title_custom INTEGER NOT NULL DEFAULT 0,
+                folder_id    TEXT,
+                messages     TEXT NOT NULL DEFAULT '[]',
+                created_at   INTEGER NOT NULL,
+                updated_at   INTEGER NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS chat_folders (
+                id         TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                collapsed  INTEGER NOT NULL DEFAULT 0
+            )
+            """,
+            (
+                "CREATE INDEX IF NOT EXISTS idx_chat_history_folder "
+                "ON chat_history(folder_id)"
+            ),
+        ),
+    ),
 ]
 
 

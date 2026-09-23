@@ -24,6 +24,7 @@ STRINGS: dict[str, str] = {
     "main.auth_invalid_token": "Geçersiz ya da eksik bearer token",
     "main.model_call_failed": "Model çağrısı başarısız oldu: {exc}",
     "main.log_reconcile_failed": "konuşma kaydı senkronizasyonu başarısız oldu",
+    "main.log_history_record_failed": "bir tur için sohbet geçmişi kaydedilemedi",
     # -- app/dashboard.py -----------------------------------------------------------
     "dashboard.not_editable": "Düzenlenemez: {names}",
     "dashboard.task_not_found": "Görev bulunamadı",
@@ -32,6 +33,9 @@ STRINGS: dict[str, str] = {
     "dashboard.run_not_reported": "Kayıt henüz kullanıcıya bildirilmedi",
     "dashboard.graph_not_ready": "Graf hazır değil",
     "dashboard.conversation_busy": "Konuşma meşgul",
+    "dashboard.history_not_found": "Konuşma bulunamadı",
+    "dashboard.folder_not_found": "Klasör bulunamadı",
+    "dashboard.history_unavailable": "Sohbet geçmişi kullanılamıyor",
     # -- trigger/executor.py: outcome text stored on a task run -------------------------
     "trigger.outcome_timeout": "Çalışma {minutes} dakika sonra zaman aşımına uğradı.",
     "trigger.outcome_condition_not_met": "Koşul sağlanmadı.",

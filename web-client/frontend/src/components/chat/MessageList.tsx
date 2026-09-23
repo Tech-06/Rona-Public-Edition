@@ -6,15 +6,32 @@ import { MessageBubble } from "./MessageBubble";
 interface Props {
   messages: ChatMessage[];
   livePhase: string | null;
+  /** True while an existing conversation's transcript is still being
+   * fetched from the server (see useChat.ts) -- distinct from an empty
+   * chat, which should show the "what's on your mind" prompt instead. */
+  loading?: boolean;
 }
 
-export function MessageList({ messages, livePhase }: Props) {
+export function MessageList({ messages, livePhase, loading }: Props) {
   const t = useT();
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, livePhase]);
+
+  if (loading) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-fg-subtle">
+        <span className="flex gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-fg-faint animate-pulseDot [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-fg-faint animate-pulseDot [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-fg-faint animate-pulseDot" />
+        </span>
+        <span>{t("common.loading")}</span>
+      </div>
+    );
+  }
 
   if (messages.length === 0) {
     return (

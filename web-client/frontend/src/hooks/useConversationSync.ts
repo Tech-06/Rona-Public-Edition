@@ -1,37 +1,25 @@
 import { useEffect, useRef } from "react";
-import { dashboardApi } from "../api/dashboard";
-import { removePurgedConversations } from "../lib/storage";
+import { migrateLegacyLocalHistory, syncFromServer } from "../lib/storage";
 
 const SYNC_INTERVAL_MS = 30_000;
 
-/** Periodically reconciles local conversation storage against the
- * backend's TTL purge, closing the loop the user asked for: "sohbet
- * sunucudan silinirse (timeout), web arayüzünden de silinsin."
+/** Keeps the local conversation cache (lib/storage.ts) in step with the
+ * server-side history (backend/graph/history.py), which is now the single
+ * source of truth shared by every device.
  *
- * Deliberately conservative, on purpose:
- * - Only ever deletes ids the server explicitly lists in `purged`. A
- *   conversation being merely ABSENT from the server's active list is
- *   NOT evidence it was deleted (fresh rona.db, a restart before
- *   reconcile, rona_checkpoints.db reset, ...) - treating absence as
- *   deletion would wipe the user's only copy of a transcript on nothing
- *   more than a timing coincidence.
- * - Never removes `activeConversationId` - this hook can't know whether
- *   a turn is in flight, so the conversation the user is currently
- *   looking at is left alone even if it's in `purged`; it gets cleaned
- *   up on a later sync once it's no longer active.
- * - Never touches local `pinned` state. Pin is synced the other
- *   direction, optimistically, at the point of the user's action (see
- *   ConversationRow's togglePin) - overwriting it here on every poll
- *   would silently revert a pin the moment a racing POST hadn't landed
- *   yet server-side.
+ * On mount, first runs the one-time legacy-localStorage migration (a no-op
+ * once a browser's old per-origin history has already been uploaded), then
+ * does an initial sync. After that it re-syncs periodically and on
+ * focus/visibility, the same cadence the old TTL-purge-reconciliation
+ * version of this hook used, so a conversation finished on another device
+ * (or by a backgrounded phone app whose turn kept running server-side)
+ * shows up here without a manual reload.
  *
- * Network failures (backend down, unreachable) are swallowed - this is
- * background housekeeping, not something that should ever surface an
- * error to the user; it just tries again on the next tick.
+ * Network failures are swallowed throughout -- this is background
+ * housekeeping, not something that should surface an error to the user;
+ * it just tries again on the next tick.
  */
-export function useConversationSync(activeConversationId: string | null, onSynced: () => void): void {
-  const activeRef = useRef(activeConversationId);
-  activeRef.current = activeConversationId;
+export function useConversationSync(onSynced: () => void): void {
   const onSyncedRef = useRef(onSynced);
   onSyncedRef.current = onSynced;
 
@@ -44,17 +32,25 @@ export function useConversationSync(activeConversationId: string | null, onSynce
       if (!force && now - lastSyncAt < SYNC_INTERVAL_MS) return;
       lastSyncAt = now;
       try {
-        const result = await dashboardApi.serverConversations();
+        await syncFromServer();
         if (cancelled) return;
-        const purged = result.purged.filter((id) => id !== activeRef.current);
-        removePurgedConversations(purged);
         onSyncedRef.current();
       } catch {
         // backend unreachable or erroring - skip this cycle, retry later
       }
     }
 
-    sync(true);
+    async function start() {
+      try {
+        await migrateLegacyLocalHistory();
+      } catch {
+        // never block the first sync on a failed migration attempt
+      }
+      if (cancelled) return;
+      await sync(true);
+    }
+
+    start();
     const interval = setInterval(() => sync(), SYNC_INTERVAL_MS);
     function handleFocus() {
       sync();
@@ -70,8 +66,8 @@ export function useConversationSync(activeConversationId: string | null, onSynce
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-    // Mount-once: activeConversationId/onSynced are read through refs so
-    // the interval/listeners never need to be torn down and rebuilt.
+    // Mount-once: onSynced is read through a ref so the interval/listeners
+    // never need to be torn down and rebuilt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

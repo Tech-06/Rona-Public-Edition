@@ -27,6 +27,7 @@ STRINGS: dict[str, str] = {
     "main.auth_invalid_token": "Invalid or missing bearer token",
     "main.model_call_failed": "Model call failed: {exc}",
     "main.log_reconcile_failed": "conversation registry reconcile failed",
+    "main.log_history_record_failed": "failed to record chat history for a turn",
     # -- app/dashboard.py -----------------------------------------------------------
     "dashboard.not_editable": "Not editable: {names}",
     "dashboard.task_not_found": "Task not found",
@@ -35,6 +36,9 @@ STRINGS: dict[str, str] = {
     "dashboard.run_not_reported": "Run has not been reported to the user yet",
     "dashboard.graph_not_ready": "Graph is not ready",
     "dashboard.conversation_busy": "Conversation is busy",
+    "dashboard.history_not_found": "Conversation not found",
+    "dashboard.folder_not_found": "Folder not found",
+    "dashboard.history_unavailable": "Chat history is unavailable",
     # -- trigger/executor.py: outcome text stored on a task run -------------------------
     "trigger.outcome_timeout": "The run timed out after {minutes} minutes.",
     "trigger.outcome_condition_not_met": "The condition was not met.",

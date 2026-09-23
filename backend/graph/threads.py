@@ -4,7 +4,8 @@ Durable activity tracking (who was touched when, who is pinned) lives in
 graph.conversations, backed by rona.db, so it survives restarts. This
 module only keeps the process-local asyncio.Lock per thread_id -- locks
 cannot be persisted or shared across processes anyway -- plus the purge
-loop that ties the two together.
+loop that ties the two together and, once a conversation's checkpoints are
+gone, also drops its transcript from graph.history.
 """
 
 import logging
@@ -12,7 +13,7 @@ import time
 from asyncio import Lock
 
 import i18n
-from graph import conversations
+from graph import conversations, history
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -76,6 +77,7 @@ async def purge_expired(ttl_seconds: int, checkpointer, *, force: bool = False) 
             logger.exception(i18n.t("graph.log_purge_failed"), thread_id)
             continue
         conversations.mark_purged(thread_id)
+        history.delete(thread_id)
         _locks.pop(thread_id, None)
         purged += 1
     return purged

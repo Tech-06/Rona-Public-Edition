@@ -24,6 +24,7 @@ from graph import (
     build_graph,
     conversations,
     get_lock,
+    history,
     purge_expired,
     touch,
 )
@@ -80,6 +81,7 @@ async def lifespan(app: FastAPI):
     async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH)) as checkpointer:
         await checkpointer.setup()
         conversations.ensure_schema()
+        history.ensure_schema()
         await _reconcile_conversation_registry(checkpointer)
         conversations.sweep_tombstones()
         app.state.graph = build_graph(checkpointer)
@@ -236,12 +238,57 @@ async def chat(chat_request: ChatRequest, http_request: Request) -> ChatResponse
     )
 
 
+def _record_turn_history(
+    conversation_id: str,
+    message: str,
+    result: dict[str, Any],
+    steps: list[dict[str, Any]],
+    started_monotonic: float,
+) -> None:
+    """Persists this turn to graph.history so every client -- not just the
+    one that sent the message -- sees it, including a phone app that got
+    backgrounded mid-turn and only reconnects after it's already done.
+    Recorded even when `status` is "confirmation_required": the old
+    client-side saveConversation() saved every turn unconditionally too,
+    since the confirmation question is itself the assistant's reply and
+    the user's approve/reject continues the same conversation. Never lets
+    a storage error break the chat itself -- the SSE "done" event the
+    caller publishes right after this still reaches the client either way.
+    """
+    now = int(time.time() * 1000)
+    total_duration_ms = round((time.monotonic() - started_monotonic) * 1000)
+    user_message = {
+        "id": str(uuid.uuid4()),
+        "role": "user",
+        "content": message,
+        "createdAt": now,
+    }
+    assistant_message = {
+        "id": str(uuid.uuid4()),
+        "role": "assistant",
+        "content": result["reply"],
+        "createdAt": now,
+        "steps": steps,
+        "totalDurationMs": total_duration_ms,
+        "awaitingConfirmation": result["status"] == "confirmation_required",
+        "toolCalls": result["tool_calls"],
+    }
+    try:
+        history.record_turn(conversation_id, user_message, assistant_message)
+    except Exception:
+        logging.getLogger("uvicorn.error").exception(
+            i18n.t("main.log_history_record_failed")
+        )
+
+
 async def _stream_worker(
     graph: Any, conversation_id: str, message: str, run: StreamRun
 ) -> None:
+    recorder = history.TurnRecorder(run)
+    started = time.monotonic()
     try:
         try:
-            result = await _run_turn(graph, conversation_id, message, sink=run)
+            result = await _run_turn(graph, conversation_id, message, sink=recorder)
         except Exception as exc:  # noqa: BLE001
             run.publish(
                 "error",
@@ -251,6 +298,7 @@ async def _stream_worker(
                 },
             )
         else:
+            _record_turn_history(conversation_id, message, result, recorder.steps, started)
             run.publish("done", {**result, "conversation_id": conversation_id})
     finally:
         run.finish()

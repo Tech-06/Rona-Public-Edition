@@ -19,7 +19,11 @@ export function ChatView({ conversationId, onConversationId }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto">
-        <MessageList messages={chat.messages} livePhase={chat.livePhase} />
+        <MessageList
+          messages={chat.messages}
+          livePhase={chat.livePhase}
+          loading={chat.messagesLoading}
+        />
       </div>
       <Composer
         onSend={chat.send}

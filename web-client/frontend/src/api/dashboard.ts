@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { ChatMessage } from "../types";
 
 export interface StatusResponse {
   app: string;
@@ -165,25 +166,79 @@ export interface ServerStatusResponse {
   recent_log_lines: string[];
 }
 
-export interface ServerConversationSummary {
-  conversation_id: string;
-  last_active: string;
-  last_active_seconds_ago: number;
-  pinned: boolean;
-}
-
-export interface ServerConversationsResponse {
-  conversations: ServerConversationSummary[];
-  purged: string[];
-  ttl_seconds: number;
-  max_history_messages: number;
-}
-
 export interface ConversationPinResponse {
   thread_id: string;
   last_active: string;
   pinned: boolean;
   purged_at: string | null;
+}
+
+// -- server-side chat history (backend/graph/history.py) -----------------
+//
+// Every field here is camelCase, matching the frontend's own
+// ConversationSummary/Folder/ChatMessage shapes directly (see
+// web-client/frontend/src/types.ts) rather than this project's usual
+// snake_case API convention: these endpoints exist specifically to be this
+// web client's storage backend, so the wire shape IS the frontend shape.
+
+export interface HistoryConversationSummary {
+  conversationId: string;
+  title: string;
+  titleCustom: boolean;
+  updatedAt: number;
+  pinned: boolean;
+  folderId: string | null;
+}
+
+export interface HistoryFolder {
+  id: string;
+  name: string;
+  createdAt: number;
+  collapsed: boolean;
+}
+
+export interface HistoryResponse {
+  conversations: HistoryConversationSummary[];
+  folders: HistoryFolder[];
+}
+
+export interface HistoryConversationDetail extends HistoryConversationSummary {
+  messages: ChatMessage[];
+}
+
+/** Same shape the old client-side exportAll() used to produce (see
+ * lib/storage.ts's history), now filled in server-side by
+ * GET /api/history/export. */
+export interface ConversationExport {
+  exportedAt: string;
+  conversations: Array<{
+    conversationId: string;
+    title: string;
+    updatedAt: number;
+    pinned: boolean;
+    folderId: string | null;
+    messages: ChatMessage[];
+  }>;
+}
+
+/** Payload for the one-time localStorage -> server migration
+ * (see lib/storage.ts's migrateLegacyLocalHistory()). */
+export interface HistoryImportPayload {
+  conversations: Array<{
+    conversationId: string;
+    title: string;
+    titleCustom: boolean;
+    updatedAt: number;
+    pinned: boolean;
+    folderId: string | null;
+    messages: ChatMessage[];
+  }>;
+  folders: HistoryFolder[];
+}
+
+export interface HistoryImportResult {
+  conversationsImported: number;
+  foldersImported: number;
 }
 
 export const dashboardApi = {
@@ -226,11 +281,27 @@ export const dashboardApi = {
   serverStatus: () => api.get<ServerStatusResponse>("/host/server"),
   serverAction: (action: "start" | "stop" | "restart") =>
     api.post<{ ok: boolean; detail: string }>(`/host/server/${action}`),
-  serverConversations: () => api.get<ServerConversationsResponse>("/api/conversations"),
   setConversationPinned: (conversationId: string, pinned: boolean) =>
     api.post<ConversationPinResponse>(`/api/conversations/${conversationId}/pin`, { pinned }),
   deleteServerConversation: (conversationId: string) =>
     api.del<{ deleted: boolean }>(`/api/conversations/${conversationId}`),
   deleteAllServerConversations: () =>
     api.del<{ deleted: number; skipped: number }>("/api/conversations"),
+  history: () => api.get<HistoryResponse>("/api/history"),
+  historyConversation: (conversationId: string) =>
+    api.get<HistoryConversationDetail>(`/api/history/${conversationId}`),
+  renameHistoryConversation: (conversationId: string, title: string) =>
+    api.patch<HistoryConversationSummary>(`/api/history/${conversationId}`, { title }),
+  moveHistoryConversation: (conversationId: string, folderId: string | null) =>
+    api.patch<HistoryConversationSummary>(`/api/history/${conversationId}`, { folderId }),
+  exportHistory: () => api.get<ConversationExport>("/api/history/export"),
+  importHistory: (payload: HistoryImportPayload) =>
+    api.post<HistoryImportResult>("/api/history/import", payload),
+  createHistoryFolder: (name: string) => api.post<HistoryFolder>("/api/history/folders", { name }),
+  renameHistoryFolder: (folderId: string, name: string) =>
+    api.patch<HistoryFolder>(`/api/history/folders/${folderId}`, { name }),
+  setHistoryFolderCollapsed: (folderId: string, collapsed: boolean) =>
+    api.patch<HistoryFolder>(`/api/history/folders/${folderId}`, { collapsed }),
+  deleteHistoryFolder: (folderId: string) =>
+    api.del<{ deleted: boolean }>(`/api/history/folders/${folderId}`),
 };

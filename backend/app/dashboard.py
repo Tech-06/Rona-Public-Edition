@@ -15,7 +15,7 @@ import toolbox
 from app.config import Settings, get_settings
 from app.llm import chat_completion
 from app.streaming import drop_run
-from graph import CHECKPOINT_DB_PATH, conversations
+from graph import CHECKPOINT_DB_PATH, conversations, history
 from graph.threads import get_lock
 from subagents import store as subagent_store
 from toolbox import envfile
@@ -641,6 +641,7 @@ async def delete_conversation(conversation_id: str, request: Request):
         if delete is not None:
             await delete(conversation_id)
         conversations.forget(conversation_id)
+        history.delete(conversation_id)
     finally:
         lock.release()
     drop_run(conversation_id)
@@ -653,11 +654,13 @@ async def delete_all_conversations(request: Request):
     delete = getattr(checkpointer, "adelete_thread", None)
     deleted = 0
     skipped = 0
+    busy_ids: set[str] = set()
     for row in conversations.list_active(limit=10_000):
         conversation_id = row["thread_id"]
         lock = get_lock(conversation_id)
         if lock.locked():
             skipped += 1
+            busy_ids.add(conversation_id)
             continue
         async with lock:
             if delete is not None:
@@ -665,7 +668,148 @@ async def delete_all_conversations(request: Request):
             conversations.forget(conversation_id)
             drop_run(conversation_id)
         deleted += 1
+    # "Delete all" is a full reset, same as the old client-side clearAll()
+    # (web-client/frontend/src/lib/storage.ts) that used to wipe folders
+    # along with every conversation -- a conversation skipped above (busy,
+    # mid-turn) keeps its history row, but its folder_id may now point at a
+    # folder that no longer exists; history.get()/list_index() treat that
+    # exactly like "no folder", so it's a harmless dangling reference.
+    history.delete_all(except_ids=busy_ids)
+    history.delete_all_folders()
     return {"deleted": deleted, "skipped": skipped}
+
+
+def _history_summary_json(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "conversationId": row["thread_id"],
+        "title": row["title"],
+        "titleCustom": row["title_custom"],
+        "updatedAt": row["updated_at"],
+        "pinned": row["pinned"],
+        "folderId": row["folder_id"],
+    }
+
+
+def _folder_json(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "createdAt": row["created_at"],
+        "collapsed": row["collapsed"],
+    }
+
+
+@router.get("/history")
+async def get_history():
+    """The web client's whole conversation list + folders in one call --
+    what storage.ts's loadIndex()/loadFolders() used to read out of
+    localStorage, now shared across every device (see graph/history.py)."""
+    return {
+        "conversations": [_history_summary_json(row) for row in history.list_index()],
+        "folders": [_folder_json(row) for row in history.list_folders()],
+    }
+
+
+@router.get("/history/export")
+async def export_history():
+    """Same shape as the old client-side exportAll() (ConversationExport in
+    web-client/frontend/src/lib/storage.ts) so the "export all chats"
+    button's download format doesn't change."""
+    return history.export_all()
+
+
+class HistoryImportPayload(BaseModel):
+    conversations: list[dict[str, Any]] = []
+    folders: list[dict[str, Any]] = []
+
+
+@router.post("/history/import")
+async def import_history(payload: HistoryImportPayload):
+    """One-time migration for a browser's pre-server localStorage history
+    (see graph.history.import_conversations's docstring). Safe to call more
+    than once, from more than one device: only ever adds conversations/
+    folders the server doesn't already have."""
+    result = history.import_conversations(payload.conversations, payload.folders)
+    return {
+        "conversationsImported": result["conversations_imported"],
+        "foldersImported": result["folders_imported"],
+    }
+
+
+class FolderCreate(BaseModel):
+    name: str
+
+
+@router.post("/history/folders")
+async def create_history_folder(payload: FolderCreate):
+    folder = history.create_folder(payload.name)
+    if folder is None:
+        raise HTTPException(503, i18n.t("dashboard.history_unavailable"))
+    return _folder_json(folder)
+
+
+class FolderUpdate(BaseModel):
+    name: str | None = None
+    collapsed: bool | None = None
+
+
+@router.patch("/history/folders/{folder_id}")
+async def update_history_folder(folder_id: str, payload: FolderUpdate):
+    if payload.name is not None and not history.rename_folder(folder_id, payload.name):
+        raise HTTPException(404, i18n.t("dashboard.folder_not_found"))
+    if payload.collapsed is not None and not history.set_folder_collapsed(
+        folder_id, payload.collapsed
+    ):
+        raise HTTPException(404, i18n.t("dashboard.folder_not_found"))
+    folder = next((f for f in history.list_folders() if f["id"] == folder_id), None)
+    if folder is None:
+        raise HTTPException(404, i18n.t("dashboard.folder_not_found"))
+    return _folder_json(folder)
+
+
+@router.delete("/history/folders/{folder_id}")
+async def delete_history_folder(folder_id: str):
+    if not history.delete_folder(folder_id):
+        raise HTTPException(404, i18n.t("dashboard.folder_not_found"))
+    return {"deleted": True}
+
+
+@router.get("/history/{conversation_id}")
+async def get_history_conversation(conversation_id: str):
+    row = history.get(conversation_id)
+    if row is None:
+        raise HTTPException(404, i18n.t("dashboard.history_not_found"))
+    return {**_history_summary_json(row), "messages": row["messages"]}
+
+
+@router.patch("/history/{conversation_id}")
+async def update_history_conversation(conversation_id: str, payload: dict[str, Any]):
+    # A raw dict (rather than a strict model with Optional fields) so a
+    # caller can distinguish "not provided" from "explicitly clear the
+    # folder" (folderId: null) -- an Optional[str] field defaulting to
+    # None can't tell those apart. Mirrors app/dashboard.py's own
+    # update_config() for the same reason. Keys are camelCase (folderId,
+    # not folder_id) to match every other /history response shape, which
+    # speaks the frontend's own ConversationSummary/Folder field names
+    # directly -- see _history_summary_json().
+    unknown = set(payload) - {"title", "folderId"}
+    if unknown:
+        raise HTTPException(
+            400, i18n.t("dashboard.not_editable", names=", ".join(sorted(unknown)))
+        )
+    if "title" in payload:
+        if not history.rename(conversation_id, str(payload["title"] or "")):
+            raise HTTPException(404, i18n.t("dashboard.history_not_found"))
+    if "folderId" in payload:
+        folder_id = payload["folderId"]
+        if folder_id is not None and not isinstance(folder_id, str):
+            raise HTTPException(400, i18n.t("dashboard.not_editable", names="folderId"))
+        if not history.set_folder(conversation_id, folder_id):
+            raise HTTPException(404, i18n.t("dashboard.history_not_found"))
+    row = history.get(conversation_id)
+    if row is None:
+        raise HTTPException(404, i18n.t("dashboard.history_not_found"))
+    return _history_summary_json(row)
 
 
 @router.get("/logs")
