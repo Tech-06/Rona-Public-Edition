@@ -39,6 +39,13 @@ STRINGS: dict[str, str] = {
     "dashboard.history_not_found": "Conversation not found",
     "dashboard.folder_not_found": "Folder not found",
     "dashboard.history_unavailable": "Chat history is unavailable",
+    "dashboard.memory_not_found": "Memory #{id} not found.",
+    "dashboard.archived_memory_not_found": "Archived memory #{id} not found.",
+    "dashboard.person_not_found": "Person #{id} not found.",
+    "dashboard.note_not_found": "Note #{id} not found.",
+    "dashboard.notes_not_installed": "The notes package is not installed.",
+    "dashboard.invalid_layer": "Invalid layer: {layer}. Use deep, seasonal or short.",
+    "dashboard.consolidation_busy": "A memory consolidation run is already in progress.",
     # -- trigger/executor.py: outcome text stored on a task run -------------------------
     "trigger.outcome_timeout": "The run timed out after {minutes} minutes.",
     "trigger.outcome_condition_not_met": "The condition was not met.",
@@ -82,4 +89,24 @@ STRINGS: dict[str, str] = {
     "toolbox.log_skip_package": "toolbox: skipping package in %s: %s",
     # -- graph/threads.py: log lines -----------------------------------------------------------
     "graph.log_purge_failed": "conversation purge failed for %s",
+    # -- memory/ (Konsolidasyon): schema self-heal and consolidation log lines ------------
+    "memory.log_schema_upgraded": "[memory] memories table upgraded, added columns: %s",
+    "memory.log_schema_failed": "[memory] schema check failed: %s",
+    "memory.log_access_failed": "[memory] could not record memory access: %s",
+    "memory.log_promoted": "[memory] #%d promoted %s -> %s (%d hits): %s",
+    "memory.log_archived": "[memory] #%d archived (%s, reason: %s): %s",
+    "memory.log_deleted": "[memory] #%d deleted (short, %d hits): %s",
+    "memory.log_run_done": (
+        "[memory] consolidation (%s) finished: %d promoted to seasonal, "
+        "%d promoted to deep, %d archived, %d deleted"
+    ),
+    "memory.log_run_failed": "[memory] consolidation (%s) failed: %s",
+    "memory.log_scheduler_started": "[memory] consolidation scheduler started (every %d h)",
+    "memory.log_scheduler_disabled": (
+        "[memory] automatic consolidation is off (MEMORY_CONSOLIDATION_INTERVAL_HOURS=0)"
+    ),
+    "memory.log_scheduler_error": "[memory] consolidation scheduler error: %s",
+    "memory.log_person_memories_archived": (
+        "[memory] person #%d deleted, %d linked memories archived"
+    ),
 }

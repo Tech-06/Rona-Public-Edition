@@ -153,12 +153,93 @@ STRINGS: dict[str, str] = {
     "memory.stats_split": "General (no person): {general}, linked to a person: {linked}",
     "memory.stats_range": "Oldest: {oldest}, newest: {newest}",
     "memory.stats_access_count": "Total access count: {count}",
+    "memory.stats_archived": "Archived memories: {count}",
+    "memory.stats_last_consolidation": (
+        "Last consolidation: {finished_at} ({triggered_by}) — promoted: "
+        "{promoted_short}+{promoted_seasonal}, archived: {archived}, deleted: {deleted}"
+    ),
+    "memory.stats_no_consolidation": "Consolidation hasn't run yet.",
+    "memory.no_memories": "No memories.",
+    "memory.list_line": "[{id}] {layer:<8} access {hits}/{total}  last: {last}  {content}",
+    "memory.list_footer": "{shown}/{total} memories shown",
+    "memory.never": "never",
+    "memory.archive_ok": "Memory #{id} archived (archive #{archive_id}).",
+    "memory.archived_line": "[#{id}] (previous: {layer}, {reason}, {archived_at}) {content}",
+    "memory.archive_empty": "Archive is empty.",
+    "memory.archive_reason_auto": "automatic",
+    "memory.archive_reason_manual": "manual",
+    "memory.archive_reason_person_deleted": "person deleted",
+    "memory.restore_ok": "Archive #{archive_id} restored as a deep memory (id {memory_id}).",
+    "memory.confirm_purge": "Permanently delete archive #{id}?",
+    "memory.purge_ok": "Archive record permanently deleted.",
     "memory.help_group": "Manage memory records",
     "memory.help_search": "Run a semantic search",
     "memory.help_add": "Add a new memory",
     "memory.help_edit": "Edit an existing memory",
     "memory.help_delete": "Delete a memory",
     "memory.help_stats": "Show memory statistics",
+    "memory.help_list": "List memories",
+    "memory.help_list_layer_flag": "filter by layer",
+    "memory.help_list_person_flag": "filter by person (default: all)",
+    "memory.help_limit_flag": "records per page",
+    "memory.help_offset_flag": "records to skip",
+    "memory.help_archive": "Archive a memory",
+    "memory.help_archived": "List the archive",
+    "memory.help_restore": "Restore a memory from the archive",
+    "memory.help_purge": "Permanently delete an archive record",
+    # -- commands/edit/memory_consolidate.py (new) --------------------------------------
+    "memory.help_consolidate_group": "Manage memory consolidation (promotion, archiving, deletion)",
+    "memory.help_consolidate_run": "Run consolidation now",
+    "memory.help_consolidate_status": "Show consolidation status",
+    "memory.help_consolidate_config": "Show or change consolidation settings",
+    "memory.help_dry_run_flag": "preview without making changes",
+    "memory.help_config_interval_hours": "automatic run interval (hours, 0 = off)",
+    "memory.help_config_auto_promote": "turn the promotion mechanism on/off",
+    "memory.help_config_auto_archive": "turn the archiving mechanism on/off",
+    "memory.help_config_auto_delete": "turn the deletion mechanism on/off",
+    "memory.help_config_short_promote_hits": "hits required for short -> seasonal",
+    "memory.help_config_seasonal_promote_hits": "hits required for seasonal -> deep",
+    "memory.help_config_seasonal_archive_days": (
+        "seasonal memories unaccessed this many days are archived"
+    ),
+    "memory.help_config_short_delete_days": (
+        "short memories older than this many days become delete candidates"
+    ),
+    "memory.help_config_short_delete_below_hits": (
+        "delete candidates below this many hits are deleted"
+    ),
+    "memory.help_config_access_top_n": "number of results counted as accessed per search",
+    "memory.help_config_access_cooldown_hours": (
+        "the same memory isn't recounted within this many hours"
+    ),
+    "memory.consolidate_preview_heading": "Preview — nothing was changed:",
+    "memory.consolidate_done_heading": "Consolidation complete (run #{run_id}):",
+    "memory.consolidate_counts_line": (
+        "Promoted: {promoted_short}+{promoted_seasonal}, archived: {archived}, deleted: {deleted}"
+    ),
+    "memory.consolidate_item_promoted_short": "  ↑ #{id} short → seasonal ({hits} hits): {preview}",
+    "memory.consolidate_item_promoted_seasonal": "  ↑ #{id} seasonal → deep ({hits} hits): {preview}",
+    "memory.consolidate_item_archived": "  ⤓ #{id} archived ({layer}): {preview}",
+    "memory.consolidate_item_deleted": "  ✕ #{id} deleted ({hits} hits): {preview}",
+    "memory.consolidate_nothing": "Nothing to change.",
+    "memory.consolidate_status_scheduler_active": (
+        "Scheduler: active (interval {interval}h, next run: {next_run})"
+    ),
+    "memory.consolidate_status_scheduler_inactive": "Scheduler: inactive",
+    "memory.consolidate_status_running": "Currently running.",
+    "memory.consolidate_status_policy_heading": "Settings:",
+    "memory.consolidate_status_runs_heading": "Recent runs:",
+    "memory.consolidate_status_no_runs": "No runs yet.",
+    "memory.consolidate_status_run_line": (
+        "  #{id} {triggered_by} {finished_at} — promoted: {promoted_short}+{promoted_seasonal}, "
+        "archived: {archived}, deleted: {deleted}"
+    ),
+    "memory.consolidate_status_run_error": "(error: {error})",
+    "memory.config_below_minimum": "{flag} must be at least {minimum}",
+    "memory.config_default_marker": "default",
+    "memory.config_saved": (
+        "Consolidation settings saved. Run `rona server restart` for the change to take effect."
+    ),
     # -- commands/task.py -------------------------------------------------------------
     "task.no_tasks": "No tasks.",
     "task.list_line": "[{status:>7}] {id}  {name}  (next: {next_run})",

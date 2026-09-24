@@ -130,6 +130,56 @@ def test_edit_memory_search_carries_global_json_flag():
     assert args.query == "query text"
 
 
+def test_edit_memory_list_parses_layer_flag():
+    args = build_parser().parse_args(["edit", "memory", "list", "--layer", "short"])
+    assert args.memory_command == "list"
+    assert args.layer == "short"
+    assert callable(args.func)
+
+
+def test_edit_memory_consolidate_run_parses_dry_run_flag():
+    args = build_parser().parse_args(
+        ["edit", "memory", "consolidate", "run", "--dry-run"]
+    )
+    assert args.command == "edit"
+    assert args.edit_command == "memory"
+    assert args.memory_command == "consolidate"
+    assert args.consolidate_command == "run"
+    assert args.dry_run is True
+    assert callable(args.func)
+
+
+def test_edit_memory_consolidate_requires_a_subcommand():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["edit", "memory", "consolidate"])
+
+
+def test_edit_memory_consolidate_status_accepts_json_at_the_leaf():
+    args = build_parser().parse_args(
+        ["edit", "memory", "consolidate", "status", "--json"]
+    )
+    assert args.consolidate_command == "status"
+    assert args.json is True
+
+
+def test_edit_memory_consolidate_config_parses_flags():
+    args = build_parser().parse_args(
+        [
+            "edit",
+            "memory",
+            "consolidate",
+            "config",
+            "--auto-delete",
+            "off",
+            "--short-promote-hits",
+            "5",
+        ]
+    )
+    assert args.consolidate_command == "config"
+    assert args.auto_delete == "off"
+    assert args.short_promote_hits == 5
+
+
 def test_task_list_defaults():
     args = build_parser().parse_args(["task", "list"])
     assert args.status == "all"

@@ -6,7 +6,7 @@ import { useT } from "../LanguageProvider";
 import { RestartBanner } from "../settings/RestartBanner";
 import { Button, Card, ErrorState } from "./ui";
 
-const GROUPS: Array<{ titleKey: TranslationKey; fields: string[] }> = [
+const GROUPS: Array<{ titleKey: TranslationKey; descriptionKey?: TranslationKey; fields: string[] }> = [
   { titleKey: "config.group_general", fields: ["log_level", "reload"] },
   {
     titleKey: "config.group_model",
@@ -40,6 +40,23 @@ const GROUPS: Array<{ titleKey: TranslationKey; fields: string[] }> = [
       "trigger_max_rounds",
       "trigger_llm_timeout_seconds",
       "trigger_max_context_messages",
+    ],
+  },
+  {
+    titleKey: "config.group_memory",
+    descriptionKey: "config.group_memory_description",
+    fields: [
+      "memory_consolidation_interval_hours",
+      "memory_auto_promote_enabled",
+      "memory_auto_archive_enabled",
+      "memory_auto_delete_enabled",
+      "memory_short_promote_hits",
+      "memory_seasonal_promote_hits",
+      "memory_seasonal_archive_days",
+      "memory_short_delete_days",
+      "memory_short_delete_below_hits",
+      "memory_access_top_n",
+      "memory_access_cooldown_hours",
     ],
   },
   {
@@ -121,6 +138,9 @@ export function ConfigPanel() {
 
       {GROUPS.map((group) => (
         <Card key={group.titleKey} title={t(group.titleKey)}>
+          {group.descriptionKey && (
+            <p className="mb-3 text-xs text-fg-subtle">{t(group.descriptionKey)}</p>
+          )}
           <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
             {group.fields.map((field) => (
               <FieldInput
@@ -189,6 +209,7 @@ function FieldInput({
         <span className="text-xs capitalize text-fg-subtle">{label}</span>
         <input
           type="number"
+          step="any"
           value={value}
           onChange={(event) => onChange(Number(event.target.value))}
           className="rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"

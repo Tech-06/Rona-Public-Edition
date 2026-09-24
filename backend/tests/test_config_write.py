@@ -80,6 +80,26 @@ def test_update_config_rejects_invalid_language(client):
     assert env_path.read_text(encoding="utf-8") == original
 
 
+def test_update_config_writes_memory_fields(client):
+    test_client, env_path = client
+    response = test_client.put(
+        "/api/config",
+        json={"memory_short_promote_hits": 5, "memory_auto_delete_enabled": False},
+    )
+    assert response.status_code == 200
+    content = env_path.read_text(encoding="utf-8")
+    assert "MEMORY_SHORT_PROMOTE_HITS=5" in content
+    assert "MEMORY_AUTO_DELETE_ENABLED=false" in content
+
+
+def test_update_config_rejects_memory_short_promote_hits_zero(client):
+    test_client, env_path = client
+    original = env_path.read_text(encoding="utf-8")
+    response = test_client.put("/api/config", json={"memory_short_promote_hits": 0})
+    assert response.status_code == 400
+    assert env_path.read_text(encoding="utf-8") == original
+
+
 def test_read_config_excludes_secret_fields(client):
     test_client, _ = client
     response = test_client.get("/api/config")

@@ -1,5 +1,9 @@
+import logging
 import sqlite3
 
+import i18n
+from memory import archive as memory_archive
+from memory import schema as memory_schema
 from toolbox import db
 
 _SEARCH_FIELDS = ("name", "nickname", "connection")
@@ -65,21 +69,49 @@ def add_person(
         return {"success": False, "error": str(exc)}
 
 
+class _PersonNotFound(Exception):
+    """Private sentinel: lets the transaction below unwind (rollback) through
+    `memory_schema.immediate_transaction` before `delete_person` turns it
+    into the usual `{"success": False, ...}` shape."""
+
+    def __init__(self, person_id: int):
+        super().__init__(f"ID {person_id} not found.")
+        self.person_id = person_id
+
+
 def delete_person(person_id: int) -> dict:
+    """Delete a person and, in the same transaction, archive every memory
+    linked to them (reason `person_deleted`) rather than leaving them
+    behind with a dangling `person_id`. Archived memories can later be
+    restored (as unlinked deep memories) from the archive."""
+    connection = memory_schema.connect()
     try:
-        connection_db = _get_connection()
-        cursor = connection_db.cursor()
-        cursor.execute("DELETE FROM people WHERE id = ?", (person_id,))
+        with memory_schema.immediate_transaction(connection):
+            cursor = connection.cursor()
+            exists = cursor.execute(
+                "SELECT id FROM people WHERE id = ?", (person_id,)
+            ).fetchone()
+            if exists is None:
+                raise _PersonNotFound(person_id)
 
-        if cursor.rowcount == 0:
-            connection_db.close()
-            return {"success": False, "error": f"ID {person_id} not found."}
-
-        connection_db.commit()
-        connection_db.close()
-        return {"success": True, "message": "Person deleted successfully."}
+            archived = memory_archive.archive_person_memories(cursor, person_id)
+            cursor.execute("DELETE FROM people WHERE id = ?", (person_id,))
+    except _PersonNotFound as exc:
+        return {"success": False, "error": str(exc)}
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
+    finally:
+        connection.close()
+
+    if archived > 0:
+        logging.getLogger("uvicorn.error").info(
+            i18n.t("memory.log_person_memories_archived"), person_id, archived
+        )
+    return {
+        "success": True,
+        "message": "Person deleted successfully.",
+        "archived_memories": archived,
+    }
 
 
 def edit_person(

@@ -135,7 +135,7 @@
     },
     {
       "name": "delete_person",
-      "description": "Deletes a person by ID from the local people database.",
+      "description": "Deletes a person by ID from the local people database. Memories linked to that person are moved to the memory archive (not searchable anymore); if the user later restores one, it comes back as an unlinked deep memory.",
       "module": "toolbox.tools.people_tool",
       "function": "delete_person",
       "parameters": {
@@ -184,7 +184,7 @@
     },
     {
       "name": "add_memory",
-      "description": "Stores a new memory in the local memory database. The content is embedded as a vector so it can be recalled later with search_memories.",
+      "description": "Stores a new memory in the local memory database. The content is embedded as a vector so it can be recalled later with search_memories. Layers are maintained automatically afterwards (see the memory guidance).",
       "module": "toolbox.tools.mem_tool",
       "function": "add_memory",
       "parameters": {
@@ -197,7 +197,7 @@
               "seasonal",
               "short"
             ],
-            "description": "Memory layer: 'deep' for durable, defining facts the user explicitly wants remembered; 'seasonal' for ongoing projects, plans and mid-term context; 'short' for recent conversation details and transient context."
+            "description": "Memory layer. Decide in this order: 1) Time context in the information itself: a near-term moment ('tonight', 'tomorrow', 'now' / 'bu akşam', 'yarın', 'şimdi') → 'short'; a bounded period ('this semester', 'this month' / 'bu dönem', 'bu ay') → 'seasonal'. 2) Otherwise by kind: the user's traits, preferences and habits, and who a person is or how they relate to the user → 'deep'; projects, tasks and ongoing activities → 'seasonal'; momentary facts and one-off plans → 'short'. When unsure, pick the shorter-lived layer: memories that keep being recalled are promoted automatically."
           },
           "content": {
             "type": "string",
@@ -218,12 +218,7 @@
           "content"
         ]
       },
-      "requires_confirmation": {
-        "param": "layer",
-        "values": [
-          "deep"
-        ]
-      },
+      "requires_confirmation": false,
       "background": false
     },
     {
@@ -293,7 +288,7 @@
               "seasonal",
               "short"
             ],
-            "description": "New memory layer: 'deep' for durable, defining facts the user explicitly wants remembered; 'seasonal' for ongoing projects, plans and mid-term context; 'short' for recent conversation details and transient context."
+            "description": "New memory layer, chosen with the same rules as add_memory. Change it only when the nature of the information changed (for example a temporary plan became a lasting habit) or the user asks; promotion based on recall happens automatically."
           },
           "content": {
             "type": "string",
@@ -313,12 +308,7 @@
           "memory_id"
         ]
       },
-      "requires_confirmation": {
-        "param": "layer",
-        "values": [
-          "deep"
-        ]
-      },
+      "requires_confirmation": false,
       "background": false
     },
     {
@@ -343,7 +333,7 @@
     },
     {
       "name": "search_memories",
-      "description": "Semantic search over the local memory database: returns memories whose meaning is most similar to the query text. Omit 'person' to search general (person-unlinked) memories, 0 for the user's own, a positive person ID for that person, 'all' for the whole memory store. For thorough recall, run several searches in the same turn with varied keywords and person scopes.",
+      "description": "Semantic search over the local memory database: returns memories whose meaning is most similar to the query text. Omit 'person' to search general (person-unlinked) memories, 0 for the user's own, a positive person ID for that person, 'all' for the whole memory store. For thorough recall, run several searches in the same turn with varied keywords and person scopes. Recalling a memory this way keeps it alive: memories that are recalled often are promoted to longer-lived layers automatically.",
       "module": "toolbox.tools.mem_tool",
       "function": "search_memories",
       "parameters": {

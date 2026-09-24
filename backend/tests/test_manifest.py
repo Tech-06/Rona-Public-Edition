@@ -35,6 +35,19 @@ def test_background_tools_never_require_confirmation():
             )
 
 
+def test_add_and_edit_memory_no_longer_require_confirmation():
+    import toolbox
+
+    assert not toolbox.requires_confirmation(
+        "add_memory", {"layer": "deep", "content": "x"}
+    )
+    assert not toolbox.requires_confirmation(
+        "edit_memory", {"memory_id": 1, "layer": "deep"}
+    )
+    assert toolbox.requires_confirmation("delete_memory", {"memory_id": 1})
+    assert toolbox.requires_confirmation("delete_person", {"person_id": 1})
+
+
 def test_registry_loads_every_manifest_tool():
     import toolbox
 

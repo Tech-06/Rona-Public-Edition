@@ -29,6 +29,8 @@ from graph import (
     touch,
 )
 from graph.state import replace_messages
+from memory import scheduler as memory_scheduler
+from memory import schema as memory_schema
 from subagents.store import cleanup_reported, reconcile_running
 from trigger import scheduler as trigger_scheduler
 from trigger.store import reconcile_runs as reconcile_trigger_runs
@@ -75,6 +77,7 @@ async def verify_bearer_token(request: Request) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_file_logging(settings)
+    memory_schema.ensure_schema()
     reconcile_running()
     reconcile_trigger_runs()
     trigger_scheduler.start()
@@ -85,7 +88,9 @@ async def lifespan(app: FastAPI):
         await _reconcile_conversation_registry(checkpointer)
         conversations.sweep_tombstones()
         app.state.graph = build_graph(checkpointer)
+        memory_scheduler.start()
         yield
+        await memory_scheduler.stop()
         trigger_scheduler.shutdown()
 
 

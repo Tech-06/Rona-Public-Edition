@@ -102,6 +102,12 @@ rona tools config google_calendar --set accounts=kisisel,is
 ### Semantik bellek sistemi
 Rona sizinle ilgili bilgileri üç katmanda saklar: **deep** (kalıcı, tanımlayıcı gerçekler), **seasonal** (orta vadeli projeler/planlar) ve **short** (güncel konuşma bağlamı). Her anı bir kişiye bağlanabilir ya da genel/konu bazlı bırakılabilir. Anılar bir embedding modeliyle vektöre çevrilir ve `search_memories` ile anlamsal olarak (kelime eşleşmesi değil, anlam benzerliğiyle) aranır.
 
+Katmanı Rona kendisi, iki adımda seçer: önce zaman bağlamına bakar (bilgi "bu akşam" gibi yakın bir zamanı taşıyorsa → `short`, "bu dönem" gibi sınırlı bir süreyi taşıyorsa → `seasonal`); zaman bağlamı yoksa bilginin türüne bakar (bir özellik/tercih ya da bir kişi/ilişki → `deep`; bir proje/görev → `seasonal`; anlık bir bilgi → `short`). Modelin izlediği tam kurallar için `backend/prompts/memory.md`'ye bakın.
+
+Katmanlar daha sonra periyodik bir **konsolidasyon** çalışmasıyla kendiliğinden yönetilir: yeterince hatırlanan bir `short` anı `seasonal`'a, daha da çok hatırlanan bir `seasonal` anı `deep`'e terfi eder; uzun süre hatırlanmayan bir `seasonal` anı arşive taşınır, az hatırlanan bir `short` anı ise birkaç gün sonra silinir — `deep` anılara asla dokunulmaz. Terfi, arşivleme ve silme ayrı ayrı kapatılabilir (varsayılanlar: 3/10 hatırlanmada terfi, 90 gün hareketsizlikte arşiv, 7 günde silme; bkz. [Yapılandırma Referansı](#yapılandırma-referansı)). "Hatırlanma" yalnızca Rona'nın kendi `search_memories` çağrılarını (ana sohbet, alt ajanlar, görevler) sayar — bir anının bir aramanın ilk birkaç sonucuna girmesi gerekir ve aynı anı bir bekleme süresi boyunca yalnızca bir kez sayılır; web panelinden ya da CLI'dan yapılan aramalar hiç sayılmaz.
+
+Arşivlenen anılar `rona.db` içinde ayrı bir tabloya taşınır — artık aranamazlar, ama web panelinin Veri → Arşiv sekmesinden ya da `rona edit memory restore` ile `deep` olarak geri yüklenebilirler. Bir kişiyi silmek, o kişiye bağlı anıları doğrudan silmek yerine arşive taşır.
+
 ### Arka plan alt ajanları (subagents)
 Uzun sürecek işler (`start_subagent`) ana sohbeti bloklamadan, kendi araç döngüsü ve tur limitiyle arka planda çalışır. İş bitince sonucu özetleyen ayrı bir raporlama katmanı devreye girer ve ana ajan bir sonraki mesajında kullanıcıya sonucu otomatik bildirir.
 
@@ -148,6 +154,7 @@ Rona Public Edition/
 │   ├── toolbox/        # Araç tanımları (tools.json) + araç uygulamaları + yerel SQLite
 │   ├── trigger/        # Zamanlanmış görev planlayıcı ve yürütücü (APScheduler)
 │   ├── subagents/      # Arka plan alt ajan çalıştırıcısı
+│   ├── memory/         # Hafıza konsolidasyonu: şema, erişim sayımı, arşiv, konsolidasyon motoru, zamanlayıcı
 │   ├── prompts/        # Kimlik/davranış prompt dosyaları (markdown)
 │   ├── tests/          # pytest test paketi
 │   ├── deploy/         # systemd servis dosyası
@@ -237,7 +244,8 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona edit model flash\|pro\|embedding [--name --url --key --headers --test]` | Model ayarlarını düzenle; `--test` kaydetmeden önce gerçek bir API çağrısıyla doğrular |
 | `rona edit auth get\|reset\|set` | Paylaşılan `AUTH_TOKEN`'ı görüntüle/yeniden üret/ayarla (her zaman iki `.env` dosyasına birden yazar) |
 | `rona edit env [--web]` | `.env` dosyasını `$EDITOR`'da aç (varsayılan: backend) |
-| `rona edit memory search\|add\|edit\|delete\|stats` | Hafıza kayıtlarını yönet (çalışan bir backend gerekir) |
+| `rona edit memory search\|add\|edit\|delete\|list\|archive\|archived\|restore\|purge\|stats` | Hafıza kayıtlarını ve arşivi yönet (çalışan bir backend gerekir) |
+| `rona edit memory consolidate run [--dry-run]\|status\|config` | Konsolidasyonu (otomatik terfi/arşiv/silme) çalıştır, durumunu göster ya da eşiklerini düzenle |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Üç bileşenin de dilini göster/ayarla; hedef belirtilmezse üçünü birden değiştirir |
 | `rona tools list\|available\|install\|uninstall\|verify` | [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini yönet (backend'in `toolbox.manager`'ına devreder) |
 | `rona tools config <id> [--set k=v] [--edit]` | Kurulu bir paketin ayarlarını göster ya da değiştir (sırlar maskelenir) |
@@ -594,6 +602,7 @@ Depoyu `~/rona` dışında bir yere klonladıysanız, kopyaladığınız `.servi
 | `SUBAGENT_MAX_ROUNDS`, `SUBAGENT_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONCURRENT`, `SUBAGENT_RETENTION_HOURS`, `SUBAGENT_LLM_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONTEXT_MESSAGES` | Hayır | bkz. `.env.example` | Alt ajan sisteminin tur/zaman aşımı/eşzamanlılık/saklama ayarları |
 | `TRIGGER_TIMEZONE` | Hayır | `UTC` | Zamanlanmış görevlerin varsayılan saat dilimi (IANA, ör. `Europe/Istanbul`) |
 | `TRIGGER_MAX_CONCURRENT`, `TRIGGER_MAX_ROUNDS`, `TRIGGER_LLM_TIMEOUT_SECONDS`, `TRIGGER_MAX_CONTEXT_MESSAGES` | Hayır | bkz. `.env.example` | Görev yürütücüsünün eşzamanlılık/tur/zaman aşımı ayarları |
+| `MEMORY_CONSOLIDATION_INTERVAL_HOURS`, `MEMORY_AUTO_PROMOTE_ENABLED`, `MEMORY_AUTO_ARCHIVE_ENABLED`, `MEMORY_AUTO_DELETE_ENABLED`, `MEMORY_SHORT_PROMOTE_HITS`, `MEMORY_SEASONAL_PROMOTE_HITS`, `MEMORY_SEASONAL_ARCHIVE_DAYS`, `MEMORY_SHORT_DELETE_DAYS`, `MEMORY_SHORT_DELETE_BELOW_HITS`, `MEMORY_ACCESS_TOP_N`, `MEMORY_ACCESS_COOLDOWN_HOURS` | Hayır | bkz. `.env.example` | Hafıza konsolidasyonunun (bkz. [Semantik bellek sistemi](#semantik-bellek-sistemi)) çalışma aralığı, her mekanizma için açma/kapama anahtarı ve eşik değerleri; `rona edit memory consolidate config` ile de okunup yazılabilir. Değişiklikler restart gerektirir |
 | `GOOGLE_API_KEY` + `EMBEDDING_MODEL_NAME` | Hayır | — | Bellek sisteminin semantik arama embedding'i (Gemini) için (`rona edit model embedding --test`) |
 | `WEB_AUTOSTART` | Hayır | `false` | Backend açılırken web panelini otomatik başlatsın mı |
 | `WEB_CLIENT_DIR` | Hayır | `../web-client` | Web panelinin göreli klasör konumu (yalnızca `WEB_AUTOSTART=true` iken kullanılır) |
@@ -663,10 +672,11 @@ flowchart LR
 - **`toolbox/`** — çekirdek araçlar: `tools.json` içinde tanımlı şemalar, `toolbox/tools/` altında bunların Python uygulamaları, ve yerel verilerin (kişiler, anılar, görevler, alt ajan kayıtları) tutulduğu `rona.db` SQLite veritabanına erişim (`db.py`, `registry.py`). İsteğe bağlı araç paketleri `toolbox/custom/<paket_id>/` altına kurulur (`packages.py`) ve `registry.py` tarafından çekirdekle birleştirilir; kurulum/kaldırma/sağlık kontrolü `manager.py`'nin işi, paket kaynağından (yerel/git/https) çekme ise `sources.py`'nin (bkz. [Rona Tools](https://github.com/Tech-06/Rona-Tools)).
 - **`trigger/`** — `APScheduler` tabanlı zamanlayıcı (`scheduler.py`), görev tanımlarının doğrulanması ve kalıcılığı (`store.py`) ve tetiklendiğinde çalışan headless ajan (`executor.py`).
 - **`subagents/`** — arka plan görevlerini kendi tur limiti ve kendi araç alt kümesiyle çalıştıran asenkron çalıştırıcı (`runner.py`) ve durum kaydı (`store.py`).
-- **`prompts/`** — sistem promptu, sırasıyla `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `subagents.md`, `trigger.md` dosyalarının birleştirilmesiyle oluşur (bkz. [Kimliği ve Davranışı Özelleştirme](#kimliği-ve-davranışı-özelleştirme)).
+- **`memory/`** — hafıza konsolidasyon paketi: şema onarımı ve migration'lar (`schema.py`), erişim sayımı (`access.py`), arşiv deposu (`archive.py`), konsolidasyon motoru (`consolidation.py`), zamanlayıcı (`scheduler.py`) ve çalışma kayıtları (`runs.py`). `toolbox`, `app`, `graph`, `trigger` ve `subagents`'ı import etmez; veritabanına yalnızca kendi `memory.schema.connect()`'i üzerinden erişir.
+- **`prompts/`** — sistem promptu, sırasıyla `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `memory.md`, `subagents.md`, `trigger.md` dosyalarının birleştirilmesiyle oluşur (bkz. [Kimliği ve Davranışı Özelleştirme](#kimliği-ve-davranışı-özelleştirme)).
 - **Depolama** — `rona.db` (notlar, kişiler, anılar, zamanlanmış görevler ve çalıştırmaları, alt ajan çalıştırmaları, sohbet geçmişi ve klasörleri) ve `rona_checkpoints.db` (LangGraph'ın konuşma durumu checkpoint'leri); her ikisi de `create_db.py` ile oluşturulur ve `.gitignore` ile depodan hariç tutulur.
 
-Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/izleme amaçlı geniş bir `/api/*` uç nokta kümesi (durum, bağlantı sağlık kontrolü, yapılandırma okuma/yazma, görev ve alt ajan CRUD işlemleri, hafıza CRUD/arama/istatistik, sohbet geçmişi ve klasör CRUD'u, birleşik çalışma geçmişi, veri tarayıcı, canlı log akışı) `app/dashboard.py` içinde tanımlıdır ve hem web paneli hem `rona` CLI'ı tarafından kullanılır. Tüm uç noktalar bearer token ile korunur.
+Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/izleme amaçlı geniş bir `/api/*` uç nokta kümesi (durum, bağlantı sağlık kontrolü, yapılandırma okuma/yazma, görev ve alt ajan CRUD işlemleri, hafıza CRUD/arama/istatistik, hafıza arşivleme/geri yükleme ve konsolidasyon durumu/çalıştırma, sohbet geçmişi ve klasör CRUD'u, birleşik çalışma geçmişi, veri tarayıcı, canlı log akışı) `app/dashboard.py` içinde tanımlıdır ve hem web paneli hem `rona` CLI'ı tarafından kullanılır. Tüm uç noktalar bearer token ile korunur.
 
 ### CLI (`cli/`)
 
@@ -746,7 +756,7 @@ pytest -q
 `backend/prompts/` altındaki dosyalar sistem promptunu oluşturur ve iki kategoriye ayrılır:
 
 - **Kimlik (sizin doldurmanız gereken):** `backend/prompts/user.md` — bu depoda kasıtlı olarak boş, doldurulacak alanlar içeren bir şablon halinde bırakılmıştır. Kim olduğunuz, ne iş yaptığınız, hangi teknolojileri kullandığınız ve Rona'nın sizinle nasıl etkileşmesini istediğiniz gibi bilgileri buraya siz yazarsınız.
-- **Davranış (olduğu gibi çalışır, isterseniz düzenlersiniz):** `persona.md` (kişilik ve ton), `output_text.md` (biçimlendirme kuralları), `toolbox.md`/`subagents.md`/`trigger.md` (araç kullanım kuralları) — bunlar jeneriktir ve kişisel veri içermez; asistanın genel davranışını değiştirmek isterseniz düzenlemeniz gereken dosyalar bunlardır.
+- **Davranış (olduğu gibi çalışır, isterseniz düzenlersiniz):** `persona.md` (kişilik ve ton), `output_text.md` (biçimlendirme kuralları), `toolbox.md`/`memory.md`/`subagents.md`/`trigger.md` (araç kullanım ve hafıza katmanı kuralları) — bunlar jeneriktir ve kişisel veri içermez; asistanın genel davranışını değiştirmek isterseniz düzenlemeniz gereken dosyalar bunlardır.
 
 Asistanın adını değiştirmek isterseniz `backend/.env` içindeki `APP_NAME`'in yalnızca `/health` yanıtı ve FastAPI başlığı gibi yüzeysel yerlerde göründüğünü, `persona.md` içinde "Rona" adının ayrıca sabit metin olarak geçtiğini unutmayın — tam bir yeniden adlandırma için ikisini birlikte güncelleyin.
 
@@ -754,5 +764,5 @@ Asistanın adını değiştirmek isterseniz `backend/.env` içindeki `APP_NAME`'
 
 - Backend'in tüm uç noktaları `AUTH_TOKEN` ile korunur; bu token'ı tahmin edilemeyecek şekilde rastgele üretin (`rona edit auth reset`) ve kimseyle paylaşmayın.
 - Web paneli, backend ile aynı `AUTH_TOKEN`'ı kullanır ve isteklerinizi backend'e bu token ile proxy'ler; paneli `127.0.0.1` dışına açacaksanız (ör. `WEB_HOST=0.0.0.0`) mutlaka bir ters proxy arkasında TLS ile sunun ve `WEB_ALLOWED_HOSTS`'u gerçek alan adınızla sınırlayın.
-- Hassas araç çağrıları (e-posta gönderme, veri silme, "deep" katmanına bellek yazma vb.) her zaman kullanıcı onayından geçer; `create_task` ile önceden onaylanan çağrılar yalnızca tanımlandıkları parametrelerle çalışabilir, yürütücü bunları değiştiremez.
+- Hassas araç çağrıları (e-posta gönderme, kişi/görev/anı silme vb.) her zaman kullanıcı onayından geçer; `create_task` ile önceden onaylanan çağrılar yalnızca tanımlandıkları parametrelerle çalışabilir, yürütücü bunları değiştiremez. Anı ekleme/düzenleme ("deep" katmanı dahil) onay istemez -- katmanlar zaten konsolidasyon tarafından otomatik yönetilir; bir kişiyi silmek yine onaylıdır ve bağlı anılarını kalıcı silmek yerine arşive taşır.
 - Herhangi bir anahtarın veya token'ın sızdığından şüpheleniyorsanız ilgili sağlayıcıda hemen iptal edip yeniden oluşturun ve `AUTH_TOKEN`'ı değiştirin (`rona edit auth reset`).

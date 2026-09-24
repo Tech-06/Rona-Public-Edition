@@ -17,6 +17,11 @@ from app.llm import chat_completion
 from app.streaming import drop_run
 from graph import CHECKPOINT_DB_PATH, conversations, history
 from graph.threads import get_lock
+from memory import archive as memory_archive
+from memory import consolidation as memory_consolidation
+from memory import policy as memory_policy
+from memory import runs as memory_runs
+from memory import scheduler as memory_scheduler
 from subagents import store as subagent_store
 from toolbox import envfile
 from toolbox import manager as toolbox_manager
@@ -27,13 +32,15 @@ from toolbox.tools.mem_tool import (
     add_memory,
     delete_memory,
     edit_memory,
-    get_memories,
+    list_memories_detailed,
     memory_stats,
-    search_memories,
+    search_memories_untracked,
 )
-from toolbox.tools.people_tool import get_people
+from toolbox.tools.people_tool import delete_person, get_people
 from trigger import scheduler as trigger_scheduler
 from trigger import store as trigger_store
+
+_LAYERS = ("deep", "seasonal", "short")
 
 settings = get_settings()
 router = APIRouter(prefix="/api")
@@ -77,6 +84,17 @@ _EDITABLE_FIELDS = {
     "trigger_max_rounds",
     "trigger_llm_timeout_seconds",
     "trigger_max_context_messages",
+    "memory_consolidation_interval_hours",
+    "memory_auto_promote_enabled",
+    "memory_auto_archive_enabled",
+    "memory_auto_delete_enabled",
+    "memory_short_promote_hits",
+    "memory_seasonal_promote_hits",
+    "memory_seasonal_archive_days",
+    "memory_short_delete_days",
+    "memory_short_delete_below_hits",
+    "memory_access_top_n",
+    "memory_access_cooldown_hours",
     "web_autostart",
     "web_client_dir",
 }
@@ -482,9 +500,33 @@ async def data_notes(limit: int = 50, offset: int = 0):
     return result
 
 
+@router.delete("/data/notes/{note_id:int}")
+async def delete_note_endpoint(note_id: int):
+    if not toolbox_manager.is_installed("notes"):
+        raise HTTPException(404, i18n.t("dashboard.notes_not_installed"))
+    from toolbox.custom.notes.notes_tool import delete_note
+
+    result = await asyncio.to_thread(delete_note, note_id)
+    if not result["success"]:
+        if "not found" in result["error"].lower():
+            raise HTTPException(404, i18n.t("dashboard.note_not_found", id=note_id))
+        raise HTTPException(400, result["error"])
+    return {"success": True}
+
+
 @router.get("/data/people")
 async def data_people():
     return get_people()
+
+
+@router.delete("/data/people/{person_id:int}")
+async def delete_person_endpoint(person_id: int):
+    result = await asyncio.to_thread(delete_person, person_id)
+    if not result["success"]:
+        if "not found" in result["error"].lower():
+            raise HTTPException(404, i18n.t("dashboard.person_not_found", id=person_id))
+        raise HTTPException(400, result["error"])
+    return {"success": True, "archived_memories": result["archived_memories"]}
 
 
 @router.get("/data/memories")
@@ -494,10 +536,22 @@ async def data_memories(
     person: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    layer: str | None = None,
 ):
-    return get_memories(
-        limit=limit, offset=offset, person=person, date_from=date_from, date_to=date_to
+    if layer is not None and layer not in _LAYERS:
+        raise HTTPException(400, i18n.t("dashboard.invalid_layer", layer=layer))
+    result = await asyncio.to_thread(
+        list_memories_detailed,
+        limit=limit,
+        offset=offset,
+        person=person,
+        date_from=date_from,
+        date_to=date_to,
+        layer=layer,
     )
+    if not result["success"]:
+        raise HTTPException(400, result["error"])
+    return result
 
 
 # The next several endpoints forward `result["error"]` from
@@ -513,8 +567,13 @@ async def search_memories_endpoint(
     date_to: str | None = None,
     limit: int = 10,
 ):
-    result = search_memories(
-        query=q, person=person, date_from=date_from, date_to=date_to, limit=limit
+    result = await asyncio.to_thread(
+        search_memories_untracked,
+        query=q,
+        person=person,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
     if not result["success"]:
         raise HTTPException(400, result["error"])
@@ -523,9 +582,11 @@ async def search_memories_endpoint(
 
 @router.get("/data/memories/stats")
 async def memory_stats_endpoint():
-    result = memory_stats()
+    result = await asyncio.to_thread(memory_stats)
     if not result["success"]:
         raise HTTPException(400, result["error"])
+    result["archived_count"] = await asyncio.to_thread(memory_archive.count)
+    result["last_consolidation"] = await asyncio.to_thread(memory_runs.last_run)
     return result
 
 
@@ -580,6 +641,70 @@ async def remove_memory(memory_id: int):
     if not result["success"]:
         raise HTTPException(_memory_error_status(result["error"]), result["error"])
     return result
+
+
+@router.post("/data/memories/{memory_id:int}/archive")
+async def archive_memory_endpoint(memory_id: int):
+    try:
+        archive_id = await asyncio.to_thread(
+            memory_archive.archive_memory, memory_id, reason="manual"
+        )
+    except memory_archive.NotFound:
+        raise HTTPException(404, i18n.t("dashboard.memory_not_found", id=memory_id))
+    return {"success": True, "archive_id": archive_id}
+
+
+@router.get("/data/archive")
+async def list_archive_endpoint(limit: int = 100, offset: int = 0):
+    result = await asyncio.to_thread(memory_archive.list_archive, limit, offset)
+    return {"success": True, **result}
+
+
+@router.post("/data/archive/{archive_id:int}/restore")
+async def restore_archive_endpoint(archive_id: int):
+    try:
+        memory_id = await asyncio.to_thread(memory_archive.restore, archive_id)
+    except memory_archive.NotFound:
+        raise HTTPException(404, i18n.t("dashboard.archived_memory_not_found", id=archive_id))
+    return {"success": True, "memory_id": memory_id}
+
+
+@router.delete("/data/archive/{archive_id:int}")
+async def delete_archive_endpoint(archive_id: int):
+    try:
+        await asyncio.to_thread(memory_archive.delete_archived, archive_id)
+    except memory_archive.NotFound:
+        raise HTTPException(404, i18n.t("dashboard.archived_memory_not_found", id=archive_id))
+    return {"success": True}
+
+
+class ConsolidationRunRequest(BaseModel):
+    dry_run: bool = False
+
+
+@router.get("/memory/consolidation")
+async def get_consolidation_status():
+    scheduler_status = await asyncio.to_thread(memory_scheduler.status)
+    runs = await asyncio.to_thread(memory_runs.list_recent, 10)
+    return {
+        "policy": memory_policy.current_policy().as_dict(),
+        "running": memory_consolidation.is_running(),
+        "scheduler": scheduler_status,
+        "runs": runs,
+    }
+
+
+@router.post("/memory/consolidation/run")
+async def run_consolidation_endpoint(payload: ConsolidationRunRequest):
+    try:
+        report = await asyncio.to_thread(
+            memory_consolidation.run_once, "manual", dry_run=payload.dry_run
+        )
+    except memory_consolidation.ConsolidationBusy:
+        raise HTTPException(409, i18n.t("dashboard.consolidation_busy"))
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return report
 
 
 def _seconds_ago(timestamp: str) -> float:

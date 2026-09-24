@@ -102,6 +102,12 @@ rona tools config google_calendar --set accounts=personal,work
 ### Semantic memory system
 Rona stores information about you in three layers: **deep** (durable, defining facts), **seasonal** (mid-term projects and plans), and **short** (current conversation context). Each memory can be linked to a specific person or left general/topical. Memories are embedded into vectors and searched semantically with `search_memories` — by meaning, not keyword matching.
 
+Rona picks the layer itself, in two steps: first by time context (the information carries a near-term moment like "tonight" → `short`, or a bounded period like "this semester" → `seasonal`); otherwise by kind (a trait/preference or a person/relationship → `deep`; a project/task → `seasonal`; a momentary fact → `short`). See `backend/prompts/memory.md` for the full rules the model follows.
+
+Layers are then maintained automatically by a periodic **consolidation** run: a `short` memory that's recalled enough is promoted to `seasonal`, a `seasonal` memory that's recalled even more is promoted to `deep`; a `seasonal` memory that goes unrecalled for a long time is archived, and a rarely-recalled `short` memory is deleted after a few days — `deep` memories are never touched. Promotion, archiving and deletion can each be switched off independently (defaults: promote at 3/10 recalls, archive after 90 idle days, delete after 7 days; see [Configuration Reference](#configuration-reference)). A "recall" only counts Rona's own `search_memories` calls (main chat, subagents, tasks) — a memory has to land among the top few results of a search, and the same memory is only counted once per cooldown window; searches from the web dashboard or the CLI never count.
+
+Archived memories move to a separate table in `rona.db` — no longer searchable, but restorable as a `deep` memory from the web dashboard's Data → Archive tab or `rona edit memory restore`. Deleting a person moves their linked memories to the archive instead of deleting them outright.
+
 ### Background subagents
 Long-running work (`start_subagent`) runs in the background, with its own tool loop and round limit, without blocking the main conversation. When it finishes, a dedicated reporting layer summarizes the outcome, and the main agent automatically relays it to you on your next message.
 
@@ -148,6 +154,7 @@ Rona Public Edition/
 │   ├── toolbox/        # Tool definitions (tools.json) + tool implementations + local SQLite
 │   ├── trigger/        # Scheduled-task scheduler and executor (APScheduler)
 │   ├── subagents/      # Background subagent runner
+│   ├── memory/         # Memory consolidation: schema, access tracking, archive, consolidation engine, scheduler
 │   ├── prompts/        # Identity/behavior prompt files (markdown)
 │   ├── tests/          # pytest test suite
 │   ├── deploy/         # systemd service file
@@ -237,7 +244,8 @@ Once the installer is done, you manage Rona from your terminal with `rona`:
 | `rona edit model flash\|pro\|embedding [--name --url --key --headers --test]` | Edit model settings; `--test` verifies with a real API call before saving |
 | `rona edit auth get\|reset\|set` | View/regenerate/set the shared `AUTH_TOKEN` (always writes both `.env` files) |
 | `rona edit env [--web]` | Open `.env` in `$EDITOR` (defaults to the backend's) |
-| `rona edit memory search\|add\|edit\|delete\|stats` | Manage memory records (needs a running backend) |
+| `rona edit memory search\|add\|edit\|delete\|list\|archive\|archived\|restore\|purge\|stats` | Manage memory records and the archive (needs a running backend) |
+| `rona edit memory consolidate run [--dry-run]\|status\|config` | Run consolidation (automatic promote/archive/delete), show its status, or edit its thresholds |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Show/set the language of all three components; changes all three if no target is given |
 | `rona tools list\|available\|install\|uninstall\|verify` | Manage the optional tool packages from the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog (delegates to the backend's `toolbox.manager`) |
 | `rona tools config <id> [--set k=v] [--edit]` | Show or change an installed package's settings (secrets are masked) |
@@ -594,6 +602,7 @@ If you cloned the repository somewhere other than `~/rona`, edit the `WorkingDir
 | `SUBAGENT_MAX_ROUNDS`, `SUBAGENT_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONCURRENT`, `SUBAGENT_RETENTION_HOURS`, `SUBAGENT_LLM_TIMEOUT_SECONDS`, `SUBAGENT_MAX_CONTEXT_MESSAGES` | No | see `.env.example` | Subagent system's round/timeout/concurrency/retention settings |
 | `TRIGGER_TIMEZONE` | No | `UTC` | Default timezone for scheduled tasks (IANA, e.g. `Europe/Istanbul`) |
 | `TRIGGER_MAX_CONCURRENT`, `TRIGGER_MAX_ROUNDS`, `TRIGGER_LLM_TIMEOUT_SECONDS`, `TRIGGER_MAX_CONTEXT_MESSAGES` | No | see `.env.example` | Task executor's concurrency/round/timeout settings |
+| `MEMORY_CONSOLIDATION_INTERVAL_HOURS`, `MEMORY_AUTO_PROMOTE_ENABLED`, `MEMORY_AUTO_ARCHIVE_ENABLED`, `MEMORY_AUTO_DELETE_ENABLED`, `MEMORY_SHORT_PROMOTE_HITS`, `MEMORY_SEASONAL_PROMOTE_HITS`, `MEMORY_SEASONAL_ARCHIVE_DAYS`, `MEMORY_SHORT_DELETE_DAYS`, `MEMORY_SHORT_DELETE_BELOW_HITS`, `MEMORY_ACCESS_TOP_N`, `MEMORY_ACCESS_COOLDOWN_HOURS` | No | see `.env.example` | The memory consolidation system's (see [Semantic memory system](#semantic-memory-system)) run interval, per-mechanism on/off switches, and thresholds; also readable/writable with `rona edit memory consolidate config`. Changes need a restart |
 | `GOOGLE_API_KEY` + `EMBEDDING_MODEL_NAME` | No | — | Embedding model (Gemini) for the memory system's semantic search (`rona edit model embedding --test`) |
 | `WEB_AUTOSTART` | No | `false` | Whether the backend auto-starts the web dashboard on boot |
 | `WEB_CLIENT_DIR` | No | `../web-client` | Relative path to the web dashboard (only used when `WEB_AUTOSTART=true`) |
@@ -663,10 +672,11 @@ flowchart LR
 - **`toolbox/`** — the core tools: schemas defined in `tools.json`, their Python implementations under `toolbox/tools/`, and access to the `rona.db` SQLite database (`db.py`, `registry.py`) that holds local data: people, memories, tasks, and subagent records. Optional tool packages install into `toolbox/custom/<package_id>/` (`packages.py`) and are merged with the core by `registry.py`; install/uninstall/health-checks are `manager.py`'s job, fetching from a package source (local/git/https) is `sources.py`'s (see [Rona Tools](https://github.com/Tech-06/Rona-Tools)).
 - **`trigger/`** — the `APScheduler`-based scheduler (`scheduler.py`), task validation and persistence (`store.py`), and the headless agent that runs when a task fires (`executor.py`).
 - **`subagents/`** — the async runner that executes background work with its own round limit and its own tool subset (`runner.py`), plus run-state storage (`store.py`).
-- **`prompts/`** — the system prompt, assembled from `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `subagents.md`, and `trigger.md`, in that order (see [Customizing Identity and Behavior](#customizing-identity-and-behavior)).
+- **`memory/`** — the memory consolidation package: schema repair and migrations (`schema.py`), access tracking (`access.py`), the archive store (`archive.py`), the consolidation engine (`consolidation.py`), the scheduler (`scheduler.py`), and run records (`runs.py`). It never imports `toolbox`, `app`, `graph`, `trigger`, or `subagents`, and reaches the database only through its own `memory.schema.connect()`.
+- **`prompts/`** — the system prompt, assembled from `persona.md`, `output_text.md`, `user.md`, `toolbox.md`, `memory.md`, `subagents.md`, and `trigger.md`, in that order (see [Customizing Identity and Behavior](#customizing-identity-and-behavior)).
 - **Storage** — `rona.db` (notes, people, memories, scheduled tasks and their runs, subagent runs, chat history and folders) and `rona_checkpoints.db` (LangGraph's conversation-state checkpoints); both are created by `create_db.py` and excluded from the repository via `.gitignore`.
 
-The backend's core endpoints are `/health`, `/chat`, and `/chat/stream`; a broad set of `/api/*` management/monitoring endpoints (status, connection health checks, reading/writing configuration, task and subagent CRUD, memory CRUD/search/stats, chat history and folder CRUD, combined run history, a data browser, live log streaming) is defined in `app/dashboard.py` and consumed by both the web dashboard and the `rona` CLI. Every endpoint is protected by the bearer token.
+The backend's core endpoints are `/health`, `/chat`, and `/chat/stream`; a broad set of `/api/*` management/monitoring endpoints (status, connection health checks, reading/writing configuration, task and subagent CRUD, memory CRUD/search/stats, memory archiving/restoring and consolidation status/run, chat history and folder CRUD, combined run history, a data browser, live log streaming) is defined in `app/dashboard.py` and consumed by both the web dashboard and the `rona` CLI. Every endpoint is protected by the bearer token.
 
 ### CLI (`cli/`)
 
@@ -746,7 +756,7 @@ pytest -q
 The files under `backend/prompts/` make up the system prompt and fall into two categories:
 
 - **Identity (yours to fill in):** `backend/prompts/user.md` — deliberately left in this repository as a blank, fillable template. This is where you write who you are, what you do, which technologies you use, and how you want Rona to interact with you.
-- **Behavior (works as-is, edit if you want to):** `persona.md` (personality and tone), `output_text.md` (formatting rules), and `toolbox.md`/`subagents.md`/`trigger.md` (tool-usage rules) — these are generic and contain no personal data; edit these if you want to change the assistant's general behavior.
+- **Behavior (works as-is, edit if you want to):** `persona.md` (personality and tone), `output_text.md` (formatting rules), and `toolbox.md`/`memory.md`/`subagents.md`/`trigger.md` (tool-usage and memory-layer rules) — these are generic and contain no personal data; edit these if you want to change the assistant's general behavior.
 
 If you want to rename the assistant, note that `APP_NAME` in `backend/.env` only surfaces in a few shallow places (the `/health` response, the FastAPI title), while `persona.md` also hardcodes the name "Rona" as plain text — update both for a full rebrand.
 
@@ -754,5 +764,5 @@ If you want to rename the assistant, note that `APP_NAME` in `backend/.env` only
 
 - Every backend endpoint is protected by `AUTH_TOKEN`; generate it unguessably at random (`rona edit auth reset`) and never share it.
 - The web dashboard uses the same `AUTH_TOKEN` as the backend and proxies your requests to it with that token; if you expose the dashboard beyond `127.0.0.1` (e.g. `WEB_HOST=0.0.0.0`), put it behind a reverse proxy with TLS and restrict `WEB_ALLOWED_HOSTS` to your real domain.
-- Sensitive tool calls (sending email, deleting data, writing to the "deep" memory layer, etc.) always go through user confirmation; calls pre-approved via `create_task` can only ever run with the exact parameters they were defined with — the executor cannot change them.
+- Sensitive tool calls (sending email, deleting a person/task/memory, etc.) always go through user confirmation; calls pre-approved via `create_task` can only ever run with the exact parameters they were defined with — the executor cannot change them. Adding or editing a memory (including the `deep` layer) never asks for confirmation -- layers are already managed automatically by consolidation; deleting a person is still confirmed and moves their memories to the archive instead of deleting them outright.
 - If you suspect any key or token has leaked, revoke and regenerate it with the relevant provider immediately, and rotate `AUTH_TOKEN` (`rona edit auth reset`).

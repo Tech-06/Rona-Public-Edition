@@ -36,6 +36,13 @@ STRINGS: dict[str, str] = {
     "dashboard.history_not_found": "Konuşma bulunamadı",
     "dashboard.folder_not_found": "Klasör bulunamadı",
     "dashboard.history_unavailable": "Sohbet geçmişi kullanılamıyor",
+    "dashboard.memory_not_found": "#{id} numaralı anı bulunamadı.",
+    "dashboard.archived_memory_not_found": "#{id} numaralı arşivlenmiş anı bulunamadı.",
+    "dashboard.person_not_found": "#{id} numaralı kişi bulunamadı.",
+    "dashboard.note_not_found": "#{id} numaralı not bulunamadı.",
+    "dashboard.notes_not_installed": "Notlar paketi kurulu değil.",
+    "dashboard.invalid_layer": "Geçersiz katman: {layer}. deep, seasonal veya short kullanın.",
+    "dashboard.consolidation_busy": "Bir hafıza konsolidasyonu zaten sürüyor.",
     # -- trigger/executor.py: outcome text stored on a task run -------------------------
     "trigger.outcome_timeout": "Çalışma {minutes} dakika sonra zaman aşımına uğradı.",
     "trigger.outcome_condition_not_met": "Koşul sağlanmadı.",
@@ -79,4 +86,24 @@ STRINGS: dict[str, str] = {
     "toolbox.log_skip_package": "toolbox: %s içindeki paket atlanıyor: %s",
     # -- graph/threads.py: log lines -----------------------------------------------------------
     "graph.log_purge_failed": "%s için konuşma temizliği başarısız oldu",
+    # -- memory/ (Konsolidasyon): şema onarımı ve konsolidasyon log satırları ------------
+    "memory.log_schema_upgraded": "[memory] memories tablosu güncellendi, eklenen kolonlar: %s",
+    "memory.log_schema_failed": "[memory] şema kontrolü başarısız: %s",
+    "memory.log_access_failed": "[memory] anı erişimi kaydedilemedi: %s",
+    "memory.log_promoted": "[memory] #%d terfi etti %s -> %s (%d erişim): %s",
+    "memory.log_archived": "[memory] #%d arşivlendi (%s, neden: %s): %s",
+    "memory.log_deleted": "[memory] #%d silindi (short, %d erişim): %s",
+    "memory.log_run_done": (
+        "[memory] konsolidasyon (%s) tamamlandı: %d seasonal'a, %d deep'e terfi etti, "
+        "%d arşivlendi, %d silindi"
+    ),
+    "memory.log_run_failed": "[memory] konsolidasyon (%s) başarısız: %s",
+    "memory.log_scheduler_started": "[memory] konsolidasyon zamanlayıcısı başladı (her %d saatte bir)",
+    "memory.log_scheduler_disabled": (
+        "[memory] otomatik konsolidasyon kapalı (MEMORY_CONSOLIDATION_INTERVAL_HOURS=0)"
+    ),
+    "memory.log_scheduler_error": "[memory] konsolidasyon zamanlayıcısı hatası: %s",
+    "memory.log_person_memories_archived": (
+        "[memory] kişi #%d silindi, bağlı %d anı arşivlendi"
+    ),
 }

@@ -2,7 +2,7 @@ import json
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
@@ -59,6 +59,25 @@ class Settings(BaseSettings):
     trigger_max_rounds: int = 30
     trigger_llm_timeout_seconds: int = 300
     trigger_max_context_messages: int = 30
+
+    # Memory lifecycle ("Konsolidasyon", backend/memory/): automatic
+    # promotion short -> seasonal -> deep by recall count, seasonal
+    # archiving after a long idle period, and deletion of rarely-recalled
+    # short-layer memories. Each mechanism can be switched off on its own;
+    # interval 0 disables the automatic run entirely (a manual run is still
+    # always possible). See backend/memory/policy.py for how these become
+    # a MemoryPolicy.
+    memory_consolidation_interval_hours: int = Field(24, ge=0)  # 0 = no automatic runs
+    memory_auto_promote_enabled: bool = True
+    memory_auto_archive_enabled: bool = True
+    memory_auto_delete_enabled: bool = True
+    memory_short_promote_hits: int = Field(3, ge=1)
+    memory_seasonal_promote_hits: int = Field(10, ge=1)
+    memory_seasonal_archive_days: int = Field(90, ge=1)
+    memory_short_delete_days: int = Field(7, ge=1)
+    memory_short_delete_below_hits: int = Field(3, ge=1)
+    memory_access_top_n: int = Field(3, ge=1)
+    memory_access_cooldown_hours: int = Field(12, ge=0)
 
     # Whether this process should spawn the web dashboard as a subprocess on
     # startup (see run.py). The dashboard's own host/port/allowed-hosts are

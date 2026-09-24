@@ -9,6 +9,7 @@ PROMPT_FILES = [
     "output_text.md",
     "user.md",
     "toolbox.md",
+    "memory.md",
     "subagents.md",
     "trigger.md",
 ]

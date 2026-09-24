@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import sqlite3
@@ -10,7 +11,11 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from toolbox import db
+import i18n
+from memory import access as memory_access
+from memory import clock as memory_clock
+from memory import policy as memory_policy
+from memory import schema as memory_schema
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -22,7 +27,7 @@ _client: genai.Client | None = None
 
 
 def _get_connection() -> sqlite3.Connection:
-    return db.connect()
+    return memory_schema.connect()
 
 
 def _check_person_exists(cursor: sqlite3.Cursor, person_id: int | None) -> bool:
@@ -157,10 +162,18 @@ def add_memory(
 
         cursor.execute(
             """
-            INSERT INTO memories (person_id, layer, content, embedding, metadata)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO memories
+                (person_id, layer, content, embedding, metadata, layer_since, layer_hits)
+            VALUES (?, ?, ?, ?, ?, ?, 0)
             """,
-            (person_id, layer, content, embedding_blob, meta_str),
+            (
+                person_id,
+                layer,
+                content,
+                embedding_blob,
+                meta_str,
+                memory_clock.to_db(memory_clock.utc_now()),
+            ),
         )
         connection.commit()
         memory_id = cursor.lastrowid
@@ -206,6 +219,16 @@ def edit_memory(
             updates.append("person_id = ?")
             params.append(person_id)
         if layer is not None:
+            # SET expressions see the row's OLD values, so comparing
+            # `layer = ?` against the not-yet-updated column here is what
+            # lets a real layer change reset the per-layer counters while a
+            # same-layer edit (e.g. touching only content) leaves them
+            # alone -- all in one atomic UPDATE.
+            now_db = memory_clock.to_db(memory_clock.utc_now())
+            updates.append("layer_since = CASE WHEN layer = ? THEN layer_since ELSE ? END")
+            params.extend([layer, now_db])
+            updates.append("layer_hits = CASE WHEN layer = ? THEN layer_hits ELSE 0 END")
+            params.append(layer)
             updates.append("layer = ?")
             params.append(layer)
         if content is not None:
@@ -283,13 +306,17 @@ def get_memories(
             connection.close()
 
 
-def search_memories(
+def _search(
     query: str,
     person: int | str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = 10,
 ) -> dict:
+    """Semantic search with no side effects -- the shared implementation
+    behind both the LLM-facing `search_memories` (which records access)
+    and `search_memories_untracked` (dashboard/CLI lookups, which don't).
+    """
     connection = None
     try:
         if not query or not query.strip():
@@ -319,20 +346,120 @@ def search_memories(
         scored.sort(key=lambda item: item[0], reverse=True)
         top = scored[:limit]
 
-        if top:
-            placeholders = ", ".join("?" * len(top))
-            cursor.execute(
-                f"UPDATE memories SET access_count = access_count + 1, "
-                f"last_accessed = strftime('{_DATE_FORMAT}', 'now') "
-                f"WHERE id IN ({placeholders})",
-                [row["id"] for _, row in top],
-            )
-            connection.commit()
-
         results = [
             {**_row_to_memory(row), "score": round(score, 4)} for score, row in top
         ]
         return {"success": True, "results": results}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)}
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _record_access(memory_ids: list[int]) -> None:
+    """Count a recall for the top-scoring ids of an LLM `search_memories`
+    call. Never allowed to fail the search it's attached to: any error
+    (bad policy settings, a locked database, ...) is logged and swallowed.
+    """
+    try:
+        policy = memory_policy.current_policy()
+        counted = memory_access.counted_ids(memory_ids, policy.access_top_n)
+        connection = _get_connection()
+        try:
+            memory_access.record_hits(
+                connection,
+                counted,
+                now=memory_clock.utc_now(),
+                cooldown_hours=policy.access_cooldown_hours,
+            )
+        finally:
+            connection.close()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("uvicorn.error").warning(i18n.t("memory.log_access_failed"), exc)
+
+
+def search_memories(
+    query: str,
+    person: int | str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 10,
+) -> dict:
+    """The LLM-facing memory search tool. Recalling a memory this way is
+    what counts as "access" for the layer lifecycle -- see
+    `_record_access()` and `memory/access.py`.
+    """
+    result = _search(query, person=person, date_from=date_from, date_to=date_to, limit=limit)
+    if result["success"]:
+        _record_access([r["id"] for r in result["results"]])
+    return result
+
+
+def search_memories_untracked(
+    query: str,
+    person: int | str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 10,
+) -> dict:
+    """Same search, for the web dashboard and CLI -- deliberately not
+    registered as an LLM tool in tools.json, and never records access.
+    """
+    return _search(query, person=person, date_from=date_from, date_to=date_to, limit=limit)
+
+
+def list_memories_detailed(
+    limit: int = 100,
+    offset: int = 0,
+    person: int | str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    layer: str | None = None,
+) -> dict:
+    """Admin listing for the web dashboard/CLI -- not an LLM-facing tool
+    (deliberately not registered in tools.json). Same rows as
+    `get_memories`/`search_memories` plus the layer-lifecycle bookkeeping
+    fields (`access_count`, `layer_hits`, `layer_since`, `last_accessed`)
+    those never expose to the LLM.
+    """
+    connection = None
+    try:
+        if layer is not None and layer not in _LAYERS:
+            return {"success": False, "error": _INVALID_LAYER_ERROR}
+
+        scope = _validate_person(person)
+        conditions, params = _resolve_filters(scope, date_from, date_to)
+        if layer is not None:
+            conditions.append("layer = ?")
+            params.append(layer)
+        where = _where_clause(conditions)
+
+        connection = _get_connection()
+        cursor = connection.cursor()
+        cursor.execute(
+            f"SELECT id, person_id, layer, content, created_at, metadata, "
+            f"access_count, layer_hits, layer_since, last_accessed "
+            f"FROM memories{where} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        )
+        rows = cursor.fetchall()
+        memories = [
+            {
+                **_row_to_memory(row),
+                "access_count": row["access_count"],
+                "layer_hits": row["layer_hits"],
+                "layer_since": row["layer_since"],
+                "last_accessed": row["last_accessed"],
+            }
+            for row in rows
+        ]
+
+        cursor.execute(f"SELECT COUNT(*) FROM memories{where}", params)
+        total = cursor.fetchone()[0]
+
+        return {"success": True, "memories": memories, "total": total}
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
     finally:

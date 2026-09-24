@@ -190,6 +190,9 @@ export const en: Record<keyof typeof tr, string> = {
   "config.group_chat": "Chat",
   "config.group_subagents": "Background agents",
   "config.group_tasks": "Scheduled tasks",
+  "config.group_memory": "Memory",
+  "config.group_memory_description":
+    "Consolidation moves memories between layers based on use: short memories that keep being recalled are promoted to seasonal, and seasonal ones to deep; seasonal memories that go unrecalled for long are archived, and old, rarely recalled short memories are deleted. Deep memories are never touched automatically. A recall means appearing among the top N results of Rona's own search, counted once per memory within the cooldown. An interval of 0 turns automatic runs off. Changes take effect after a server restart.",
   "config.group_web": "Web interface",
 
   // -- layout/Sidebar.tsx -----------------------------------------------------------------
@@ -237,10 +240,33 @@ export const en: Record<keyof typeof tr, string> = {
   "data.tab_notes": "Notes",
   "data.tab_people": "People",
   "data.tab_memories": "Memory",
+  "data.tab_archive": "Archive",
   "data.notes_not_installed": "The notes tool is not installed. To add it:",
   "data.no_notes": "No notes.",
   "data.no_people": "No people.",
   "data.no_memories": "No memories.",
+  "data.no_archive": "The archive is empty.",
+  "data.action_archive": "Archive",
+  "data.action_restore": "Restore to memory (deep)",
+  "data.memory_hits": "{hits} recalls in this layer · {total} total",
+  "data.last_access": "Last recalled: {date}",
+  "data.never_accessed": "Not recalled yet",
+  "data.previous_layer": "Previous layer: {layer}",
+  "data.archived_at": "Archived: {date}",
+  "data.archive_reason_auto": "Automatic",
+  "data.archive_reason_manual": "Manual",
+  "data.archive_reason_person_deleted": "Person deleted",
+  "data.delete_note_title": "Delete this note?",
+  "data.delete_note_description": "“{title}” will be permanently deleted.",
+  "data.delete_person_title": "Delete this person?",
+  "data.delete_person_description":
+    "{name} will be deleted. Memories linked to this person will be moved to the archive.",
+  "data.person_deleted_archived": "{count} linked memories were moved to the archive.",
+  "data.delete_memory_title": "Delete this memory?",
+  "data.delete_memory_description":
+    "This memory will be permanently deleted. Archive it instead if you might want it back.",
+  "data.delete_archived_title": "Delete this archived memory?",
+  "data.delete_archived_description": "This entry will be permanently deleted and can no longer be restored.",
 
   // -- layout/FolderSection.tsx -----------------------------------------------------------
   "folder.menu_label": "Folder menu",

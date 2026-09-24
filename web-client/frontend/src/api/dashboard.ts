@@ -173,6 +173,39 @@ export interface ConversationPinResponse {
   purged_at: string | null;
 }
 
+// -- memory / archive (backend/memory/) -----------------------------------
+
+export type MemoryLayer = "deep" | "seasonal" | "short";
+
+export interface MemoryRecord {
+  id: number;
+  person_id: number | null;
+  layer: MemoryLayer;
+  content: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+  access_count: number;
+  layer_hits: number;
+  layer_since: string;
+  last_accessed: string | null;
+}
+
+export type ArchiveReason = "auto" | "manual" | "person_deleted";
+
+export interface ArchivedMemory {
+  id: number;
+  memory_id: number;
+  person_id: number | null;
+  layer: MemoryLayer;
+  content: string;
+  access_count: number;
+  created_at: string;
+  last_accessed: string | null;
+  metadata: Record<string, unknown>;
+  archived_at: string;
+  reason: ArchiveReason;
+}
+
 // -- server-side chat history (backend/graph/history.py) -----------------
 //
 // Every field here is camelCase, matching the frontend's own
@@ -276,9 +309,21 @@ export const dashboardApi = {
     ),
   people: () => api.get<{ success: boolean; people: Array<Record<string, unknown>> }>("/api/data/people"),
   memories: () =>
-    api.get<{ success: boolean; memories: Array<Record<string, unknown>> }>(
+    api.get<{ success: boolean; memories: MemoryRecord[]; total: number }>(
       "/api/data/memories?person=all",
     ),
+  deleteMemory: (id: number) =>
+    api.del<{ success: boolean; message: string }>(`/api/data/memories/${id}`),
+  archiveMemory: (id: number) =>
+    api.post<{ success: boolean; archive_id: number }>(`/api/data/memories/${id}/archive`),
+  archive: () =>
+    api.get<{ success: boolean; archive: ArchivedMemory[]; total: number }>("/api/data/archive"),
+  restoreArchived: (id: number) =>
+    api.post<{ success: boolean; memory_id: number }>(`/api/data/archive/${id}/restore`),
+  deleteArchived: (id: number) => api.del<{ success: boolean }>(`/api/data/archive/${id}`),
+  deleteNote: (id: number) => api.del<{ success: boolean }>(`/api/data/notes/${id}`),
+  deletePerson: (id: number) =>
+    api.del<{ success: boolean; archived_memories: number }>(`/api/data/people/${id}`),
   serverStatus: () => api.get<ServerStatusResponse>("/host/server"),
   serverAction: (action: "start" | "stop" | "restart") =>
     api.post<{ ok: boolean; detail: string }>(`/host/server/${action}`),

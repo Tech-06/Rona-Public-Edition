@@ -105,15 +105,48 @@ Opens `backend/.env` (or `web-client/.env` with `--web`) in `$EDITOR`/
 `$VISUAL`, falling back to a per-OS default (`notepad` / `open -t` /
 `nano`).
 
-### `rona edit memory search|add|edit|delete|stats`
+### `rona edit memory search|add|edit|delete|list|archive|archived|restore|purge|stats`
 
-A thin CLI over the backend's `/api/data/memories*` endpoints. Needs a
-running, reachable backend.
+A thin CLI over the backend's `/api/data/memories*` and `/api/data/archive*`
+endpoints. Needs a running, reachable backend. `list` shows each memory's
+layer, its access count in the current layer vs. lifetime, and when it was
+last recalled (web and CLI searches never count as a recall -- only the
+model's own `search_memories` tool calls do); `archive`/`restore` move a
+memory to/from the archive by hand (archiving is reversible, so it isn't
+confirmed); `archived` lists the archive, and `purge` deletes an archived
+record for good (confirmed, like `delete`). `stats` also reports the
+archive's size and the last consolidation run, when the backend supports it.
 
 ```bash
 rona edit memory search "coffee" --limit 5
 rona edit memory add "loves tea" --layer short
+rona edit memory list --layer short --person all
+rona edit memory archive 42
+rona edit memory archived
+rona edit memory restore 7          # comes back as a deep memory
+rona edit memory purge 7 --yes
 rona edit memory stats
+```
+
+### `rona edit memory consolidate run|status|config`
+
+Manages the memory consolidation engine -- the background job that
+promotes often-recalled memories to a longer-lived layer, archives
+seasonal memories nobody has recalled in a long time, and deletes
+rarely-recalled short ones. `run` triggers a pass immediately (`--dry-run`
+previews it -- exact same logic, nothing is written) over
+`/api/memory/consolidation/run`, and needs a reachable backend, same as
+`status`, which shows the scheduler's state, the active policy and the
+last few runs. `config` is different: it reads/writes `MEMORY_*` keys in
+`backend/.env` directly, exactly like `rona edit model`, so it works even
+before the backend has ever been started; changing it needs
+`rona server restart` to take effect.
+
+```bash
+rona edit memory consolidate run --dry-run
+rona edit memory consolidate status
+rona edit memory consolidate config                              # show current settings
+rona edit memory consolidate config --short-promote-hits 5 --auto-delete off
 ```
 
 ### `rona edit lang [tr|en] [--backend --web --cli]`
@@ -237,7 +270,10 @@ directly when the backend is down.
   back to `tr`.
 - **`commands/`** — one module per top-level command (`status.py`,
   `server.py`, `web.py`, `task.py`, `log.py`, `tools.py`), plus an `edit/`
-  subpackage (`model.py`, `auth.py`, `env.py`, `memory.py`, `lang.py`).
+  subpackage (`model.py`, `auth.py`, `env.py`, `memory.py`,
+  `memory_consolidate.py`, `lang.py`). `memory_consolidate.py` holds the
+  `consolidate run|status|config` subgroup that `memory.py`'s `register()`
+  wires in.
 
 ## Tests
 

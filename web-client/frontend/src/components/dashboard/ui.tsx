@@ -79,6 +79,37 @@ export function Button({
   );
 }
 
+export function IconButton({
+  label,
+  onClick,
+  children,
+  variant = "default",
+  disabled,
+}: {
+  label: string;
+  onClick?: () => void;
+  children: ReactNode;
+  variant?: "default" | "danger";
+  disabled?: boolean;
+}) {
+  const styles: Record<typeof variant, string> = {
+    default: "text-fg-faint hover:bg-elevated hover:text-fg-soft",
+    danger: "text-fg-faint hover:bg-danger/10 hover:text-danger-text",
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className={`shrink-0 rounded-lg p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${styles[variant]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function EmptyState({ children }: { children: ReactNode }) {
   return <p className="py-6 text-center text-sm text-fg-subtle">{children}</p>;
 }

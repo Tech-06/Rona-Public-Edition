@@ -1,5 +1,6 @@
 import sqlite3
 
+from memory import schema as memory_schema
 from toolbox.db import DB_PATH
 
 INDEXES = (
@@ -14,20 +15,19 @@ INDEXES = (
     ),
     "CREATE INDEX IF NOT EXISTS idx_memories_person_id ON memories(person_id)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
+    "CREATE INDEX IF NOT EXISTS idx_memories_layer ON memories(layer)",
 )
 
 MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
     (
         1,
         (
-            # Mirrors graph/conversations.py's SCHEMA/INDEX. Duplicated as a
-            # literal (rather than imported) so this script stays independent
-            # of the app package -- importing `graph` would pull in
-            # app.config's Settings(), which requires AUTH_TOKEN/FLASH_MODEL*
-            # from .env and would break running this script before .env is
-            # filled in. Both copies use IF NOT EXISTS, so any drift between
-            # them is harmless: graph.conversations.ensure_schema() also runs
-            # at every app startup regardless of whether this migration ran.
+            # Mirrors graph/conversations.py's SCHEMA/INDEX as a literal.
+            # (This script is not actually independent of `app`: importing
+            # toolbox.db runs toolbox/__init__.py, whose registry loads
+            # app.config.) Both copies use IF NOT EXISTS, so any drift
+            # between them is harmless: graph.conversations.ensure_schema()
+            # also runs at every app startup regardless of this migration.
             """
             CREATE TABLE IF NOT EXISTS conversation_registry (
                 thread_id   TEXT PRIMARY KEY,
@@ -46,9 +46,9 @@ MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
         2,
         (
             # Mirrors graph/history.py's SCHEMA/FOLDERS_SCHEMA/INDEX, literal
-            # for the same independence-from-`app` reason as migration 1
-            # above. graph.history.ensure_schema() also self-heals this at
-            # every app startup regardless of whether this migration ran.
+            # for the same self-heal-parity reason as migration 1 above.
+            # graph.history.ensure_schema() also self-heals this at every
+            # app startup regardless of whether this migration ran.
             """
             CREATE TABLE IF NOT EXISTS chat_history (
                 thread_id    TEXT PRIMARY KEY,
@@ -73,6 +73,13 @@ MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
                 "ON chat_history(folder_id)"
             ),
         ),
+    ),
+    (
+        # Imported from memory/schema.py (stdlib-only) rather than repeated
+        # as a literal. memory.schema also self-heals on first connect(),
+        # so this mainly records the schema version for fresh databases.
+        3,
+        memory_schema.MIGRATION_STATEMENTS,
     ),
 ]
 
@@ -136,6 +143,8 @@ def create_database() -> None:
                 access_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 last_accessed TEXT,
+                layer_since TEXT,
+                layer_hits INTEGER NOT NULL DEFAULT 0,
                 metadata TEXT DEFAULT '{}'
             )
             """
@@ -211,6 +220,9 @@ def create_database() -> None:
     print("Ensuring indexes exist...")
     for statement in INDEXES:
         cursor.execute(statement)
+
+    print("Ensuring memory consolidation schema (layer columns, archive, runs)...")
+    memory_schema.apply_schema(connection)
 
     _apply_migrations(cursor)
 

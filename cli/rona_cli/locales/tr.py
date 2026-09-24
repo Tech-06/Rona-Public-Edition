@@ -153,12 +153,93 @@ STRINGS: dict[str, str] = {
     "memory.stats_split": "Genel (kişisiz): {general}, kişiye bağlı: {linked}",
     "memory.stats_range": "En eski: {oldest}, en yeni: {newest}",
     "memory.stats_access_count": "Toplam erişim sayısı: {count}",
+    "memory.stats_archived": "Arşivdeki anı: {count}",
+    "memory.stats_last_consolidation": (
+        "Son konsolidasyon: {finished_at} ({triggered_by}) — terfi: "
+        "{promoted_short}+{promoted_seasonal}, arşiv: {archived}, silinen: {deleted}"
+    ),
+    "memory.stats_no_consolidation": "Henüz konsolidasyon çalışmadı.",
+    "memory.no_memories": "Anı yok.",
+    "memory.list_line": "[{id}] {layer:<8} erişim {hits}/{total}  son: {last}  {content}",
+    "memory.list_footer": "{shown}/{total} anı gösteriliyor",
+    "memory.never": "hiç",
+    "memory.archive_ok": "Anı #{id} arşivlendi (arşiv #{archive_id}).",
+    "memory.archived_line": "[#{id}] (önceki: {layer}, {reason}, {archived_at}) {content}",
+    "memory.archive_empty": "Arşiv boş.",
+    "memory.archive_reason_auto": "otomatik",
+    "memory.archive_reason_manual": "elle",
+    "memory.archive_reason_person_deleted": "kişi silindi",
+    "memory.restore_ok": "Arşiv #{archive_id}, deep anı olarak geri yüklendi (id {memory_id}).",
+    "memory.confirm_purge": "Arşiv #{id} kalıcı olarak silinsin mi?",
+    "memory.purge_ok": "Arşiv kaydı kalıcı olarak silindi.",
     "memory.help_group": "Hafıza kayıtlarını yönet",
     "memory.help_search": "Anlamsal arama yap",
     "memory.help_add": "Yeni hafıza ekle",
     "memory.help_edit": "Var olan hafızayı düzenle",
     "memory.help_delete": "Hafızayı sil",
     "memory.help_stats": "Hafıza istatistiklerini göster",
+    "memory.help_list": "Anıları listele",
+    "memory.help_list_layer_flag": "katmana göre filtrele",
+    "memory.help_list_person_flag": "kişiye göre filtrele (varsayılan: all)",
+    "memory.help_limit_flag": "sayfa başına kayıt sayısı",
+    "memory.help_offset_flag": "atlanacak kayıt sayısı",
+    "memory.help_archive": "Bir anıyı arşivle",
+    "memory.help_archived": "Arşivi listele",
+    "memory.help_restore": "Arşivden bir anıyı geri yükle",
+    "memory.help_purge": "Arşiv kaydını kalıcı olarak sil",
+    # -- commands/edit/memory_consolidate.py (new) --------------------------------------
+    "memory.help_consolidate_group": "Hafıza konsolidasyonunu yönet (terfi, arşiv, silme)",
+    "memory.help_consolidate_run": "Konsolidasyonu şimdi çalıştır",
+    "memory.help_consolidate_status": "Konsolidasyon durumunu göster",
+    "memory.help_consolidate_config": "Konsolidasyon ayarlarını göster ya da değiştir",
+    "memory.help_dry_run_flag": "değişiklik yapmadan önizle",
+    "memory.help_config_interval_hours": "otomatik çalışma aralığı (saat, 0 = kapalı)",
+    "memory.help_config_auto_promote": "terfi mekanizmasını aç/kapat",
+    "memory.help_config_auto_archive": "arşivleme mekanizmasını aç/kapat",
+    "memory.help_config_auto_delete": "silme mekanizmasını aç/kapat",
+    "memory.help_config_short_promote_hits": "short → seasonal için gereken erişim sayısı",
+    "memory.help_config_seasonal_promote_hits": "seasonal → deep için gereken erişim sayısı",
+    "memory.help_config_seasonal_archive_days": (
+        "bu kadar gün erişilmeyen seasonal anı arşive gider"
+    ),
+    "memory.help_config_short_delete_days": (
+        "short katmanda bu kadar gün geçmiş anılar silme adayıdır"
+    ),
+    "memory.help_config_short_delete_below_hits": (
+        "bu erişim sayısının altındaki silme adayları silinir"
+    ),
+    "memory.help_config_access_top_n": "bir aramada erişim sayılan sonuç sayısı",
+    "memory.help_config_access_cooldown_hours": (
+        "aynı anı bu süre içinde yeniden sayılmaz (saat)"
+    ),
+    "memory.consolidate_preview_heading": "Önizleme — hiçbir şey değiştirilmedi:",
+    "memory.consolidate_done_heading": "Konsolidasyon tamamlandı (çalışma #{run_id}):",
+    "memory.consolidate_counts_line": (
+        "Terfi: {promoted_short}+{promoted_seasonal}, arşiv: {archived}, silinen: {deleted}"
+    ),
+    "memory.consolidate_item_promoted_short": "  ↑ #{id} short → seasonal ({hits} erişim): {preview}",
+    "memory.consolidate_item_promoted_seasonal": "  ↑ #{id} seasonal → deep ({hits} erişim): {preview}",
+    "memory.consolidate_item_archived": "  ⤓ #{id} arşive ({layer}): {preview}",
+    "memory.consolidate_item_deleted": "  ✕ #{id} silindi ({hits} erişim): {preview}",
+    "memory.consolidate_nothing": "Değişecek bir şey yok.",
+    "memory.consolidate_status_scheduler_active": (
+        "Zamanlayıcı: aktif (aralık {interval} saat, sıradaki çalışma: {next_run})"
+    ),
+    "memory.consolidate_status_scheduler_inactive": "Zamanlayıcı: kapalı",
+    "memory.consolidate_status_running": "Şu an çalışıyor.",
+    "memory.consolidate_status_policy_heading": "Ayarlar:",
+    "memory.consolidate_status_runs_heading": "Son çalışmalar:",
+    "memory.consolidate_status_no_runs": "Henüz çalışma yok.",
+    "memory.consolidate_status_run_line": (
+        "  #{id} {triggered_by} {finished_at} — terfi: {promoted_short}+{promoted_seasonal}, "
+        "arşiv: {archived}, silinen: {deleted}"
+    ),
+    "memory.consolidate_status_run_error": "(hata: {error})",
+    "memory.config_below_minimum": "{flag} en az {minimum} olmalı",
+    "memory.config_default_marker": "varsayılan",
+    "memory.config_saved": (
+        "Konsolidasyon ayarları kaydedildi. Geçmesi için `rona server restart` çalıştır."
+    ),
     # -- commands/task.py -------------------------------------------------------------
     "task.no_tasks": "Görev yok.",
     "task.list_line": "[{status:>7}] {id}  {name}  (sıradaki: {next_run})",

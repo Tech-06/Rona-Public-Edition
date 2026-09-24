@@ -7,6 +7,7 @@ FORBIDDEN_PREFIXES = (
     "subagents",
     "trigger",
     "toolbox",
+    "memory",
     "tavily",
     "google.genai",
     "googleapiclient",
