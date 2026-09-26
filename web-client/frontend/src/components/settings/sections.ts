@@ -5,6 +5,7 @@ import { ConfigPanel } from "../dashboard/ConfigPanel";
 import { ConnectionsPanel } from "../dashboard/ConnectionsPanel";
 import { DataPanel } from "../dashboard/DataPanel";
 import { LogsPanel } from "../dashboard/LogsPanel";
+import { PromptsPanel } from "../dashboard/PromptsPanel";
 import { StatusPanel } from "../dashboard/StatusPanel";
 import { SubagentsPanel } from "../dashboard/SubagentsPanel";
 import { TasksPanel } from "../dashboard/TasksPanel";
@@ -16,6 +17,7 @@ import {
   ChatBubbleIcon,
   DatabaseIcon,
   PaletteIcon,
+  PencilIcon,
   PlugIcon,
   SlidersIcon,
   TerminalIcon,
@@ -49,6 +51,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "status", labelKey: "settings.section_status", icon: ActivityIcon, component: StatusPanel },
   { id: "connections", labelKey: "settings.section_connections", icon: PlugIcon, component: ConnectionsPanel },
   { id: "advanced", labelKey: "settings.section_advanced", icon: SlidersIcon, component: ConfigPanel },
+  { id: "prompts", labelKey: "settings.section_prompts", icon: PencilIcon, component: PromptsPanel },
   { id: "tools", labelKey: "settings.section_tools", icon: WrenchIcon, component: ToolsPanel },
   { id: "tasks", labelKey: "settings.section_tasks", icon: CalendarClockIcon, component: TasksPanel },
   { id: "subagents", labelKey: "settings.section_subagents", icon: BotIcon, component: SubagentsPanel },

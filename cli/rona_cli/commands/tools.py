@@ -1,4 +1,4 @@
-"""`rona tools list|available|install|uninstall|verify|config|actions|run`
+"""`rona tools list|available|install|update|uninstall|verify|config|actions|run`
 -- a thin CLI over the backend's toolbox.manager, delegating to its own venv
 python the same way `rona web` delegates to web-client's own `python -m
 webui` (see commands/web.py). Deliberately NOT importing anything from
@@ -7,8 +7,8 @@ without the backend ever being installed; everything here just shells
 out to `python -m toolbox.manager ...` with cwd=backend/.
 
 Two run modes:
-- install/uninstall/run, and `config --edit`, inherit stdio: a package's
-  own config prompts (getpass for secrets), the health-check
+- install/update/uninstall/run, and `config --edit`, inherit stdio: a
+  package's own config prompts (getpass for secrets), the health-check
   retry/keep/cancel choice, the dependency confirmation and an action's
   input_required round trips all need a live terminal, so their output is
   never captured or re-rendered.
@@ -132,8 +132,17 @@ def _cmd_available(args: argparse.Namespace) -> int:
     if not packages:
         ui.info(i18n.t("tools.catalog_empty"))
         return 0
+    any_update_available = False
     for pkg in packages:
-        marker = f" [{i18n.t('tools.installed_marker')}]" if pkg.get("installed") else ""
+        if pkg.get("installed") and pkg.get("update_available"):
+            any_update_available = True
+            marker = (
+                f" [{i18n.t('tools.update_marker', installed=pkg.get('installed_version'), version=pkg['version'])}]"
+            )
+        elif pkg.get("installed"):
+            marker = f" [{i18n.t('tools.installed_marker')}]"
+        else:
+            marker = ""
         ui.info(
             f"{pkg['id']}  {pkg['version']}  {pkg['name']}{marker} — {pkg['description']}"
         )
@@ -142,6 +151,8 @@ def _cmd_available(args: argparse.Namespace) -> int:
         requires = pkg.get("requires")
         if requires:
             ui.info("    " + i18n.t("tools.requires", packages=", ".join(requires)))
+    if any_update_available:
+        ui.info(i18n.t("tools.update_hint"))
     return 0
 
 
@@ -175,6 +186,26 @@ def _cmd_install(args: argparse.Namespace) -> int:
         manager_args.append("--yes")
     if args.keep_on_health_failure:
         manager_args.append("--keep-on-health-failure")
+    if args.defer_config:
+        manager_args.append("--defer-config")
+    return _run_inherited(paths, args, *manager_args)
+
+
+def _cmd_update(args: argparse.Namespace) -> int:
+    paths = _resolve(args)
+    if paths is None:
+        return 1
+    manager_args = ["update", args.package_id]
+    if args.source:
+        manager_args.extend(["--source", args.source])
+    for item in args.set or []:
+        manager_args.extend(["--set", item])
+    if args.yes:
+        manager_args.append("--yes")
+    if args.keep_on_health_failure:
+        manager_args.append("--keep-on-health-failure")
+    if args.defer_config:
+        manager_args.append("--defer-config")
     return _run_inherited(paths, args, *manager_args)
 
 
@@ -316,7 +347,25 @@ def register(subparsers, common) -> None:
     p_install.add_argument(
         "--keep-on-health-failure", action="store_true", help=i18n.t("tools.help_keep_flag")
     )
+    p_install.add_argument(
+        "--defer-config", action="store_true", help=i18n.t("tools.help_defer_config_flag")
+    )
     p_install.set_defaults(func=_cmd_install)
+
+    p_update = sub.add_parser("update", parents=[common], help=i18n.t("tools.help_update"))
+    p_update.add_argument("package_id")
+    p_update.add_argument("--source", default=None, help=i18n.t("tools.help_source_flag"))
+    p_update.add_argument(
+        "--set", action="append", metavar="[pkg.]key=value", help=i18n.t("tools.help_set_flag")
+    )
+    p_update.add_argument("--yes", action="store_true", help=i18n.t("common.help_skip_confirm"))
+    p_update.add_argument(
+        "--keep-on-health-failure", action="store_true", help=i18n.t("tools.help_keep_flag")
+    )
+    p_update.add_argument(
+        "--defer-config", action="store_true", help=i18n.t("tools.help_defer_config_flag")
+    )
+    p_update.set_defaults(func=_cmd_update)
 
     p_uninstall = sub.add_parser("uninstall", parents=[common], help=i18n.t("tools.help_uninstall"))
     p_uninstall.add_argument("package_id")

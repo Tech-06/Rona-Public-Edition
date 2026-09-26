@@ -52,6 +52,7 @@ Beyond install/uninstall this module also drives two things a package needs
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
 import importlib
 import json
@@ -61,6 +62,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
@@ -69,7 +71,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import toolbox
-from toolbox import db, envfile, packages, sources
+from toolbox import db, envfile, packages, sources, versions
 from toolbox.packages import ConfigField, PackageAction, PackageManifest
 from toolbox.sources import CatalogEntry, CatalogSource, SourceError
 
@@ -109,6 +111,10 @@ class InstallCancelled(ManagerError):
     pass
 
 
+class ManagerBusy(ManagerError):
+    """Raised when another install/update/uninstall already holds the lock."""
+
+
 class ActionError(ManagerError):
     """Raised when a package action can't be resolved or run at all.
 
@@ -126,6 +132,16 @@ class HealthCheckFailed(ManagerError):
 
 
 @dataclass
+class PreviousInstall:
+    """What an upgrade is replacing -- kept around so a failure can put it
+    back exactly as it was."""
+
+    manifest: PackageManifest | None
+    backup_dir: Path
+    lock_entry: dict[str, Any] | None
+
+
+@dataclass
 class StagedPackage:
     manifest: PackageManifest
     pkg_dir: Path
@@ -133,6 +149,16 @@ class StagedPackage:
     env_snapshot: dict[str, str | None] = dataclass_field(default_factory=dict)
     # File names a previous uninstall parked aside and this install put back.
     restored_user_data: list[str] = dataclass_field(default_factory=list)
+    # Set only when this StagedPackage is an *upgrade* of an already
+    # -installed package (see stage_upgrade / update()). None means a fresh
+    # install -- rollback_staged uses this to tell the two apart.
+    previous: "PreviousInstall | None" = None
+    # Required config keys still unset because defer_config=True let the
+    # install/update proceed anyway.
+    config_pending: list[str] = dataclass_field(default_factory=list)
+    health: "HealthResult | None" = None
+    # Whether `pip install` actually changed anything for this package.
+    pip_changed: bool = False
 
 
 @dataclass
@@ -160,14 +186,23 @@ class ActionResult:
 
 @dataclass(frozen=True)
 class PlanEntry:
-    """One package an install would touch, worked out from the catalog index."""
+    """One package an install/update would touch, worked out from the catalog
+    index alone (nothing is downloaded to build this)."""
 
     id: str
     name: str
     version: str
     kind: str
-    reason: Literal["requested", "dependency"]
+    reason: Literal["requested", "dependency", "upgrade"]
     already_installed: bool
+    installed_version: str | None = None
+
+    @property
+    def needs_action(self) -> bool:
+        """True when this entry means something will actually happen to it
+        (installed fresh, or upgraded) rather than just being reported as
+        already satisfied."""
+        return self.reason in ("requested", "upgrade") or not self.already_installed
 
 
 @dataclass
@@ -177,6 +212,37 @@ class UninstallResult:
     dependents: list[str]
     # File names moved aside instead of deleted, restored on a reinstall.
     preserved: list[str]
+
+
+@dataclass
+class _Run:
+    """Everything one install()/update() call threads through the recursive
+    resolver, gathered in one place so adding a new piece of state doesn't
+    mean widening every function's parameter list again."""
+
+    source_obj: CatalogSource
+    # The catalog index, fetched once per run rather than once per package.
+    entries: dict[str, CatalogEntry]
+    answers: dict[str, dict[str, Any]]
+    on_missing_config: OnMissingConfig | None
+    on_health_result: OnHealthResult | None
+    keep_on_health_failure: bool
+    defer_config: bool
+    staged: list[StagedPackage] = dataclass_field(default_factory=list)
+    in_progress: set[str] = dataclass_field(default_factory=set)
+
+    def entry(self, package_id: str, required_by: str | None = None) -> CatalogEntry:
+        found = self.entries.get(package_id)
+        if found is None:
+            where = f" (required by '{required_by}')" if required_by else ""
+            raise SourceError(f"package '{package_id}' not found in catalog{where}")
+        return found
+
+    def staged_version(self, package_id: str) -> str | None:
+        for sp in self.staged:
+            if sp.manifest.id == package_id:
+                return sp.manifest.version
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +263,151 @@ def is_installed(package_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Progress / locking / crash recovery
+# ---------------------------------------------------------------------------
+
+
+def _progress(msg: str) -> None:
+    """One line of human-readable progress on stderr.
+
+    Installs and updates can take a while (a git sparse-checkout, a pip
+    install...) with nothing else to show for it in the meantime; a caller
+    that doesn't care (the test suite, a non-interactive script) just never
+    reads stderr.
+    """
+    print(f"[toolbox] {msg}", file=sys.stderr, flush=True)
+
+
+def _catalog_entries(source_obj: CatalogSource) -> dict[str, CatalogEntry]:
+    _progress("fetching catalog index...")
+    return {e.id: e for e in source_obj.fetch_index()}
+
+
+@contextlib.contextmanager
+def _exclusive_lock():
+    """Only one install/update/uninstall may run at a time.
+
+    Two concurrent runs racing to swap the same package's files (or even two
+    different packages, since both touch the shared lockfile) is how you get
+    a half-written installed.json or a package directory with one foot in
+    each version. A plain lock file, held for the whole call, rules that out
+    -- ``ManagerBusy`` tells a caller to just try again shortly rather than
+    hang waiting for it.
+    """
+    lock_path = packages.CUSTOM_DIR / ".manager.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(lock_path, "a+b")
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            fh.seek(0)
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise ManagerBusy(
+                    "another package install/update/uninstall is already running"
+                ) from exc
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise ManagerBusy(
+                    "another package install/update/uninstall is already running"
+                ) from exc
+        yield
+    finally:
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        fh.close()
+
+
+def _rename_with_retry(src: Path, dst: Path, attempts: int = 5, delay: float = 0.4) -> None:
+    """os.replace with a few retries -- on Windows a file can be briefly held
+    open (an antivirus scan, an editor, a lingering handle from a health
+    check import) right when an update wants to swap it out from under
+    itself."""
+    last_exc: Exception | None = None
+    for _ in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            last_exc = exc
+            time.sleep(delay)
+    raise ManagerError(f"could not move {src} to {dst}: {last_exc}")
+
+
+def _recover_interrupted_updates() -> None:
+    """Called under the lock at the start of every install/update/uninstall:
+    put things back in a consistent state if a *previous* run got killed
+    (process crash, BFF/CLI terminated) partway through swapping a package's
+    files.
+
+    ``_swap_in`` leaves at most one of these behind if interrupted:
+      - ``<id>.old`` with no live ``custom/<id>``: the rename that would have
+        put the old version back never ran -- restore it.
+      - ``<id>.old`` alongside a live ``custom/<id>``: the swap completed
+        (the new version is live), only the old backup's cleanup never ran
+        -- just delete it.
+      - a stray ``<id>.new`` or ``<id>.trash``: leftovers from a step that
+        never finished; neither is ever needed afterwards.
+    """
+    updating_dir = packages.UPDATING_DIR
+    if not updating_dir.is_dir():
+        return
+    for old_backup in updating_dir.glob("*.old"):
+        pkg_id = old_backup.name[: -len(".old")]
+        live_dir = packages.package_dir(pkg_id)
+        if not live_dir.exists():
+            _progress(f"recovering interrupted update of {pkg_id}...")
+            _rename_with_retry(old_backup, live_dir)
+        else:
+            shutil.rmtree(old_backup, ignore_errors=True)
+    for leftover in list(updating_dir.glob("*.new")) + list(updating_dir.glob("*.trash")):
+        shutil.rmtree(leftover, ignore_errors=True)
+    try:
+        updating_dir.rmdir()
+    except OSError:
+        pass  # not empty (something we don't recognize) or doesn't exist -- fine
+
+
+def _check_constraint(version: str, requirement: "versions.Requirement", required_by: str) -> None:
+    if not requirement.is_satisfied_by(version):
+        raise ManagerError(
+            f"'{required_by}' requires {requirement}, but the catalog offers {version}"
+        )
+
+
+def _check_dependents_allow(package_id: str, new_version: str) -> None:
+    """If ``package_id`` were upgraded to ``new_version``, would every other
+    *installed* package that depends on it still have its constraint
+    satisfied? Raises if not -- an upgrade must never silently break a
+    sibling package."""
+    for m in packages.load_installed_manifests():
+        if m.id == package_id:
+            continue
+        for req in m.requirements():
+            if req.name == package_id and not req.is_satisfied_by(new_version):
+                raise ManagerError(
+                    f"cannot update '{package_id}' to {new_version}: "
+                    f"'{m.id}' requires {req}"
+                )
+
+
+# ---------------------------------------------------------------------------
 # Staging: fetch + validate + pip install + place on disk + schema
 # ---------------------------------------------------------------------------
 
@@ -206,10 +417,19 @@ def _declared_tool_names(pkg_dir: Path, manifest: PackageManifest) -> set[str]:
     return {item["name"] for item in raw if isinstance(item, dict) and "name" in item}
 
 
-def _pip_install(requirements: list[str]) -> None:
+def _pip_install(requirements: list[str]) -> bool:
+    """Returns True iff pip actually installed/changed something (used to
+    decide whether a restart is worth recommending afterwards)."""
     try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", *requirements],
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                *requirements,
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -223,6 +443,7 @@ def _pip_install(requirements: list[str]) -> None:
         raise ManagerError(
             f"pip install failed for {', '.join(requirements)}:\n{exc.stderr}"
         ) from exc
+    return "Successfully installed" in result.stdout
 
 
 def _apply_schema(schema_path: Path) -> None:
@@ -252,6 +473,7 @@ def stage(entry: CatalogEntry, source_obj: CatalogSource) -> StagedPackage:
 
     with tempfile.TemporaryDirectory(prefix=f"rona-stage-{entry.id}-") as tmp_name:
         staging_dir = Path(tmp_name) / entry.id
+        _progress(f"fetching {entry.id} {entry.version}...")
         source_obj.fetch_package(entry, staging_dir)
         manifest = packages.load_manifest(staging_dir)
         if manifest.id != entry.id:
@@ -269,13 +491,18 @@ def stage(entry: CatalogEntry, source_obj: CatalogSource) -> StagedPackage:
                 f"{', '.join(sorted(conflicts))}"
             )
 
+        pip_changed = False
         if manifest.python_requirements:
-            _pip_install(manifest.python_requirements)
+            _progress(f"installing python requirements for {entry.id}...")
+            pip_changed = _pip_install(manifest.python_requirements)
+            _progress(f"installing python requirements for {entry.id}... done")
 
+        _progress(f"placing files for {entry.id}...")
         shutil.copytree(staging_dir, final_dir)
 
     try:
         if manifest.schema_sql:
+            _progress(f"applying schema for {entry.id}...")
             _apply_schema(final_dir / manifest.schema_sql)
     except Exception:
         shutil.rmtree(final_dir, ignore_errors=True)
@@ -283,7 +510,11 @@ def stage(entry: CatalogEntry, source_obj: CatalogSource) -> StagedPackage:
 
     restored = _restore_user_data(manifest.id, final_dir)
     return StagedPackage(
-        manifest=manifest, pkg_dir=final_dir, entry=entry, restored_user_data=restored
+        manifest=manifest,
+        pkg_dir=final_dir,
+        entry=entry,
+        restored_user_data=restored,
+        pip_changed=pip_changed,
     )
 
 
@@ -320,6 +551,210 @@ def _restore_user_data(package_id: str, pkg_dir: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Upgrade staging: fetch a new version, carry the old install's data over,
+# and atomically swap it in for the version currently on disk.
+# ---------------------------------------------------------------------------
+
+
+def _read_lock_entry(package_id: str) -> dict[str, Any] | None:
+    return packages.read_lockfile()["packages"].get(package_id)
+
+
+def _carry_over(
+    old_dir: Path,
+    old_manifest: PackageManifest | None,
+    staging_dir: Path,
+    new_manifest: PackageManifest,
+) -> list[str]:
+    """Copy user data from the currently-installed package into the freshly
+    -fetched staging directory, before it becomes the live one.
+
+    The user's existing copy wins over whatever the new version ships (a
+    default config.json, say): every file this touches overwrites the
+    package's own copy in ``staging_dir`` rather than the other way round.
+    Returns the file names copied, the same shape ``restored_user_data``
+    already uses for a preserved-on-uninstall reinstall.
+    """
+    restored: list[str] = []
+    old_config = old_dir / "config.json"
+    if old_config.is_file():
+        shutil.copy2(old_config, staging_dir / "config.json")
+
+    if old_manifest is not None:
+        for field_ in old_manifest.config:
+            if field_.target != "file":
+                continue
+            src_name = field_.dest_filename or field_.key
+            src = old_dir / src_name
+            if not src.is_file():
+                continue
+            new_field = next(
+                (
+                    f
+                    for f in new_manifest.config
+                    if f.key == field_.key and f.target == "file"
+                ),
+                None,
+            )
+            dst_name = (new_field.dest_filename or new_field.key) if new_field else src_name
+            shutil.copy2(src, staging_dir / dst_name)
+            restored.append(dst_name)
+
+    old_globs = set(old_manifest.user_data_globs) if old_manifest else set()
+    new_globs = set(new_manifest.user_data_globs)
+    for path in packages.match_user_data(old_dir, old_globs | new_globs, new_manifest.id):
+        shutil.copy2(path, staging_dir / path.name)
+        restored.append(path.name)
+    return restored
+
+
+def _swap_in(staging_dir: Path, package_id: str) -> Path:
+    """Turn ``staging_dir`` into the live package, backing up whatever was
+    there before.
+
+    Goes through an intermediate copy in ``UPDATING_DIR`` (rather than
+    renaming ``staging_dir`` itself into place) because ``staging_dir`` lives
+    inside a ``TemporaryDirectory`` that is on the same filesystem only by
+    chance -- ``os.replace`` across filesystems fails outright, whereas the
+    copy always works. Returns the backup directory the old version was
+    moved to (rollback restores from it; a successful finalize deletes it).
+    """
+    updating_dir = packages.UPDATING_DIR
+    updating_dir.mkdir(parents=True, exist_ok=True)
+    new_backup = updating_dir / f"{package_id}.new"
+    old_backup = updating_dir / f"{package_id}.old"
+    if new_backup.exists():
+        shutil.rmtree(new_backup, ignore_errors=True)
+    if old_backup.exists():
+        shutil.rmtree(old_backup, ignore_errors=True)
+    shutil.copytree(staging_dir, new_backup)
+    live_dir = packages.package_dir(package_id)
+    try:
+        _rename_with_retry(live_dir, old_backup)
+    except ManagerError:
+        shutil.rmtree(new_backup, ignore_errors=True)
+        raise ManagerError(
+            f"could not update '{package_id}': files in use? stop the backend and retry"
+        )
+    try:
+        _rename_with_retry(new_backup, live_dir)
+    except ManagerError:
+        _rename_with_retry(old_backup, live_dir)
+        raise
+    return old_backup
+
+
+def stage_upgrade(entry: CatalogEntry, run: "_Run") -> StagedPackage:
+    """Fetch a newer version of an *already-installed* package, carry its
+    user data and configuration over, and swap it in for the version on
+    disk. Mirrors ``stage()`` (fetch, tool-name-conflict check, pip install,
+    schema) but replaces "copy into a brand-new directory" with "swap the
+    live directory for a new one while keeping a restorable backup"."""
+    package_id = entry.id
+    old_dir = packages.package_dir(package_id)
+    try:
+        old_manifest = packages.load_manifest(old_dir)
+    except packages.PackageLoadError:
+        old_manifest = None
+    lock_entry = _read_lock_entry(package_id)
+
+    _check_dependents_allow(package_id, entry.version)
+    _progress(
+        f"upgrading {package_id} {old_manifest.version if old_manifest else '?'} "
+        f"-> {entry.version}"
+    )
+
+    with tempfile.TemporaryDirectory(prefix=f"rona-stage-{package_id}-") as tmp_name:
+        staging_dir = Path(tmp_name) / package_id
+        _progress(f"fetching {package_id} {entry.version}...")
+        run.source_obj.fetch_package(entry, staging_dir)
+        new_manifest = packages.load_manifest(staging_dir)
+        if new_manifest.id != package_id:
+            raise ManagerError(
+                f"catalog entry '{package_id}' fetched a manifest for '{new_manifest.id}'"
+            )
+
+        declared = _declared_tool_names(staging_dir, new_manifest)
+        # A package's own previous version is still loaded right now -- its
+        # tool names must not count as a conflict against its own new ones.
+        existing = {
+            spec.name
+            for spec in toolbox.iter_specs()
+            if not spec.module.startswith(f"toolbox.custom.{package_id}.")
+        }
+        conflicts = declared & existing
+        if conflicts:
+            raise ToolNameConflict(
+                f"package '{new_manifest.id}' provides tool(s) that already exist: "
+                f"{', '.join(sorted(conflicts))}"
+            )
+
+        pip_changed = False
+        if new_manifest.python_requirements:
+            _progress(f"installing python requirements for {package_id}...")
+            pip_changed = _pip_install(new_manifest.python_requirements)
+            _progress(f"installing python requirements for {package_id}... done")
+
+        _progress(f"placing files for {package_id}...")
+        restored = _carry_over(old_dir, old_manifest, staging_dir, new_manifest)
+        backup_dir = _swap_in(staging_dir, package_id)
+
+    staged = StagedPackage(
+        manifest=new_manifest,
+        pkg_dir=packages.package_dir(package_id),
+        entry=entry,
+        restored_user_data=restored,
+        previous=PreviousInstall(
+            manifest=old_manifest, backup_dir=backup_dir, lock_entry=lock_entry
+        ),
+        pip_changed=pip_changed,
+    )
+    # Appended before the schema step (which can still fail) runs, so the
+    # caller's rollback loop knows to put the old version back rather than
+    # leaving the live directory holding a half-configured new one.
+    run.staged.append(staged)
+
+    if new_manifest.schema_sql:
+        _progress(f"applying schema for {package_id}...")
+        _apply_schema(staged.pkg_dir / new_manifest.schema_sql)
+
+    toolbox.purge_package_modules([package_id])
+    toolbox.reload_registry()
+    return staged
+
+
+def _restore_previous(staged: StagedPackage) -> None:
+    """Undo one upgrade: move the (broken, cancelled, or otherwise unwanted)
+    new version out of the way and put the backed-up old one back, including
+    its lockfile entry."""
+    assert staged.previous is not None
+    package_id = staged.manifest.id
+    live_dir = packages.package_dir(package_id)
+    updating_dir = packages.UPDATING_DIR
+    trash = updating_dir / f"{package_id}.trash"
+    if trash.exists():
+        shutil.rmtree(trash, ignore_errors=True)
+    if live_dir.exists():
+        try:
+            _rename_with_retry(live_dir, trash)
+            shutil.rmtree(trash, ignore_errors=True)
+        except ManagerError:
+            pass  # worst case the live dir is left as-is, overwritten below
+    backup_dir = staged.previous.backup_dir
+    if backup_dir.exists():
+        _rename_with_retry(backup_dir, live_dir)
+    if staged.previous.lock_entry is not None:
+        packages.record_install(
+            package_id,
+            staged.previous.lock_entry["version"],
+            staged.previous.lock_entry.get("source", ""),
+            staged.previous.lock_entry.get("installed_at", ""),
+        )
+    else:
+        packages.record_uninstall(package_id)
+
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -342,14 +777,18 @@ def _apply_file_field(staged: StagedPackage, field: ConfigField, source_value: A
     shutil.copy2(source, dest)
 
 
-def apply_config(staged: StagedPackage, answers: dict[str, Any]) -> None:
+def apply_config(
+    staged: StagedPackage, answers: dict[str, Any], *, allow_missing: bool = False
+) -> None:
     """Validate and persist every declared config field for a staged package.
 
-    All-or-nothing: if a required field is missing, nothing is written.
+    All-or-nothing: if a required field is missing, nothing is written --
+    unless ``allow_missing=True`` (install/update's ``--defer-config``),
+    which writes whatever *was* given and leaves the rest for later.
     """
     manifest = staged.manifest
     missing = [f.key for f in manifest.config if f.required and answers.get(f.key) in (None, "")]
-    if missing:
+    if missing and not allow_missing:
         raise ManagerError(
             f"missing required config for '{manifest.id}': {', '.join(missing)}"
         )
@@ -398,6 +837,35 @@ def _restore_env(snapshot: dict[str, str | None]) -> None:
             os.environ.pop(key, None)
         else:
             os.environ[key] = value
+
+
+def _stored_answers(manifest: PackageManifest) -> dict[str, Any]:
+    """What's already on disk for every one of ``manifest``'s config fields,
+    read straight from where each target actually lives (.env, config.json,
+    the package directory for a file field).
+
+    ``update()`` passes this to ``_configure_and_verify_one`` as ``existing``
+    so an upgrade that carried its config over cleanly doesn't ask again --
+    and, just as importantly, doesn't rewrite anything when nothing actually
+    changed.
+    """
+    packages.load_dotenv(packages.ENV_PATH)
+    values: dict[str, Any] = {}
+    for field_ in manifest.config:
+        if field_.target == "env":
+            env_var = field_.env_var or f"{manifest.id.upper()}_{field_.key.upper()}"
+            value = os.getenv(env_var)
+            if value not in (None, ""):
+                values[field_.key] = value
+        elif field_.target == "file":
+            dest = packages.package_dir(manifest.id) / (field_.dest_filename or field_.key)
+            if dest.is_file():
+                values[field_.key] = str(dest)
+        else:
+            stored = packages.read_config_file(manifest.id)
+            if field_.key in stored:
+                values[field_.key] = stored[field_.key]
+    return values
 
 
 # ---------------------------------------------------------------------------
@@ -622,10 +1090,15 @@ def run_action(
 
 
 def rollback_staged(staged: StagedPackage) -> None:
-    shutil.rmtree(staged.pkg_dir, ignore_errors=True)
+    _progress(f"rolling back {staged.manifest.id}...")
+    if staged.previous is not None:
+        _restore_previous(staged)
+    else:
+        shutil.rmtree(staged.pkg_dir, ignore_errors=True)
+        packages.record_uninstall(staged.manifest.id)
     if staged.env_snapshot:
         _restore_env(staged.env_snapshot)
-    packages.record_uninstall(staged.manifest.id)
+    toolbox.purge_package_modules([staged.manifest.id])
     toolbox.reload_registry()
 
 
@@ -636,6 +1109,14 @@ def finalize(staged: StagedPackage, source_spec: str) -> None:
         source_spec,
         datetime.now(timezone.utc).isoformat(),
     )
+    if staged.previous is not None:
+        backup_dir = staged.previous.backup_dir
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)
+        try:
+            packages.UPDATING_DIR.rmdir()
+        except OSError:
+            pass  # other packages' backups (or something else) still in there
 
 
 # ---------------------------------------------------------------------------
@@ -645,123 +1126,225 @@ def finalize(staged: StagedPackage, source_spec: str) -> None:
 
 def _configure_and_verify_one(
     staged: StagedPackage,
-    answers: dict[str, dict[str, Any]],
+    run: "_Run",
     *,
-    on_missing_config: OnMissingConfig | None,
-    on_health_result: OnHealthResult | None,
-    keep_on_health_failure: bool,
+    existing: dict[str, Any] | None = None,
 ) -> HealthResult:
-    pkg_answers = dict(answers.get(staged.manifest.id, {}))
+    """Collect config, apply it, reload the registry and run the health
+    check for one staged package -- shared by a fresh install
+    (``existing=None``) and an upgrade (``existing=_stored_answers(...)``).
+
+    For an upgrade, ``existing`` is what's already on disk (carried over from
+    the previous version); only fields still missing after overlaying the
+    run's ``answers`` on top of that are actually "missing". And since an
+    upgrade's config is usually already satisfied, ``apply_config`` is only
+    called when there is something new to write -- a no-op update must not
+    touch config.json/.env/a copied file just because it re-ran the same
+    values through it.
+    """
+    manifest = staged.manifest
+    pkg_answers = dict(run.answers.get(manifest.id, {}))
+    baseline = dict(existing or {})
+
+    def missing_fields() -> list[ConfigField]:
+        merged = {**baseline, **pkg_answers}
+        return [f for f in manifest.config if f.required and merged.get(f.key) in (None, "")]
+
+    missing = missing_fields()
+
+    if missing and run.defer_config:
+        if pkg_answers:
+            _progress(f"applying configuration for {manifest.id}...")
+            apply_config(staged, pkg_answers, allow_missing=True)
+        staged.config_pending = [f.key for f in missing]
+        toolbox.purge_package_modules([manifest.id])
+        toolbox.reload_registry()
+        if manifest.id in toolbox.failed_packages():
+            raise ManagerError(f"'{manifest.id}' failed to load: see server log")
+        result = HealthResult(
+            ok=False,
+            detail=f"configuration pending: {', '.join(f.key for f in missing)}",
+        )
+        staged.health = result
+        return result
+
     while True:
-        missing = [
-            f
-            for f in staged.manifest.config
-            if f.required and pkg_answers.get(f.key) in (None, "")
-        ]
+        missing = missing_fields()
         if missing:
-            if on_missing_config is None:
+            if run.on_missing_config is None:
                 raise ManagerError(
-                    f"package '{staged.manifest.id}' needs config: "
+                    f"package '{manifest.id}' needs config: "
                     + ", ".join(f.key for f in missing)
                 )
-            pkg_answers.update(on_missing_config(staged, missing))
+            pkg_answers.update(run.on_missing_config(staged, missing))
             continue
 
-        apply_config(staged, pkg_answers)
+        # A plain "nothing changed" update writes nothing: apply_config only
+        # runs for a fresh install (existing is None) or when this run
+        # actually collected/was given new values for this package.
+        if existing is None or pkg_answers:
+            _progress(f"applying configuration for {manifest.id}...")
+            apply_config(staged, pkg_answers)
+        toolbox.purge_package_modules([manifest.id])
         toolbox.reload_registry()
-        result = run_health_check(staged.manifest)
-        if result.ok or keep_on_health_failure:
+        if manifest.id in toolbox.failed_packages():
+            raise ManagerError(f"'{manifest.id}' failed to load: see server log")
+
+        _progress(f"running health check for {manifest.id}...")
+        result = run_health_check(manifest)
+        staged.health = result
+        if result.ok or run.keep_on_health_failure:
             return result
-        if on_health_result is None:
+        if run.on_health_result is None:
             raise HealthCheckFailed(result.detail, staged)
-        decision = on_health_result(staged, result)
+        decision = run.on_health_result(staged, result)
         if decision == "keep":
             return result
         if decision == "cancel":
             raise InstallCancelled(
-                f"installation of '{staged.manifest.id}' cancelled after failed health check"
+                f"installation of '{manifest.id}' cancelled after failed health check"
             )
         if decision == "retry":
-            if on_missing_config is None:
+            if run.on_missing_config is None:
                 # A caller that supplied on_health_result but not
                 # on_missing_config has no way to collect corrected values;
                 # treat the retry as unsatisfiable rather than crashing.
                 raise HealthCheckFailed(result.detail, staged)
-            pkg_answers.update(on_missing_config(staged, list(staged.manifest.config)))
+            pkg_answers.update(run.on_missing_config(staged, list(manifest.config)))
             continue
         raise ManagerError(f"unknown health-check decision: {decision!r}")
 
 
 def _install_recursive(
     package_id: str,
-    source_obj: CatalogSource,
-    staged_in_this_run: list[StagedPackage],
-    answers: dict[str, dict[str, Any]],
+    run: "_Run",
     *,
-    in_progress: set[str],
-    on_missing_config: OnMissingConfig | None,
-    on_health_result: OnHealthResult | None,
-    keep_on_health_failure: bool,
+    requirement: "versions.Requirement | None" = None,
+    required_by: str | None = None,
 ) -> None:
-    if package_id in in_progress:
+    """Make sure ``package_id`` ends up installed and satisfying
+    ``requirement`` (fresh, or upgraded in place if it's installed but too
+    old), then do the same for everything it in turn requires."""
+    if package_id in run.in_progress:
         # Must be checked before the "already done" shortcuts below: a
         # package that is still being staged (its own `requires` are being
         # walked right now) is by definition not finished yet, even though
-        # it is already sitting in staged_in_this_run.
+        # it may already be sitting in run.staged.
         raise DependencyCycle(f"circular 'requires' dependency involving '{package_id}'")
-    if any(sp.manifest.id == package_id for sp in staged_in_this_run):
+
+    staged_version = run.staged_version(package_id)
+    if staged_version is not None:
+        if requirement is not None and not requirement.is_satisfied_by(staged_version):
+            raise ManagerError(
+                f"'{required_by}' requires {requirement}, but this install resolved "
+                f"'{package_id}' to {staged_version}"
+            )
         return
+
     if is_installed(package_id):
+        manifest = packages.load_manifest(packages.package_dir(package_id))
+        if requirement is None or requirement.is_satisfied_by(manifest.version):
+            return
+        _upgrade_one(package_id, run, requirement=requirement, required_by=required_by)
         return
-    in_progress.add(package_id)
 
-    entry = source_obj.find_entry(package_id)
-    staged = stage(entry, source_obj)
-    staged_in_this_run.append(staged)
+    run.in_progress.add(package_id)
+    entry = run.entry(package_id, required_by)
+    if requirement is not None:
+        _check_constraint(entry.version, requirement, required_by or package_id)
 
-    for dep_id in staged.manifest.requires:
+    staged = stage(entry, run.source_obj)
+    run.staged.append(staged)
+
+    for req in staged.manifest.requirements():
         _install_recursive(
-            dep_id,
-            source_obj,
-            staged_in_this_run,
-            answers,
-            in_progress=in_progress,
-            on_missing_config=on_missing_config,
-            on_health_result=on_health_result,
-            keep_on_health_failure=keep_on_health_failure,
+            req.name, run, requirement=req if req.specifiers else None, required_by=package_id
         )
 
-    _configure_and_verify_one(
-        staged,
-        answers,
-        on_missing_config=on_missing_config,
-        on_health_result=on_health_result,
-        keep_on_health_failure=keep_on_health_failure,
-    )
-    in_progress.discard(package_id)
+    _configure_and_verify_one(staged, run)
+    run.in_progress.discard(package_id)
+
+
+def _upgrade_one(
+    package_id: str,
+    run: "_Run",
+    *,
+    requirement: "versions.Requirement | None" = None,
+    required_by: str | None = None,
+) -> None:
+    """Upgrade an already-installed package to what the catalog offers (and
+    make sure whatever it now requires is installed/upgraded too)."""
+    if package_id in run.in_progress:
+        raise DependencyCycle(f"circular 'requires' dependency involving '{package_id}'")
+    if run.staged_version(package_id) is not None:
+        return
+
+    run.in_progress.add(package_id)
+    entry = run.entry(package_id, required_by)
+    if requirement is not None:
+        _check_constraint(entry.version, requirement, required_by or package_id)
+
+    staged = stage_upgrade(entry, run)
+
+    for req in staged.manifest.requirements():
+        _install_recursive(
+            req.name, run, requirement=req if req.specifiers else None, required_by=package_id
+        )
+
+    _configure_and_verify_one(staged, run, existing=_stored_answers(staged.manifest))
+    run.in_progress.discard(package_id)
 
 
 def resolve_plan(
-    package_id: str, source_obj: CatalogSource
+    package_id: str,
+    source_obj: CatalogSource,
+    *,
+    mode: str = "install",
+    entries: dict[str, CatalogEntry] | None = None,
 ) -> tuple[list[PlanEntry], bool]:
-    """What installing ``package_id`` would pull in, from the index alone.
+    """What installing/updating ``package_id`` would touch, from the index
+    alone -- nothing is downloaded, which is the only way to tell a user what
+    is about to happen *before* it happens.
 
-    Nothing is downloaded: this reads the dependency graph straight out of
-    the catalog's index.json, which is the only way to tell a user what is
-    about to happen *before* it happens.
+    ``mode="install"`` is the original behaviour: walk ``package_id`` (which
+    isn't installed yet) and everything it requires, in dependency-first
+    order. ``mode="update"`` additionally lets the *root* package itself
+    count as something to act on when the catalog offers a newer version
+    than what's installed.
+
+    A node already installed and satisfying whatever pulled it in is
+    reported (``already_installed=True``) but its own ``requires`` are not
+    walked -- it isn't being touched, so there is nothing new to resolve
+    underneath it. A node that *is* being installed or upgraded gets
+    ``reason="dependency"``/``"upgrade"`` and its requirements are walked,
+    same as the root.
 
     Returns the entries in install order (dependencies first) plus a
-    ``complete`` flag. ``complete`` is False when something on the path did
-    not declare ``requires`` in the index at all -- an older catalog. The plan
-    is then a lower bound, and callers must say so rather than present it as
-    the whole story.
+    ``complete`` flag. ``complete`` is False when something this plan
+    actually needs to act on did not declare ``requires`` in the index at
+    all -- an older catalog. The plan is then a lower bound, and callers must
+    say so rather than present it as the whole story.
     """
-    entries = {entry.id: entry for entry in source_obj.fetch_index()}
+    if entries is None:
+        entries = {entry.id: entry for entry in source_obj.fetch_index()}
     plan: list[PlanEntry] = []
     seen: set[str] = set()
     complete = True
 
-    def walk(pkg_id: str, reason: str, chain: tuple[str, ...]) -> None:
+    def installed_version_of(pkg_id: str) -> str | None:
+        if not is_installed(pkg_id):
+            return None
+        try:
+            return packages.load_manifest(packages.package_dir(pkg_id)).version
+        except packages.PackageLoadError:
+            return None
+
+    def walk(
+        pkg_id: str,
+        chain: tuple[str, ...],
+        requirement: "versions.Requirement | None",
+        is_root: bool,
+    ) -> None:
         nonlocal complete
         if pkg_id in chain:
             raise DependencyCycle(f"circular 'requires' dependency involving '{pkg_id}'")
@@ -772,10 +1355,31 @@ def resolve_plan(
             where = f" (required by '{chain[-1]}')" if chain else ""
             raise SourceError(f"package '{pkg_id}' not found in catalog{where}")
         seen.add(pkg_id)
-        if entry.requires is None:
-            complete = False
-        for dep_id in entry.requires or ():
-            walk(dep_id, "dependency", chain + (pkg_id,))
+
+        installed_version = installed_version_of(pkg_id)
+        touches: bool
+        if installed_version is None:
+            reason = "requested" if is_root else "dependency"
+            touches = True
+        elif requirement is not None and not requirement.is_satisfied_by(installed_version):
+            reason = "requested" if is_root else "upgrade"
+            touches = True
+        elif is_root and mode == "update" and versions.is_newer(entry.version, installed_version):
+            reason = "requested"
+            touches = True
+        else:
+            reason = "requested" if is_root else "dependency"
+            touches = False
+
+        if touches and requirement is not None:
+            _check_constraint(entry.version, requirement, chain[-1] if chain else pkg_id)
+
+        if touches:
+            if entry.requires is None:
+                complete = False
+            for req in entry.requirements() or ():
+                walk(req.name, chain + (pkg_id,), req if req.specifiers else None, False)
+
         plan.append(
             PlanEntry(
                 id=entry.id,
@@ -783,11 +1387,12 @@ def resolve_plan(
                 version=entry.version,
                 kind=entry.kind,
                 reason=reason,
-                already_installed=is_installed(entry.id),
+                already_installed=installed_version is not None,
+                installed_version=installed_version,
             )
         )
 
-    walk(package_id, "requested", ())
+    walk(package_id, (), None, True)
     return plan, complete
 
 
@@ -800,8 +1405,10 @@ def install(
     on_health_result: OnHealthResult | None = None,
     on_plan: OnPlan | None = None,
     keep_on_health_failure: bool = False,
+    defer_config: bool = False,
 ) -> list[StagedPackage]:
-    """Install ``package_id`` and any not-yet-installed dependencies.
+    """Install ``package_id`` and any not-yet-installed (or too-old)
+    dependencies.
 
     Returns the list of packages staged during this call (in install
     order). On any failure or cancellation, every one of them is rolled
@@ -809,39 +1416,110 @@ def install(
     as it was before the call.
 
     ``on_plan``, when given, is consulted *before anything is downloaded* and
-    only when the install would actually bring in a dependency the user does
-    not already have; returning False cancels. A catalog that doesn't publish
-    dependency metadata therefore never prompts -- the install simply behaves
-    as it always did and resolves requires from each manifest as it goes.
+    only when the install would actually bring in or upgrade a dependency;
+    returning False cancels. A catalog that doesn't publish dependency
+    metadata therefore never prompts -- the install simply behaves as it
+    always did and resolves requires from each manifest as it goes.
+
+    Only one install/update/uninstall may run at a time (see
+    ``_exclusive_lock``); a previous run left half-finished by a crash is
+    cleaned up before this one starts.
     """
-    source_obj = sources.parse_source(source)
+    with _exclusive_lock():
+        _recover_interrupted_updates()
+        if is_installed(package_id):
+            raise PackageAlreadyInstalled(f"'{package_id}' is already installed; use update")
 
-    if on_plan is not None:
-        plan, complete = resolve_plan(package_id, source_obj)
-        extra = [e for e in plan if e.reason == "dependency" and not e.already_installed]
-        if extra and not on_plan(plan, complete):
-            raise InstallCancelled(f"installation of '{package_id}' cancelled")
+        source_obj = sources.parse_source(source)
+        entries = _catalog_entries(source_obj)
 
-    staged_in_this_run: list[StagedPackage] = []
-    try:
-        _install_recursive(
-            package_id,
-            source_obj,
-            staged_in_this_run,
-            answers or {},
-            in_progress=set(),
+        if on_plan is not None:
+            plan, complete = resolve_plan(package_id, source_obj, entries=entries)
+            extra = [e for e in plan if e.reason != "requested" and e.needs_action]
+            if extra and not on_plan(plan, complete):
+                raise InstallCancelled(f"installation of '{package_id}' cancelled")
+
+        run = _Run(
+            source_obj=source_obj,
+            entries=entries,
+            answers=answers or {},
             on_missing_config=on_missing_config,
             on_health_result=on_health_result,
             keep_on_health_failure=keep_on_health_failure,
+            defer_config=defer_config,
         )
-    except Exception:
-        for staged in reversed(staged_in_this_run):
-            rollback_staged(staged)
-        raise
+        try:
+            _install_recursive(package_id, run)
+        except Exception:
+            for staged in reversed(run.staged):
+                rollback_staged(staged)
+            raise
 
-    for staged in staged_in_this_run:
-        finalize(staged, source)
-    return staged_in_this_run
+        for staged in run.staged:
+            finalize(staged, source)
+        return run.staged
+
+
+def update(
+    package_id: str,
+    *,
+    source: str = sources.DEFAULT_CATALOG_SOURCE,
+    answers: dict[str, dict[str, Any]] | None = None,
+    on_missing_config: OnMissingConfig | None = None,
+    on_health_result: OnHealthResult | None = None,
+    on_plan: OnPlan | None = None,
+    keep_on_health_failure: bool = False,
+    defer_config: bool = False,
+) -> list[StagedPackage]:
+    """Upgrade an already-installed ``package_id`` to what the catalog
+    offers, and any dependency that needs upgrading (or installing) to keep
+    up with it.
+
+    Returns ``[]`` -- without downloading, locking anything longer than the
+    check takes, or calling any callback -- when the catalog's version is not
+    newer than what's installed. Otherwise behaves like ``install``: rolled
+    back completely on failure/cancellation, finalized (lockfile updated)
+    package by package on success.
+    """
+    with _exclusive_lock():
+        _recover_interrupted_updates()
+        if not is_installed(package_id):
+            raise ManagerError(f"'{package_id}' is not installed")
+
+        source_obj = sources.parse_source(source)
+        entries = _catalog_entries(source_obj)
+
+        plan, complete = resolve_plan(package_id, source_obj, mode="update", entries=entries)
+        if len(plan) == 1 and plan[0].reason == "requested" and plan[0].already_installed:
+            catalog_version = entries[package_id].version
+            installed = packages.load_manifest(packages.package_dir(package_id))
+            if not versions.is_newer(catalog_version, installed.version):
+                return []
+
+        if on_plan is not None:
+            extra = [e for e in plan if e.reason != "requested" and e.needs_action]
+            if extra and not on_plan(plan, complete):
+                raise InstallCancelled(f"update of '{package_id}' cancelled")
+
+        run = _Run(
+            source_obj=source_obj,
+            entries=entries,
+            answers=answers or {},
+            on_missing_config=on_missing_config,
+            on_health_result=on_health_result,
+            keep_on_health_failure=keep_on_health_failure,
+            defer_config=defer_config,
+        )
+        try:
+            _upgrade_one(package_id, run)
+        except Exception:
+            for staged in reversed(run.staged):
+                rollback_staged(staged)
+            raise
+
+        for staged in run.staged:
+            finalize(staged, source)
+        return run.staged
 
 
 def uninstall(
@@ -861,44 +1539,61 @@ def uninstall(
     automatically if the package is ever reinstalled. ``purge=True`` deletes
     them outright; ``on_user_data`` lets an interactive caller ask first.
     """
-    pkg_dir = packages.package_dir(package_id)
-    if not pkg_dir.is_dir():
-        raise ManagerError(f"'{package_id}' is not installed")
+    with _exclusive_lock():
+        _recover_interrupted_updates()
+        pkg_dir = packages.package_dir(package_id)
+        if not pkg_dir.is_dir():
+            raise ManagerError(f"'{package_id}' is not installed")
 
-    dependents = [
-        m.id
-        for m in packages.load_installed_manifests()
-        if m.id != package_id and package_id in m.requires
-    ]
-    if dependents and not force:
-        raise ManagerError(
-            f"cannot uninstall '{package_id}': required by "
-            f"{', '.join(sorted(dependents))} (use force=True / --force to proceed anyway)"
-        )
+        dependents = [
+            m.id
+            for m in packages.load_installed_manifests()
+            if m.id != package_id and package_id in m.required_ids()
+        ]
+        if dependents and not force:
+            raise ManagerError(
+                f"cannot uninstall '{package_id}': required by "
+                f"{', '.join(sorted(dependents))} (use force=True / --force to proceed anyway)"
+            )
 
-    preserved: list[str] = []
-    if not purge:
+        preserved: list[str] = []
+        if not purge:
+            try:
+                manifest = packages.load_manifest(pkg_dir)
+            except packages.PackageLoadError:
+                # A corrupt package still has to be removable; it just can't
+                # tell us which of its files are user data.
+                manifest = None
+            user_data = packages.user_data_paths(manifest) if manifest else []
+            if user_data and (
+                on_user_data is None or on_user_data(package_id, list(user_data))
+            ):
+                parked = packages.preserved_dir(package_id)
+                parked.mkdir(parents=True, exist_ok=True)
+                for path in user_data:
+                    dest = parked / path.name
+                    if dest.exists():
+                        dest.unlink()
+                    shutil.move(str(path), str(dest))
+                    preserved.append(path.name)
+
+        _progress(f"removing {package_id}...")
+        updating_dir = packages.UPDATING_DIR
+        updating_dir.mkdir(parents=True, exist_ok=True)
+        trash = updating_dir / f"{package_id}.trash"
+        if trash.exists():
+            shutil.rmtree(trash, ignore_errors=True)
+        _rename_with_retry(pkg_dir, trash)
+        shutil.rmtree(trash, ignore_errors=True)
+        packages.record_uninstall(package_id)
+        toolbox.purge_package_modules([package_id])
+        toolbox.reload_registry()
         try:
-            manifest = packages.load_manifest(pkg_dir)
-        except packages.PackageLoadError:
-            # A corrupt package still has to be removable; it just can't tell
-            # us which of its files are user data.
-            manifest = None
-        user_data = packages.user_data_paths(manifest) if manifest else []
-        if user_data and (on_user_data is None or on_user_data(package_id, list(user_data))):
-            parked = packages.preserved_dir(package_id)
-            parked.mkdir(parents=True, exist_ok=True)
-            for path in user_data:
-                dest = parked / path.name
-                if dest.exists():
-                    dest.unlink()
-                shutil.move(str(path), str(dest))
-                preserved.append(path.name)
+            updating_dir.rmdir()
+        except OSError:
+            pass  # other packages' backups (or something else) still in there
 
-    shutil.rmtree(pkg_dir)
-    packages.record_uninstall(package_id)
-    toolbox.reload_registry()
-    return UninstallResult(dependents=dependents, preserved=preserved)
+        return UninstallResult(dependents=dependents, preserved=preserved)
 
 
 # ---------------------------------------------------------------------------
@@ -989,10 +1684,13 @@ def _prompt_config_edit(
 
 def _prompt_plan(plan: list[PlanEntry], complete: bool) -> bool:
     requested = next(e for e in plan if e.reason == "requested")
-    extra = [e for e in plan if e.reason == "dependency" and not e.already_installed]
+    extra = [e for e in plan if e.reason != "requested" and e.needs_action]
     print(f"\n'{requested.id}' also needs:")
     for entry in extra:
-        print(f"  {entry.id}  {entry.version}  {entry.name}")
+        if entry.reason == "upgrade":
+            print(f"  {entry.id}  {entry.installed_version} -> {entry.version}  (upgrade)")
+        else:
+            print(f"  {entry.id}  {entry.version}  {entry.name}")
     if not complete:
         print("  (the catalog doesn't list every dependency, so there may be more)")
     print("These will be installed and configured first.")
@@ -1083,11 +1781,12 @@ def _parse_set_args(pairs: list[str], default_package_id: str) -> dict[str, dict
     return answers
 
 
-def _cli_install(args: argparse.Namespace) -> int:
-    raw_answers = _parse_set_args(args.set or [], args.package_id)
-    # CLI values arrive as strings; coerce them once we know each field's
-    # declared type (done lazily inside the missing-config callback so we
-    # only need the manifest, not a second pass over raw_answers here).
+def _make_on_missing_config(
+    args: argparse.Namespace, raw_answers: dict[str, dict[str, Any]]
+) -> OnMissingConfig:
+    """Shared by ``install`` and ``update``: prefer a pre-supplied ``--set``
+    value, coerced to the field's declared type; prompt for the rest unless
+    ``--yes`` was given, in which case missing config is a hard error."""
 
     def on_missing_config(staged: StagedPackage, fields: list[ConfigField]) -> dict[str, Any]:
         pkg_id = staged.manifest.id
@@ -1109,6 +1808,52 @@ def _cli_install(args: argparse.Namespace) -> int:
             result.update(_prompt_for_fields(staged, still_missing))
         return result
 
+    return on_missing_config
+
+
+def _result_payload(staged: list[StagedPackage]) -> dict[str, Any]:
+    """JSON payload shared by ``install`` and ``update``'s CLI: which
+    packages were freshly installed vs. upgraded, what config is still
+    pending (``--defer-config``), each one's health, and whether a pip
+    install means the backend should be restarted to pick it up."""
+    installed = [sp.manifest.id for sp in staged if sp.previous is None]
+    upgraded = [
+        {
+            "id": sp.manifest.id,
+            "from": (sp.previous.manifest.version if sp.previous.manifest else "?"),
+            "to": sp.manifest.version,
+        }
+        for sp in staged
+        if sp.previous is not None
+    ]
+    config_pending = {sp.manifest.id: sp.config_pending for sp in staged if sp.config_pending}
+    health = {
+        sp.manifest.id: {"ok": sp.health.ok, "detail": sp.health.detail}
+        for sp in staged
+        if sp.health is not None
+    }
+    restart_recommended = any(sp.pip_changed for sp in staged)
+    restored = sorted({name for sp in staged for name in sp.restored_user_data})
+    payload: dict[str, Any] = {
+        "ok": True,
+        "installed": installed,
+        "upgraded": upgraded,
+        "config_pending": config_pending,
+        "health": health,
+        "restart_recommended": restart_recommended,
+        "note": "restart the backend for it to pick up the new tool(s)",
+    }
+    if restored:
+        payload["restored"] = restored
+    return payload
+
+
+def _cli_install(args: argparse.Namespace) -> int:
+    raw_answers = _parse_set_args(args.set or [], args.package_id)
+    # CLI values arrive as strings; coerce them once we know each field's
+    # declared type (done lazily inside the missing-config callback so we
+    # only need the manifest, not a second pass over raw_answers here).
+    on_missing_config = _make_on_missing_config(args, raw_answers)
     on_health_result = None if args.yes else _prompt_health_decision
 
     try:
@@ -1120,24 +1865,103 @@ def _cli_install(args: argparse.Namespace) -> int:
             on_health_result=on_health_result,
             on_plan=None if args.yes else _prompt_plan,
             keep_on_health_failure=args.keep_on_health_failure,
+            defer_config=args.defer_config,
         )
     # SourceError and PackageLoadError are not ManagerError subclasses: an
     # unreachable catalog or a malformed manifest used to escape as a raw
     # traceback here, which the CLI then reported as "no output from the
-    # manager" rather than the real reason.
+    # manager" rather than the real reason. ManagerBusy is a ManagerError
+    # subclass and so is already covered.
     except (ManagerError, SourceError, packages.PackageLoadError) as exc:
         _emit(args, {"ok": False, "error": str(exc)})
         return 1
 
-    payload: dict[str, Any] = {
-        "ok": True,
-        "installed": [sp.manifest.id for sp in staged],
-        "note": "restart the backend for it to pick up the new tool(s)",
-    }
-    restored = sorted({name for sp in staged for name in sp.restored_user_data})
-    if restored:
-        payload["restored"] = restored
-    _emit(args, payload)
+    _emit(args, _result_payload(staged))
+    return 0
+
+
+def _cli_update(args: argparse.Namespace) -> int:
+    raw_answers = _parse_set_args(args.set or [], args.package_id)
+    on_missing_config = _make_on_missing_config(args, raw_answers)
+    on_health_result = None if args.yes else _prompt_health_decision
+    # --yes means "don't block on anything" -- a failed health check on an
+    # otherwise-successful update is reported, not treated as a reason to
+    # roll a perfectly good upgrade back.
+    keep_on_health_failure = args.keep_on_health_failure or args.yes
+
+    try:
+        staged = update(
+            args.package_id,
+            source=args.source,
+            answers={pkg_id: dict(vals) for pkg_id, vals in raw_answers.items()},
+            on_missing_config=on_missing_config,
+            on_health_result=on_health_result,
+            on_plan=None if args.yes else _prompt_plan,
+            keep_on_health_failure=keep_on_health_failure,
+            defer_config=args.defer_config,
+        )
+    except (ManagerError, SourceError, packages.PackageLoadError) as exc:
+        _emit(args, {"ok": False, "error": str(exc)})
+        return 1
+
+    if not staged:
+        installed = packages.load_manifest(packages.package_dir(args.package_id))
+        _emit(
+            args,
+            {
+                "ok": True,
+                "up_to_date": True,
+                "package": args.package_id,
+                "version": installed.version,
+                "installed": [],
+                "upgraded": [],
+                "config_pending": {},
+                "health": {},
+                "restart_recommended": False,
+            },
+        )
+        return 0
+
+    _emit(args, _result_payload(staged))
+    return 0
+
+
+def _cli_plan(args: argparse.Namespace) -> int:
+    try:
+        source_obj = sources.parse_source(args.source)
+        mode = "update" if is_installed(args.package_id) else "install"
+        entries = _catalog_entries(source_obj)
+        plan, complete = resolve_plan(args.package_id, source_obj, mode=mode, entries=entries)
+        up_to_date = False
+        if mode == "update" and len(plan) == 1 and plan[0].already_installed:
+            catalog_version = entries[args.package_id].version
+            up_to_date = not versions.is_newer(catalog_version, plan[0].installed_version or "0")
+    except (ManagerError, SourceError, packages.PackageLoadError) as exc:
+        _emit(args, {"ok": False, "error": str(exc)})
+        return 1
+    _emit(
+        args,
+        {
+            "ok": True,
+            "package": args.package_id,
+            "action": mode,
+            "up_to_date": up_to_date,
+            "complete": complete,
+            "entries": [
+                {
+                    "id": e.id,
+                    "name": e.name,
+                    "version": e.version,
+                    "kind": e.kind,
+                    "reason": e.reason,
+                    "already_installed": e.already_installed,
+                    "installed_version": e.installed_version,
+                    "needs_action": e.needs_action,
+                }
+                for e in plan
+            ],
+        },
+    )
     return 0
 
 
@@ -1173,6 +1997,7 @@ def _cli_available(args: argparse.Namespace) -> int:
     except SourceError as exc:
         _emit(args, {"ok": False, "error": str(exc)})
         return 1
+    installed_manifests = {m.id: m for m in list_installed()}
     _emit(
         args,
         {
@@ -1188,6 +2013,13 @@ def _cli_available(args: argparse.Namespace) -> int:
                     # dependencies -- "unknown" is not "none".
                     "requires": list(e.requires) if e.requires is not None else None,
                     "installed": is_installed(e.id),
+                    "installed_version": (
+                        installed_manifests[e.id].version if e.id in installed_manifests else None
+                    ),
+                    "update_available": (
+                        e.id in installed_manifests
+                        and versions.is_newer(e.version, installed_manifests[e.id].version)
+                    ),
                 }
                 for e in entries
             ],
@@ -1397,7 +2229,47 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="install even if the health check fails, instead of asking/rolling back",
     )
+    p_install.add_argument(
+        "--defer-config",
+        action="store_true",
+        help="install even if required config is missing, instead of asking/failing; "
+        "skips the health check until it's configured",
+    )
     p_install.set_defaults(func=_cli_install)
+
+    p_update = sub.add_parser(
+        "update", help="upgrade an installed package to what the catalog offers"
+    )
+    p_update.add_argument("package_id")
+    p_update.add_argument("--source", default=sources.DEFAULT_CATALOG_SOURCE)
+    p_update.add_argument(
+        "--set",
+        action="append",
+        metavar="[pkg.]key=value",
+        help="pre-supply a config value; repeatable",
+    )
+    p_update.add_argument(
+        "--yes", action="store_true", help="never prompt; report (don't fail on) a bad health check"
+    )
+    p_update.add_argument(
+        "--defer-config",
+        action="store_true",
+        help="update even if required config is missing, instead of asking/failing; "
+        "skips the health check until it's configured",
+    )
+    p_update.add_argument(
+        "--keep-on-health-failure",
+        action="store_true",
+        help="update even if the health check fails, instead of asking/rolling back",
+    )
+    p_update.set_defaults(func=_cli_update)
+
+    p_plan = sub.add_parser(
+        "plan", help="show what installing/updating a package would do, without doing it"
+    )
+    p_plan.add_argument("package_id")
+    p_plan.add_argument("--source", default=sources.DEFAULT_CATALOG_SOURCE)
+    p_plan.set_defaults(func=_cli_plan)
 
     p_uninstall = sub.add_parser("uninstall", help="remove an installed package")
     p_uninstall.add_argument("package_id")

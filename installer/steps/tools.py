@@ -67,9 +67,14 @@ def run(root: Path) -> None:
     # A library package (google_auth) provides no tools of its own and is
     # pulled in automatically by whatever requires it, so listing it among
     # "which tools do you want" only muddies the choice.
-    offered = [pkg for pkg in packages if pkg.get("kind") != "library"]
+    offered = [
+        pkg for pkg in packages if pkg.get("kind") != "library" and not pkg.get("installed")
+    ]
     if not offered:
-        ui.warn(i18n.t("tools_step.catalog_unreachable"))
+        if any(pkg.get("kind") != "library" for pkg in packages):
+            ui.info(i18n.t("tools_step.all_installed"))
+        else:
+            ui.warn(i18n.t("tools_step.catalog_unreachable"))
         return
 
     options = []

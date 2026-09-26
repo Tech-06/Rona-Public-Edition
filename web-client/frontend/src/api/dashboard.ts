@@ -53,6 +53,12 @@ export interface PackageStatus {
   missing_config: string[];
   config_fields: PackageConfigField[];
   actions: PackageAction[];
+  /** Installed package ids that list this one in their own `requires` --
+   * shown when trying to uninstall it, since doing so would break them. */
+  dependents: string[];
+  /** Human-readable `requires` violations against what's actually
+   * installed (missing dependency, or an installed version too old). */
+  requirement_problems: string[];
 }
 
 export interface PackageConfigResponse {
@@ -99,6 +105,10 @@ export interface ProbeResponse {
 export interface PackagesResponse {
   packages: PackageStatus[];
   warnings: string[];
+}
+
+export interface PackageReloadResponse extends PackagesResponse {
+  purged_modules: number;
 }
 
 export interface ToolSpecResponse {
@@ -280,6 +290,12 @@ export const dashboardApi = {
   connections: () => api.get<ConnectionsResponse>("/api/connections"),
   probeConnections: () => api.post<ProbeResponse>("/api/connections/probe"),
   packages: () => api.get<PackagesResponse>("/api/packages"),
+  /** Hot-reloads custom packages in the backend after a web-driven
+   * install/update/uninstall job finishes (POST /api/packages/reload).
+   * A plain `api.post` call, unlike the /host/packages/* job
+   * endpoints -- this one goes through the backend, so it can 502/503/504
+   * while `RELOAD=true` restarts the backend process mid-install. */
+  reloadPackages: () => api.post<PackageReloadResponse>("/api/packages/reload"),
   packageConfig: (id: string) => api.get<PackageConfigResponse>(`/api/packages/${id}/config`),
   updatePackageConfig: (id: string, values: Record<string, unknown>) =>
     api.put<PackageConfigUpdateResponse>(`/api/packages/${id}/config`, values),

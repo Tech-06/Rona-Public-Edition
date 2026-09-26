@@ -358,3 +358,118 @@ def test_action_params_reuse_config_field_defaults():
     assert param.type == "string"
     assert param.required is True
     assert param.secret is False
+
+
+# ---------------------------------------------------------------------------
+# requires: version constraints
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_rejects_invalid_requires():
+    with pytest.raises(ValidationError):
+        _parsed_manifest(requires=["Bad-Name"])
+    with pytest.raises(ValidationError):
+        _parsed_manifest(requires=["x>=1.a"])
+
+
+def test_manifest_rejects_duplicate_and_self_requirement():
+    with pytest.raises(ValidationError, match="duplicate"):
+        _parsed_manifest(requires=["dep>=1.0", "dep>=2.0"])
+    with pytest.raises(ValidationError, match="cannot require itself"):
+        _parsed_manifest(requires=["x"])  # id is "x" from _parsed_manifest's base
+
+
+def test_manifest_requires_normalizes_and_exposes_helpers():
+    manifest = _parsed_manifest(requires=["dep>=2.0,<3"])
+    assert manifest.requires == ["dep>=2.0,<3"]
+    reqs = manifest.requirements()
+    assert [r.name for r in reqs] == ["dep"]
+    assert manifest.required_ids() == ["dep"]
+
+
+def test_registry_warns_on_missing_requirement(fixture_package):
+    fixture_package(
+        "needs_missing",
+        _manifest("needs_missing", requires=["not_installed_dep"]),
+        _tools("needs_missing_tool"),
+        "def needs_missing_tool():\n    return {'success': True}\n",
+    )
+    registry.reload_registry()
+
+    warnings = toolbox.load_warnings()
+    assert any(
+        "needs_missing" in w and "not_installed_dep" in w and "not installed" in w
+        for w in warnings
+    )
+    # Still loaded -- this is a warning, not a blocker.
+    assert "needs_missing" in {m.id for m in toolbox.installed_packages()}
+
+
+def test_registry_warns_on_unsatisfied_version(fixture_package):
+    fixture_package(
+        "dep_old",
+        _manifest("dep_old", version="1.0.0"),
+        _tools("dep_old_tool"),
+        "def dep_old_tool():\n    return {'success': True}\n",
+    )
+    fixture_package(
+        "needs_new_dep",
+        _manifest("needs_new_dep", requires=["dep_old>=2.0"]),
+        _tools("needs_new_dep_tool"),
+        "def needs_new_dep_tool():\n    return {'success': True}\n",
+    )
+    registry.reload_registry()
+
+    warnings = toolbox.load_warnings()
+    assert any(
+        "needs_new_dep" in w and "dep_old" in w and "1.0.0" in w for w in warnings
+    )
+
+
+def test_registry_no_warning_when_satisfied(fixture_package):
+    fixture_package(
+        "dep_new",
+        _manifest("dep_new", version="2.5.0"),
+        _tools("dep_new_tool"),
+        "def dep_new_tool():\n    return {'success': True}\n",
+    )
+    fixture_package(
+        "needs_satisfied_dep",
+        _manifest("needs_satisfied_dep", requires=["dep_new>=2.0"]),
+        _tools("needs_satisfied_dep_tool"),
+        "def needs_satisfied_dep_tool():\n    return {'success': True}\n",
+    )
+    registry.reload_registry()
+
+    warnings = toolbox.load_warnings()
+    assert not any("needs_satisfied_dep" in w and "requires" in w for w in warnings)
+
+
+def test_purge_package_modules(fixture_package):
+    fixture_package(
+        "purge_pkg",
+        _manifest("purge_pkg"),
+        _tools("purge_pkg_tool"),
+        "def purge_pkg_tool():\n    return {'success': True}\n",
+        module_name="purge_pkg_tool",
+    )
+    registry.reload_registry()
+    assert toolbox.has_tool("purge_pkg_tool")
+    assert "toolbox.custom.purge_pkg.purge_pkg_tool" in sys.modules
+
+    removed = registry.purge_package_modules(["purge_pkg"])
+    assert removed >= 1
+    assert "toolbox.custom.purge_pkg.purge_pkg_tool" not in sys.modules
+    # toolbox.custom itself must never be dropped.
+    assert "toolbox.custom" in sys.modules
+
+
+def test_failed_packages_lists_broken_package(fixture_package):
+    pkg_dir = CUSTOM_DIR / "broken_for_failed"
+    pkg_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        registry.reload_registry()
+        assert "broken_for_failed" in toolbox.failed_packages()
+    finally:
+        shutil.rmtree(pkg_dir, ignore_errors=True)
+        registry.reload_registry()

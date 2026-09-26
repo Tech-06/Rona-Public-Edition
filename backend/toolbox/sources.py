@@ -55,6 +55,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
+from toolbox import versions
+
 logger = logging.getLogger("uvicorn.error")
 
 DEFAULT_CATALOG_SOURCE = "git:https://github.com/Tech-06/Rona-Tools.git"
@@ -78,8 +80,17 @@ class CatalogEntry:
     # ``None`` means the catalog didn't declare dependencies at all, which is
     # not the same as ``()`` ("declared, and there are none"). A plan built
     # from an index predating the key has to admit it may be incomplete
-    # rather than promise there is nothing else to install.
+    # rather than promise there is nothing else to install. Each entry may
+    # carry a pip-like version constraint (see toolbox.versions), e.g.
+    # "google_auth", "google_auth>=2.0", "google_auth>=2.0,<3" -- normalized
+    # by _parse_index the same way toolbox.packages normalizes a manifest's
+    # own requires list.
     requires: tuple[str, ...] | None = None
+
+    def requirements(self) -> tuple["versions.Requirement", ...] | None:
+        if self.requires is None:
+            return None
+        return tuple(versions.parse_requirement(r) for r in self.requires)
 
 
 def _parse_index(raw: str, *, origin: str) -> list[CatalogEntry]:
@@ -96,6 +107,20 @@ def _parse_index(raw: str, *, origin: str) -> list[CatalogEntry]:
             raise SourceError(f"{origin}: invalid package entry in index.json: {item!r}")
         pkg_id = item["id"]
         raw_requires = item.get("requires")
+        requires: tuple[str, ...] | None = None
+        if isinstance(raw_requires, list):
+            normalized_requires = []
+            for dep in raw_requires:
+                dep_str = str(dep)
+                try:
+                    req = versions.parse_requirement(dep_str)
+                except versions.VersionError as exc:
+                    raise SourceError(
+                        f"{origin}: package '{pkg_id}': invalid requires entry "
+                        f"{dep!r}: {exc}"
+                    ) from exc
+                normalized_requires.append(str(req))
+            requires = tuple(normalized_requires)
         entries.append(
             CatalogEntry(
                 id=pkg_id,
@@ -104,11 +129,7 @@ def _parse_index(raw: str, *, origin: str) -> list[CatalogEntry]:
                 description=item.get("description", ""),
                 path=item.get("path", f"packages/{pkg_id}"),
                 kind=item.get("kind", "tool"),
-                requires=(
-                    tuple(str(dep) for dep in raw_requires)
-                    if isinstance(raw_requires, list)
-                    else None
-                ),
+                requires=requires,
             )
         )
     return entries

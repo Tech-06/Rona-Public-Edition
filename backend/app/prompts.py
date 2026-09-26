@@ -1,44 +1,21 @@
-from pathlib import Path
+from app import prompt_store
 
-import i18n
+PROMPTS_DIR = prompt_store.PROMPTS_DIR
 
-PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+PROMPT_FILES = [prompt_store.spec(prompt_id).filename for prompt_id in prompt_store.MAIN_PROMPT_IDS]
 
-PROMPT_FILES = [
-    "persona.md",
-    "output_text.md",
-    "user.md",
-    "toolbox.md",
-    "memory.md",
-    "subagents.md",
-    "trigger.md",
-]
-
-# {{...}} placeholders substituted into prompt files at load time, so the
-# handful of spots that genuinely depend on LANGUAGE (persona.md's "speak
-# X" directive, trigger.md's worked example) don't require a whole second
-# copy of every prompt file -- everything else in these files is
-# instructions *to the model*, not shown to the user, and is deliberately
-# left as plain English prose regardless of LANGUAGE (see the language
-# plan's rationale).
-_PLACEHOLDERS = {
-    "PRIMARY_LANGUAGE_RULE": lambda: i18n.t("prompt.primary_language_rule"),
-    "EXAMPLE_GREETING": lambda: i18n.t("prompt.example_greeting"),
-}
-
-
-def _substitute_placeholders(content: str) -> str:
-    for name, resolve in _PLACEHOLDERS.items():
-        content = content.replace("{{" + name + "}}", resolve())
-    return content
+# Kept for backwards compatibility -- tests/test_i18n.py imports
+# `_substitute_placeholders` directly, and `_PLACEHOLDERS` used to be the
+# canonical home of these lambdas before they moved to prompt_store.py so
+# the new prompt-editing API (app/prompts_api.py) could share them too.
+_PLACEHOLDERS = prompt_store.PLACEHOLDERS
+_substitute_placeholders = prompt_store.substitute_placeholders
 
 
 def load_prompts() -> list[dict[str, str]]:
     messages = []
-    for name in PROMPT_FILES:
-        path = PROMPTS_DIR / name
-        if path.is_file():
-            content = _substitute_placeholders(path.read_text(encoding="utf-8").strip())
-            if content:
-                messages.append({"role": "system", "content": content})
+    for prompt_id in prompt_store.MAIN_PROMPT_IDS:
+        content = prompt_store.load_rendered(prompt_id)
+        if content:
+            messages.append({"role": "system", "content": content})
     return messages

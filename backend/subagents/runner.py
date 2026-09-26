@@ -3,21 +3,17 @@ import inspect
 import json
 import logging
 import time
-from pathlib import Path
 from typing import Any
 
 import i18n
 from app.config import get_settings
 from app.llm import chat_completion
+from app.prompt_store import load_worker_prompt
 from subagents import store
 from toolbox.registry import background_tool_names, get_tool, get_tool_schemas, has_tool
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
-
-WORKER_PROMPT_PATH = (
-    Path(__file__).resolve().parent.parent / "prompts" / "subagent_worker.md"
-)
 
 WRAP_UP_PROMPT = (
     "You have reached the tool call limit. Do not call any more tools. "
@@ -37,12 +33,7 @@ _tasks: dict[str, asyncio.Task] = {}
 
 
 def _load_worker_prompt() -> str:
-    if not WORKER_PROMPT_PATH.is_file():
-        raise FileNotFoundError(f"Worker prompt file not found: {WORKER_PROMPT_PATH}")
-    content = WORKER_PROMPT_PATH.read_text(encoding="utf-8").strip()
-    if not content:
-        raise ValueError(f"Worker prompt file is empty: {WORKER_PROMPT_PATH}")
-    return content
+    return load_worker_prompt("subagent_worker")
 
 
 def _allowed_tool_names() -> set[str]:

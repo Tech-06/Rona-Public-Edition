@@ -64,12 +64,15 @@ rona tools config <id>        # show or change a package's settings
 rona tools actions <id>       # operations the package exposes
 rona tools run <id> <action>  # run one of them
 rona tools verify <id>        # re-run a package's health check
+rona tools update <id>        # upgrade it if a newer version exists
 rona tools uninstall <id>
 ```
 
 A package's settings can be changed after install too: `rona tools config <id>` (or, in the dashboard, **Settings → Connections → Tool packages → Configure**) goes through the very same `.env`/`config.json` write paths. Some packages also expose **actions** -- unlike tools, you call these, not the model (authorizing a Google account, say) -- runnable both from `rona tools run` and from that same panel.
 
-**Dependencies.** A package declares what it needs in its own manifest, and the catalog mirrors that into `index.json`, so an install can tell you what is about to happen before anything is downloaded. `rona tools install google_calendar` warns that it will also install `google_auth` and asks first; if you agree, `google_auth` is installed and fully configured *before* the package you asked for is touched. Removing something another package still requires is refused without `--force`.
+Installing, updating, and removing a package no longer requires a terminal either: in the dashboard, **Settings → Connections → Catalog** tab lets you pick a package and hit **Install** or **Update** -- it first shows the dependency plan (what will be installed/upgraded) and asks for confirmation; once you agree, the job runs in the background with its log streaming live. An install from the dashboard doesn't ask for required settings right away -- the package installs first, then the configuration panel that opens afterwards is where you fill them in. Removing a package from the **Installed** tab keeps its user data (tokens, sessions, etc.) by default -- check "also delete user data" if you want it gone -- and removing something another package still depends on is blocked here too. Once the job finishes, the backend reloads its packages on its own; if pip actually upgraded something, a restart is suggested. `rona tools available` marks an installed package with a newer catalog version as `installed X -> Y available` and prints a hint to run `rona tools update <package>` at the end of the list.
+
+**Dependencies.** A package declares what it needs in its own manifest, and the catalog mirrors that into `index.json`, so an install can tell you what is about to happen before anything is downloaded. `rona tools install google_calendar` warns that it will also install `google_auth` and asks first; if you agree, `google_auth` is installed and fully configured *before* the package you asked for is touched. Removing something another package still requires is refused without `--force`. A dependency can also carry a version constraint (`google_auth>=2.0`, `x~=2.1`, and so on); if an installed package no longer satisfies one, the registry flags it as a warning (the package still loads) and surfaces it in the dashboard -- fix it by running `rona tools update` on the outdated dependency.
 
 `rona tools` delegates to the backend's own `python -m toolbox.manager` under the hood (see [`rona` command reference](#rona-command-reference)); if you installed the backend manually, you can run the same commands directly from inside `backend/` as `python -m toolbox.manager ...`.
 
@@ -247,7 +250,8 @@ Once the installer is done, you manage Rona from your terminal with `rona`:
 | `rona edit memory search\|add\|edit\|delete\|list\|archive\|archived\|restore\|purge\|stats` | Manage memory records and the archive (needs a running backend) |
 | `rona edit memory consolidate run [--dry-run]\|status\|config` | Run consolidation (automatic promote/archive/delete), show its status, or edit its thresholds |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Show/set the language of all three components; changes all three if no target is given |
-| `rona tools list\|available\|install\|uninstall\|verify` | Manage the optional tool packages from the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog (delegates to the backend's `toolbox.manager`) |
+| `rona edit prompt list\|show\|edit\|reset` | View/edit/reset the identity and behavior prompts (9 `.md` files) (needs a running backend) |
+| `rona tools list\|available\|install\|update\|uninstall\|verify` | Manage the optional tool packages from the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog (delegates to the backend's `toolbox.manager`) |
 | `rona tools config <id> [--set k=v] [--edit]` | Show or change an installed package's settings (secrets are masked) |
 | `rona tools actions <id>` / `rona tools run <id> <action>` | List/run a package's operator-facing operations (e.g. `google_auth add_account`) |
 | `rona task list\|del\|toggle` | List/delete/toggle scheduled tasks |
@@ -753,10 +757,24 @@ pytest -q
 
 ## Customizing Identity and Behavior
 
-The files under `backend/prompts/` make up the system prompt and fall into two categories:
+Personality, output formatting, the user profile, and the tool/memory/subagent/task rules -- nine `.md` prompt files in total -- can now be changed from the web dashboard or with `rona edit prompt`, with no need to touch the filesystem by hand:
 
-- **Identity (yours to fill in):** `backend/prompts/user.md` — deliberately left in this repository as a blank, fillable template. This is where you write who you are, what you do, which technologies you use, and how you want Rona to interact with you.
-- **Behavior (works as-is, edit if you want to):** `persona.md` (personality and tone), `output_text.md` (formatting rules), and `toolbox.md`/`memory.md`/`subagents.md`/`trigger.md` (tool-usage and memory-layer rules) — these are generic and contain no personal data; edit these if you want to change the assistant's general behavior.
+- **Main chat (7):** `persona` (personality and tone), `output_text` (formatting rules), `user` (the user profile — who you are, what you do, how you want Rona to interact with you), `toolbox`/`memory`/`subagents`/`trigger` (tool-usage and memory-layer rules) — concatenated in this order on every chat turn.
+- **Background subagents (1):** `subagent_worker` — the system prompt subagents run with.
+- **Scheduled tasks (1):** `trigger_worker` — the system prompt the task executor runs with; its JSON verdict shape (fields like `outcome`, `condition_not_met`) is a contract — break it and scheduled tasks stop working — so the dashboard and CLI flag a missing marker as a warning when you save.
+
+In the dashboard, open **Settings → Prompts** to edit a prompt, save it, or reset it back to default with "Reset to default"; the same from the terminal:
+
+```bash
+rona edit prompt list                  # status of all nine prompts (customized? default changed?)
+rona edit prompt show user             # print the current content (--default for the shipped one)
+rona edit prompt edit user             # opens it in $VISUAL/$EDITOR, saves on close
+rona edit prompt reset user            # delete the override, back to default
+```
+
+A customization is written to a same-named file under a directory git never tracks (`backend/prompts/custom/`) — the tracked `backend/prompts/*.md` files never change, so a `git pull` can never conflict with a customization. That override file wins if it exists, otherwise the tracked default is used. If the underlying default later changes with an update (`git pull`) after you've customized it, the dashboard and `rona edit prompt list` show a "default changed" badge — your cue to review the new default and manually carry your customization forward. A save takes effect starting with the very next message or task run; no backend restart is needed.
+
+> **If you've hand-edited `user.md` before:** that tracked-file edit keeps working exactly as before, nothing breaks. But it now risks a conflict on every `git pull`; to move it over, save its content from the dashboard (**Settings → Prompts → user**) or with `rona edit prompt edit user` — either one writes it to `backend/prompts/custom/user.md` — then revert your local change to the tracked `backend/prompts/user.md`.
 
 If you want to rename the assistant, note that `APP_NAME` in `backend/.env` only surfaces in a few shallow places (the `/health` response, the FastAPI title), while `persona.md` also hardcodes the name "Rona" as plain text — update both for a full rebrand.
 
@@ -764,5 +782,6 @@ If you want to rename the assistant, note that `APP_NAME` in `backend/.env` only
 
 - Every backend endpoint is protected by `AUTH_TOKEN`; generate it unguessably at random (`rona edit auth reset`) and never share it.
 - The web dashboard uses the same `AUTH_TOKEN` as the backend and proxies your requests to it with that token; if you expose the dashboard beyond `127.0.0.1` (e.g. `WEB_HOST=0.0.0.0`), put it behind a reverse proxy with TLS and restrict `WEB_ALLOWED_HOSTS` to your real domain.
+- The dashboard's `/host/*` endpoints (starting/stopping the backend, tailing its log, and now installing/updating/removing packages) have no authentication of their own -- `/host/packages/*` included, at the same access level as the "restart" button. Keep the dashboard reachable only from a network you actually trust (your own VPN, say).
 - Sensitive tool calls (sending email, deleting a person/task/memory, etc.) always go through user confirmation; calls pre-approved via `create_task` can only ever run with the exact parameters they were defined with — the executor cannot change them. Adding or editing a memory (including the `deep` layer) never asks for confirmation -- layers are already managed automatically by consolidation; deleting a person is still confirmed and moves their memories to the archive instead of deleting them outright.
 - If you suspect any key or token has leaked, revoke and regenerate it with the relevant provider immediately, and rotate `AUTH_TOKEN` (`rona edit auth reset`).

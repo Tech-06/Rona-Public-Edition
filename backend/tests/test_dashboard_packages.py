@@ -210,3 +210,74 @@ def test_unknown_action_is_a_400_naming_what_exists(client, fixture_package):
     response = client.post("/api/packages/dash_noact/actions/nope", json={})
     assert response.status_code == 400
     assert "step" in response.json()["detail"]
+
+
+def test_package_status_lists_dependents_and_problems(client, fixture_package):
+    fixture_package("dash_base", {"version": "1.0.0"})
+    fixture_package("dash_leaf", {"requires": ["dash_base>=2.0"]})
+
+    body = client.get("/api/packages").json()
+    by_id = {p["id"]: p for p in body["packages"]}
+
+    # dash_leaf depends on dash_base, so dash_base's dependents list it.
+    assert by_id["dash_base"]["dependents"] == ["dash_leaf"]
+    assert by_id["dash_leaf"]["dependents"] == []
+
+    # dash_base is only at 1.0.0, dash_leaf wants >=2.0 -- a warning, not a
+    # failure to load.
+    assert by_id["dash_leaf"]["requirement_problems"]
+    assert "dash_base" in by_id["dash_leaf"]["requirement_problems"][0]
+    assert by_id["dash_base"]["requirement_problems"] == []
+
+    connections = client.get("/api/connections").json()
+    conn_by_id = {p["id"]: p for p in connections["packages"]}
+    assert conn_by_id["dash_base"]["dependents"] == ["dash_leaf"]
+
+
+def test_reload_endpoint_picks_up_changed_code(client, fixture_package):
+    fixture_package(
+        "dash_reload",
+        {"actions": [{"id": "step", "handler": ".actions:step"}]},
+        {
+            "actions.py": (
+                "def step(config, params, state):\n"
+                "    return {'status': 'ok', 'message': 'v1'}\n"
+            )
+        },
+    )
+
+    first = client.post("/api/packages/dash_reload/actions/step", json={})
+    assert first.json()["message"] == "v1"
+
+    # Simulate what toolbox.manager does after an install/update: the
+    # package's files on disk change underneath the running process. The
+    # replacement source is a different length than the original -- a
+    # stale sys.modules entry (same file path, same mtime resolution) would
+    # otherwise still satisfy Python's cache and never re-read the file.
+    (packages.CUSTOM_DIR / "dash_reload" / "actions.py").write_text(
+        "def step(config, params, state):\n"
+        "    return {'status': 'ok', 'message': 'v2, now with a longer message'}\n",
+        encoding="utf-8",
+    )
+
+    response = client.post("/api/packages/reload")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["purged_modules"] >= 1
+    assert "dash_reload" in {p["id"] for p in body["packages"]}
+
+    second = client.post("/api/packages/dash_reload/actions/step", json={})
+    assert second.json()["message"] == "v2, now with a longer message"
+
+
+def test_reload_returns_requirement_warnings(client, fixture_package):
+    fixture_package("dash_rbase", {"version": "1.0.0"})
+    fixture_package("dash_rleaf", {"requires": ["dash_rbase>=2.0"]})
+
+    response = client.post("/api/packages/reload")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert any(
+        "dash_rleaf" in w and "dash_rbase" in w for w in body["warnings"]
+    )

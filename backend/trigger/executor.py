@@ -4,21 +4,17 @@ import json
 import logging
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 import i18n
 from app.config import get_settings
 from app.llm import chat_completion
+from app.prompt_store import load_worker_prompt
 from toolbox.registry import background_tool_names, get_tool, get_tool_schemas, has_tool
 from trigger import store
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
-
-WORKER_PROMPT_PATH = (
-    Path(__file__).resolve().parent.parent / "prompts" / "trigger_worker.md"
-)
 
 VALID_OUTCOMES = {"done", "condition_not_met", "failed"}
 
@@ -72,12 +68,7 @@ def _execution_semaphore() -> asyncio.Semaphore:
 
 
 def _load_worker_prompt() -> str:
-    if not WORKER_PROMPT_PATH.is_file():
-        raise FileNotFoundError(f"Worker prompt file not found: {WORKER_PROMPT_PATH}")
-    content = WORKER_PROMPT_PATH.read_text(encoding="utf-8").strip()
-    if not content:
-        raise ValueError(f"Worker prompt file is empty: {WORKER_PROMPT_PATH}")
-    return content
+    return load_worker_prompt("trigger_worker")
 
 
 def _free_tool_names() -> set[str]:

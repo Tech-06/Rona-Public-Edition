@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from webui import frontend_build, host, i18n, proxy
+from webui import frontend_build, host, i18n, package_jobs, proxy
 from webui.config import get_settings
 from webui.logging_config import configure_file_logging
 
@@ -124,6 +124,7 @@ def create_app() -> FastAPI:
     app.add_middleware(CsrfGuardMiddleware)
 
     app.include_router(host.router)
+    app.include_router(package_jobs.router)
 
     @app.api_route(
         "/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]

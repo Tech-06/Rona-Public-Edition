@@ -280,3 +280,38 @@ def test_index_without_requires_reads_as_unknown_not_empty():
         json.dumps({"catalog_version": 1, "packages": [{"id": "old"}]}), origin="test"
     )
     assert entries[0].requires is None
+
+
+def test_index_accepts_and_normalizes_constraints():
+    entries = _parse_index(
+        json.dumps(
+            {
+                "catalog_version": 2,
+                "packages": [
+                    {
+                        "id": "leaf",
+                        "requires": ["dep>=2.0,<3", " other ~= 1.2 ", "bare"],
+                    }
+                ],
+            }
+        ),
+        origin="test",
+    )
+    entry = entries[0]
+    assert entry.requires == ("dep>=2.0,<3", "other~=1.2", "bare")
+    reqs = entry.requirements()
+    assert [r.name for r in reqs] == ["dep", "other", "bare"]
+    assert reqs[2].specifiers == ()
+
+
+def test_index_rejects_invalid_requires_entry():
+    with pytest.raises(SourceError, match="invalid requires entry"):
+        _parse_index(
+            json.dumps(
+                {
+                    "catalog_version": 2,
+                    "packages": [{"id": "leaf", "requires": ["Bad-Name"]}],
+                }
+            ),
+            origin="test",
+        )

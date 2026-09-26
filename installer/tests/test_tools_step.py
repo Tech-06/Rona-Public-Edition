@@ -133,6 +133,87 @@ def test_select_components_options_are_unchecked_by_default(tmp_path, monkeypatc
     assert captured_options[0][2] is False  # not pre-selected
 
 
+def test_already_installed_packages_are_excluded_from_offered(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    _make_backend_venv(root)
+    monkeypatch.setattr(tools_step.detect, "git_available", lambda: True)
+    catalog_payload = {
+        "ok": True,
+        "packages": [
+            {
+                "id": "get_time",
+                "name": "Get Time",
+                "description": "desc",
+                "kind": "tool",
+                "installed": True,
+            },
+            {
+                "id": "web_search",
+                "name": "Web Search",
+                "description": "desc",
+                "kind": "tool",
+                "installed": False,
+            },
+        ],
+    }
+    monkeypatch.setattr(
+        tools_step.subprocess,
+        "run",
+        lambda *a, **k: _FakeCompleted(stdout=json.dumps(catalog_payload)),
+    )
+
+    captured_options = []
+
+    def _capture(options):
+        captured_options.extend(options)
+        return []
+
+    monkeypatch.setattr(tools_step.ui, "select_components", _capture)
+    tools_step.run(root)
+
+    offered = {opt[0] for opt in captured_options}
+    assert "get_time" not in offered
+    assert "web_search" in offered
+
+
+def test_run_reports_all_installed_when_nothing_left_to_offer(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "root"
+    _make_backend_venv(root)
+    monkeypatch.setattr(tools_step.detect, "git_available", lambda: True)
+    catalog_payload = {
+        "ok": True,
+        "packages": [
+            {
+                "id": "get_time",
+                "name": "Get Time",
+                "description": "desc",
+                "kind": "tool",
+                "installed": True,
+            },
+            {
+                "id": "google_auth",
+                "name": "Google Account Authorization",
+                "description": "oauth",
+                "kind": "library",
+                "installed": True,
+            },
+        ],
+    }
+    monkeypatch.setattr(
+        tools_step.subprocess,
+        "run",
+        lambda *a, **k: _FakeCompleted(stdout=json.dumps(catalog_payload)),
+    )
+
+    def _fail_if_called(options):
+        raise AssertionError("select_components should not be called when offered is empty")
+
+    monkeypatch.setattr(tools_step.ui, "select_components", _fail_if_called)
+    tools_step.run(root)
+
+    assert "kurulu" in capsys.readouterr().out.lower()
+
+
 def test_library_packages_are_hidden_and_dependencies_noted(tmp_path, monkeypatch):
     """google_auth provides no tools of its own and comes along automatically,
     so it belongs in the note on google_calendar's line, not on a line of its

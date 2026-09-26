@@ -25,6 +25,7 @@ def _args(root, **overrides):
         "set": None,
         "yes": False,
         "keep_on_health_failure": False,
+        "defer_config": False,
         "force": False,
         "purge": False,
         "edit": False,
@@ -173,6 +174,60 @@ def test_install_inherits_stdio_and_forwards_flags(tmp_path, monkeypatch):
     assert "--keep-on-health-failure" in cmd
 
 
+def test_update_runs_manager_inherited_with_flags(tmp_path, monkeypatch):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+
+    def _fake_run(cmd, cwd, check):
+        calls.append(cmd)
+        return _FakeCompleted(returncode=0)
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    code = tools._cmd_update(
+        _args(
+            root,
+            package_id="web_search",
+            source="git:https://example.com/x.git",
+            set=["web_search.api_key=abc"],
+            yes=True,
+            keep_on_health_failure=True,
+            defer_config=True,
+        )
+    )
+    assert code == 0
+    cmd = calls[0]
+    # Same as install: inherited stdio, so no --json here regardless of
+    # rona's own --json flag (see test_update_does_not_forward_json below).
+    assert "--json" not in cmd
+    assert "update" in cmd
+    assert "web_search" in cmd
+    assert "--source" in cmd and "git:https://example.com/x.git" in cmd
+    assert "--set" in cmd and "web_search.api_key=abc" in cmd
+    assert "--yes" in cmd
+    assert "--keep-on-health-failure" in cmd
+    assert "--defer-config" in cmd
+
+
+def test_update_does_not_forward_json(tmp_path, monkeypatch):
+    """_cmd_update calls _run_inherited the same way _cmd_install does --
+    without forward_json=True -- so even `rona --json tools update ...`
+    never passes --json through to the manager; install/update stay
+    interactive-only regardless of the caller's --json flag."""
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+
+    def _fake_run(cmd, cwd, check):
+        calls.append(cmd)
+        return _FakeCompleted(returncode=0)
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    code = tools._cmd_update(_args(root, package_id="web_search", json=True))
+    assert code == 0
+    assert "--json" not in calls[0]
+
+
 def test_uninstall_forwards_force_flag(tmp_path, monkeypatch):
     root = make_root(tmp_path)
     _add_fake_backend_venv(root)
@@ -261,6 +316,53 @@ def test_available_tolerates_a_catalog_without_dependency_metadata(
     monkeypatch.setattr(tools.subprocess, "run", _fake_run)
     assert tools._cmd_available(_args(root)) == 0
     assert "old" in capsys.readouterr().out
+
+
+def test_available_marks_update_available(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+
+    def _fake_run(cmd, cwd, capture_output, text, check):
+        payload = {
+            "ok": True,
+            "packages": [
+                {
+                    "id": "web_search",
+                    "version": "1.1.0",
+                    "name": "Web Search",
+                    "description": "search the web",
+                    "kind": "tool",
+                    "requires": [],
+                    "installed": True,
+                    "installed_version": "1.0.0",
+                    "update_available": True,
+                },
+                {
+                    "id": "get_time",
+                    "version": "1.0.0",
+                    "name": "Get Time",
+                    "description": "current time",
+                    "kind": "tool",
+                    "requires": [],
+                    "installed": True,
+                    "installed_version": "1.0.0",
+                    "update_available": False,
+                },
+            ],
+        }
+        return _FakeCompleted(stdout=json.dumps(payload) + "\n")
+
+    monkeypatch.setattr(tools.subprocess, "run", _fake_run)
+    assert tools._cmd_available(_args(root)) == 0
+    out = capsys.readouterr().out
+    update_marker = i18n.t("tools.update_marker", installed="1.0.0", version="1.1.0")
+    assert update_marker in out
+    # The update hint should appear exactly once, not once per package.
+    assert out.count(i18n.t("tools.update_hint")) == 1
+    # get_time is installed but not updatable -- plain marker only, no update text.
+    get_time_line = [line for line in out.splitlines() if line.startswith("get_time")][0]
+    assert i18n.t("tools.installed_marker") in get_time_line
+    assert "→" not in get_time_line
 
 
 def test_config_show_masks_secrets_and_is_captured(tmp_path, monkeypatch, capsys):

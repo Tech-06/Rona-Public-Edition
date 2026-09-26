@@ -28,4 +28,11 @@ STRINGS: dict[str, str] = {
         "npm run build?); browsers are still getting the old UI. Run "
         "'rona web build', or 'npm ci && npm run build' in web-client/frontend."
     ),
+    # -- package_jobs.py ---------------------------------------------------------
+    "webui.invalid_package_id": "Invalid package id: {package_id}",
+    "webui.package_job_busy": "Another package install/update/uninstall job is already running",
+    "webui.backend_python_missing": "Backend python not found: {path}",
+    "webui.manager_no_output": "The manager command produced no output",
+    "webui.manager_timeout": "The manager command timed out",
+    "webui.package_job_timed_out": "The package job timed out and was terminated",
 }

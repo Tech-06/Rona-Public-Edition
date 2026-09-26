@@ -180,6 +180,34 @@ def test_edit_memory_consolidate_config_parses_flags():
     assert args.short_promote_hits == 5
 
 
+def test_edit_prompt_edit_parses_file_flag():
+    args = build_parser().parse_args(["edit", "prompt", "edit", "user", "--file", "x.md"])
+    assert args.command == "edit"
+    assert args.edit_command == "prompt"
+    assert args.prompt_command == "edit"
+    assert args.id == "user"
+    assert args.file == "x.md"
+    assert callable(args.func)
+
+
+def test_edit_prompt_list_and_show_parse():
+    args = build_parser().parse_args(["edit", "prompt", "list"])
+    assert args.prompt_command == "list"
+    assert callable(args.func)
+
+    args = build_parser().parse_args(["edit", "prompt", "show", "user", "--default"])
+    assert args.prompt_command == "show"
+    assert args.id == "user"
+    assert args.default is True
+
+
+def test_edit_prompt_reset_parses_yes_flag():
+    args = build_parser().parse_args(["edit", "prompt", "reset", "user", "--yes"])
+    assert args.prompt_command == "reset"
+    assert args.id == "user"
+    assert args.yes is True
+
+
 def test_task_list_defaults():
     args = build_parser().parse_args(["task", "list"])
     assert args.status == "all"
@@ -230,6 +258,7 @@ def test_tools_install_parses_all_flags():
             "web_search.api_key=abc",
             "--yes",
             "--keep-on-health-failure",
+            "--defer-config",
         ]
     )
     assert args.package_id == "web_search"
@@ -237,6 +266,33 @@ def test_tools_install_parses_all_flags():
     assert args.set == ["web_search.api_key=abc"]
     assert args.yes is True
     assert args.keep_on_health_failure is True
+    assert args.defer_config is True
+
+
+def test_tools_update_parses_flags():
+    args = build_parser().parse_args(
+        [
+            "tools",
+            "update",
+            "web_search",
+            "--source",
+            "local:/tmp/catalog",
+            "--set",
+            "web_search.api_key=abc",
+            "--yes",
+            "--keep-on-health-failure",
+            "--defer-config",
+        ]
+    )
+    assert args.command == "tools"
+    assert args.tools_command == "update"
+    assert args.package_id == "web_search"
+    assert args.source == "local:/tmp/catalog"
+    assert args.set == ["web_search.api_key=abc"]
+    assert args.yes is True
+    assert args.keep_on_health_failure is True
+    assert args.defer_config is True
+    assert callable(args.func)
 
 
 def test_tools_uninstall_parses_force_flag():

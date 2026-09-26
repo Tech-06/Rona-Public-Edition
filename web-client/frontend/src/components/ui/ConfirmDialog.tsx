@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
@@ -11,6 +12,13 @@ interface Props {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** Disables just the confirm button -- e.g. an uninstall blocked by
+   * dependents, where the person must still be able to read the dialog
+   * and cancel, just not confirm. */
+  confirmDisabled?: boolean;
+  /** Extra content rendered between the description and the button row
+   * (a checkbox, a list of affected items, ...). */
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -25,6 +33,8 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   danger = true,
+  confirmDisabled,
+  children,
   onConfirm,
   onCancel,
 }: Props) {
@@ -63,9 +73,10 @@ export function ConfirmDialog({
       >
         <p className="text-sm font-semibold text-fg">{title}</p>
         {description && <p className="text-xs text-fg-subtle">{description}</p>}
+        {children}
         <div className="mt-1 flex justify-end gap-2">
           <Button onClick={onCancel}>{resolvedCancelLabel}</Button>
-          <Button onClick={onConfirm} variant={danger ? "danger" : "primary"}>
+          <Button onClick={onConfirm} variant={danger ? "danger" : "primary"} disabled={confirmDisabled}>
             {resolvedConfirmLabel}
           </Button>
         </div>

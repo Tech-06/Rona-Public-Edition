@@ -44,19 +44,41 @@ def _run_systemctl(action: str) -> dict[str, Any]:
     return {"ok": result.returncode == 0, "detail": (result.stdout + result.stderr).strip()}
 
 
+def backend_python() -> Path | None:
+    """The backend's own venv interpreter, if it exists.
+
+    This BFF's own venv (whatever runs webui/) is a different, unrelated
+    environment -- it has none of the backend's dependencies installed. A
+    backend spawned with the wrong interpreter would import-error on its
+    first line.
+    ``BACKEND_DIR`` is read fresh (module attribute, not a local) on every
+    call, so a test's ``monkeypatch.setattr(host, "BACKEND_DIR", ...)``
+    is honored even though this module cached it at import time too.
+    """
+    venv_python = (
+        BACKEND_DIR / ".venv" / "Scripts" / "python.exe"
+        if sys.platform == "win32"
+        else BACKEND_DIR / ".venv" / "bin" / "python"
+    )
+    return venv_python if venv_python.is_file() else None
+
+
 async def _spawn_backend() -> dict[str, Any]:
     global _backend_process
     if not BACKEND_DIR.is_dir():
         return {"ok": False, "detail": i18n.t("webui.backend_dir_not_found", backend_dir=BACKEND_DIR)}
     if _backend_process is not None and _backend_process.poll() is None:
         return {"ok": False, "detail": i18n.t("webui.already_running")}
+    python = backend_python() or Path(sys.executable)
     log_file = SPAWN_LOG_PATH.open("a", encoding="utf-8")
+    log_file.write(f"[host] spawning backend with python: {python}\n")
+    log_file.flush()
     kwargs: dict[str, Any] = {"cwd": BACKEND_DIR, "stdout": log_file, "stderr": log_file}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.DETACHED_PROCESS
     else:
         kwargs["start_new_session"] = True
-    _backend_process = subprocess.Popen([sys.executable, "run.py"], **kwargs)  # noqa: ASYNC220
+    _backend_process = subprocess.Popen([str(python), "run.py"], **kwargs)  # noqa: ASYNC220
     await asyncio.sleep(1.5)
     if _backend_process.poll() is not None:
         detail = i18n.t("webui.exited_immediately", code=_backend_process.returncode)

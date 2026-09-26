@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -126,13 +127,16 @@ async def get_status():
     }
 
 
-def _package_status(manifest) -> dict[str, Any]:
+def _package_status(manifest, installed: list) -> dict[str, Any]:
     """Config-completeness summary for one installed custom package.
 
     Doesn't touch the network -- just checks whether every field the
     package's manifest marks required already has a value (in .env or its
     own config.json/file). Used by both /connections and /packages so
-    dashboard.py never has to know about any specific tool.
+    dashboard.py never has to know about any specific tool. ``installed`` is
+    every currently-installed manifest (this one included), loaded once by
+    the caller, so dependents/requirement checks don't reload from disk per
+    package.
     """
     config_values = toolbox_packages.load_config_values(manifest)
     missing = [
@@ -164,12 +168,17 @@ def _package_status(manifest) -> dict[str, Any]:
             for action in manifest.actions
             if not action.cli_only
         ],
+        "dependents": sorted(m.id for m in installed if manifest.id in m.required_ids()),
+        "requirement_problems": toolbox_packages.requirement_problems(
+            manifest, {m.id: m.version for m in installed}
+        ),
     }
 
 
 @router.get("/connections")
 async def get_connections():
-    packages_status = [_package_status(m) for m in toolbox_packages.load_installed_manifests()]
+    manifests = toolbox_packages.load_installed_manifests()
+    packages_status = [_package_status(m, manifests) for m in manifests]
     return {
         "packages": packages_status,
         "gemini_embedding_configured": bool(os.getenv("GOOGLE_API_KEY"))
@@ -208,8 +217,46 @@ async def probe_connections():
 async def list_packages():
     manifests = toolbox_packages.load_installed_manifests()
     return {
-        "packages": [_package_status(m) for m in manifests],
+        "packages": [_package_status(m, manifests) for m in manifests],
         "warnings": toolbox.load_warnings(),
+    }
+
+
+# Only one reload runs at a time -- the web BFF's install/update/uninstall
+# jobs (web-client/webui/package_jobs.py) each call POST /packages/reload
+# once their subprocess finishes, and two finishing close together must not
+# race on the same sys.modules mutation (see toolbox.purge_package_modules).
+_reload_lock = threading.Lock()
+
+
+def _reload_custom_packages() -> int:
+    """Drop every cached ``toolbox.custom.*`` module and re-scan packages
+    from disk, picking up code a package install/update just wrote there.
+
+    Blocking (module cache mutation + re-importing every package), so the
+    endpoint below runs it off the event loop.
+    """
+    with _reload_lock:
+        purged = toolbox.purge_package_modules()
+        toolbox.reload_registry()
+    return purged
+
+
+@router.post("/packages/reload")
+async def reload_packages():
+    """Hot-reload custom packages without restarting the backend process.
+
+    Needed for RELOAD=false deployments: with the dev auto-reloader on,
+    uvicorn already restarts the whole process once a package install
+    writes new files under toolbox/custom/, which makes this a no-op in
+    that case (the restart already reloaded everything).
+    """
+    purged = await asyncio.to_thread(_reload_custom_packages)
+    manifests = toolbox_packages.load_installed_manifests()
+    return {
+        "packages": [_package_status(m, manifests) for m in manifests],
+        "warnings": toolbox.load_warnings(),
+        "purged_modules": purged,
     }
 
 

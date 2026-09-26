@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ApiError } from "../../api/client";
 import {
   dashboardApi,
   type PackageAction,
@@ -7,17 +8,105 @@ import {
   type ProbeResponse,
   type ProbeResult,
 } from "../../api/dashboard";
+import {
+  hostPackagesApi,
+  type HostPackageEntry,
+  type HostPackagePlan,
+  type HostPackagesAvailable,
+  type PackageJob,
+} from "../../api/hostPackages";
+import { usePackageJob } from "../../hooks/usePackageJob";
 import { usePoll } from "../../hooks/usePoll";
 import { useT } from "../LanguageProvider";
+import { RestartBanner } from "../settings/RestartBanner";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import { Badge, Button, Card, EmptyState, ErrorState } from "./ui";
+import { PackageCatalog } from "./PackageCatalog";
+import { PackageJobPanel } from "./PackageJobPanel";
+import { Badge, Button, Card, ErrorState } from "./ui";
+
+type PackagesTab = "installed" | "catalog";
 
 export function ConnectionsPanel() {
   const t = useT();
   const connections = usePoll(useCallback(() => dashboardApi.connections(), []), 15000);
+  const server = usePoll(useCallback(() => dashboardApi.serverStatus(), []), null);
   const [probe, setProbe] = useState<ProbeResponse | null>(null);
   const [probing, setProbing] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+
+  const [tab, setTab] = useState<PackagesTab>("installed");
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+
+  const [catalogData, setCatalogData] = useState<HostPackagesAvailable | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  const [reloading, setReloading] = useState(false);
+  const [reloadFailed, setReloadFailed] = useState(false);
+  const [restartBannerVisible, setRestartBannerVisible] = useState(false);
+
+  const fetchCatalog = useCallback(
+    async (refresh = false) => {
+      setCatalogLoading(true);
+      try {
+        const data = await hostPackagesApi.available(refresh);
+        setCatalogData(data);
+        setCatalogError(null);
+      } catch (err) {
+        setCatalogError(err instanceof ApiError ? err.message : t("connections.catalog_error"));
+      } finally {
+        setCatalogLoading(false);
+      }
+    },
+    [t],
+  );
+
+  // Fetched once up front (not lazily when the Catalog tab is opened) so
+  // the Installed tab's rows can show an Update button immediately, based
+  // on the same data.
+  useEffect(() => {
+    void fetchCatalog(false);
+  }, [fetchCatalog]);
+
+  const catalogById = useMemo(() => {
+    const map = new Map<string, HostPackageEntry>();
+    for (const entry of catalogData?.packages ?? []) map.set(entry.id, entry);
+    return map;
+  }, [catalogData]);
+
+  const handleJobFinished = useCallback(
+    async (finishedJob: PackageJob) => {
+      setReloading(true);
+      setReloadFailed(false);
+      const ok = await reloadPackagesWithRetry();
+      setReloading(false);
+      setReloadFailed(!ok);
+
+      connections.refresh();
+      void fetchCatalog(true);
+      setTab("installed");
+
+      const pendingIds = new Set(Object.keys(finishedJob.result?.config_pending ?? {}));
+      if (finishedJob.action !== "uninstall") {
+        try {
+          const fresh = await dashboardApi.connections();
+          const root = fresh.packages.find((item) => item.id === finishedJob.package_id);
+          if (root && !root.configured) pendingIds.add(root.id);
+        } catch {
+          // best effort only -- the panel simply won't auto-open in this case
+        }
+      }
+      if (pendingIds.size > 0) {
+        setOpenIds((current) => new Set([...current, ...pendingIds]));
+      }
+
+      setRestartBannerVisible(Boolean(finishedJob.result?.restart_recommended) || !ok);
+    },
+    [connections, fetchCatalog],
+  );
+
+  const job = usePackageJob(handleJobFinished);
 
   async function runProbe() {
     setProbing(true);
@@ -31,69 +120,254 @@ export function ConnectionsPanel() {
     }
   }
 
-  if (connections.error) return <ErrorState message={connections.error} />;
-  if (!connections.data) return null;
-  const data = connections.data;
+  async function restartNow() {
+    setRestarting(true);
+    try {
+      await dashboardApi.serverAction("restart");
+      setRestartBannerVisible(false);
+    } finally {
+      setRestarting(false);
+      server.refresh();
+    }
+  }
+
+  function toggleOpen(id: string) {
+    setOpenIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const canAutoRestart = Boolean(
+    server.data && (server.data.tracked_process_alive || server.data.systemctl_available),
+  );
+
+  // Only the total absence of data blanks the section out -- a poll error
+  // while a package job is running (the backend restarting mid-install)
+  // must not make the job log above disappear along with everything else.
+  const showConnectionsError = Boolean(connections.error) && !connections.data;
 
   return (
     <div className="flex flex-col gap-4">
-      <Card
-        title={t("connections.title")}
-        actions={
-          <Button onClick={runProbe} disabled={probing} variant="primary">
-            {probing ? t("connections.probing") : t("connections.probe_now")}
-          </Button>
-        }
-      >
-        {probeError && <ErrorState message={probeError} />}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2">
-          <ConnectionRow label={t("connections.flash_model")} ok={data.flash_configured} probe={probe?.llm} />
-          <ConnectionRow label={t("connections.pro_model")} ok={data.pro_configured} />
-          <ConnectionRow label={t("connections.gemini_embedding")} ok={data.gemini_embedding_configured} />
-          <ConnectionRow label="rona.db" ok={data.db_present} />
-          <ConnectionRow label={t("connections.checkpoint_db")} ok={data.checkpoint_db_present} />
-        </div>
-      </Card>
+      {job.job && (
+        <PackageJobPanel job={job.job} reloading={reloading} reloadFailed={reloadFailed} onClose={job.dismiss} />
+      )}
 
-      <Card title={t("connections.packages_title")}>
-        {data.packages.length === 0 ? (
-          <EmptyState>
-            {t("connections.no_packages")}{" "}
-            <code className="rounded bg-app px-1 py-0.5 text-xs">
-              rona tools install &lt;{t("connections.package_id_placeholder")}&gt;
-            </code>
-          </EmptyState>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {data.packages.map((pkg) => (
-              <PackageRow
-                key={pkg.id}
-                pkg={pkg}
-                probe={probe?.packages[pkg.id]}
-                onChanged={connections.refresh}
-              />
-            ))}
-          </div>
-        )}
-      </Card>
+      <RestartBanner
+        visible={restartBannerVisible}
+        onRestart={restartNow}
+        canAutoRestart={canAutoRestart}
+        restarting={restarting}
+      />
+
+      {showConnectionsError ? (
+        <ErrorState message={connections.error as string} />
+      ) : (
+        connections.data && (
+          <>
+            {connections.error && (
+              <p className="text-xs text-fg-subtle">{t("connections.backend_restarting")}</p>
+            )}
+
+            <Card
+              title={t("connections.title")}
+              actions={
+                <Button onClick={runProbe} disabled={probing} variant="primary">
+                  {probing ? t("connections.probing") : t("connections.probe_now")}
+                </Button>
+              }
+            >
+              {probeError && <ErrorState message={probeError} />}
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2">
+                <ConnectionRow label={t("connections.flash_model")} ok={connections.data.flash_configured} probe={probe?.llm} />
+                <ConnectionRow label={t("connections.pro_model")} ok={connections.data.pro_configured} />
+                <ConnectionRow
+                  label={t("connections.gemini_embedding")}
+                  ok={connections.data.gemini_embedding_configured}
+                />
+                <ConnectionRow label="rona.db" ok={connections.data.db_present} />
+                <ConnectionRow label={t("connections.checkpoint_db")} ok={connections.data.checkpoint_db_present} />
+              </div>
+            </Card>
+
+            <Card title={t("connections.packages_title")}>
+              <div className="mb-3 flex gap-1.5">
+                <TabButton active={tab === "installed"} onClick={() => setTab("installed")}>
+                  {t("connections.tab_installed")}
+                </TabButton>
+                <TabButton active={tab === "catalog"} onClick={() => setTab("catalog")}>
+                  {t("connections.tab_catalog")}
+                </TabButton>
+              </div>
+
+              {tab === "installed" ? (
+                connections.data.packages.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-fg-subtle">
+                    <p>{t("connections.no_packages")}</p>
+                    <Button variant="primary" onClick={() => setTab("catalog")}>
+                      {t("connections.browse_catalog")}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {connections.data.packages.map((pkg) => (
+                      <PackageRow
+                        key={pkg.id}
+                        pkg={pkg}
+                        probe={probe?.packages[pkg.id]}
+                        open={openIds.has(pkg.id)}
+                        onToggle={() => toggleOpen(pkg.id)}
+                        catalogEntry={catalogById.get(pkg.id)}
+                        busy={job.busy}
+                        onUpdate={(id) => job.start("update", id)}
+                        onUninstall={(id, purge) => job.start("uninstall", id, purge)}
+                        onChanged={connections.refresh}
+                      />
+                    ))}
+                  </div>
+                )
+              ) : (
+                <PackageCatalog
+                  entries={catalogData?.packages ?? null}
+                  loading={catalogLoading}
+                  error={catalogError}
+                  busy={job.busy}
+                  onRefresh={() => void fetchCatalog(true)}
+                  onInstall={(id) => job.start("install", id)}
+                  onUpdate={(id) => job.start("update", id)}
+                />
+              )}
+            </Card>
+          </>
+        )
+      )}
     </div>
+  );
+}
+
+/** Retries `POST /api/packages/reload` up to 20 times, 1.5s apart, so a
+ * backend that's mid-restart (RELOAD=true watches the files a package
+ * install/update just wrote) doesn't turn into a permanent failure. Any
+ * non-502/503/504 failure (or
+ * running out of attempts) is reported as a failure to the caller, which
+ * shows the restart banner instead of silently leaving stale package data
+ * on screen. */
+async function reloadPackagesWithRetry(): Promise<boolean> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      await dashboardApi.reloadPackages();
+      return true;
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      if (status === 502 || status === 503 || status === 504) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        continue;
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
+        active ? "bg-accent text-accent-fg" : "border border-line text-fg-muted hover:text-fg-soft"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
 function PackageRow({
   pkg,
   probe,
+  open,
+  onToggle,
+  catalogEntry,
+  busy,
+  onUpdate,
+  onUninstall,
   onChanged,
 }: {
   pkg: PackageStatus;
   probe?: ProbeResult;
+  open: boolean;
+  onToggle: () => void;
+  catalogEntry?: HostPackageEntry;
+  busy: boolean;
+  onUpdate: (id: string) => Promise<unknown>;
+  onUninstall: (id: string, purge: boolean) => Promise<unknown>;
   onChanged: () => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   // Nothing to show for a package that needs neither configuring nor any
   // operator action -- most of them.
   const hasPanel = pkg.config_fields.length > 0 || pkg.actions.length > 0;
+
+  const [updatePlan, setUpdatePlan] = useState<HostPackagePlan | null>(null);
+  const [updatePreparing, setUpdatePreparing] = useState(false);
+  const [updateConfirmBusy, setUpdateConfirmBusy] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  const [uninstallOpen, setUninstallOpen] = useState(false);
+  const [purge, setPurge] = useState(false);
+  const [uninstallBusy, setUninstallBusy] = useState(false);
+  const [uninstallError, setUninstallError] = useState<string | null>(null);
+
+  async function prepareUpdate() {
+    setUpdatePreparing(true);
+    setUpdateError(null);
+    try {
+      setUpdatePlan(await hostPackagesApi.plan(pkg.id));
+    } catch (err) {
+      setUpdateError(err instanceof ApiError ? err.message : t("common.action_failed"));
+    } finally {
+      setUpdatePreparing(false);
+    }
+  }
+
+  async function confirmUpdate() {
+    setUpdateConfirmBusy(true);
+    try {
+      await onUpdate(pkg.id);
+      setUpdatePlan(null);
+    } catch (err) {
+      setUpdateError(err instanceof ApiError ? err.message : t("common.action_failed"));
+      setUpdatePlan(null);
+    } finally {
+      setUpdateConfirmBusy(false);
+    }
+  }
+
+  async function confirmUninstall() {
+    setUninstallBusy(true);
+    setUninstallError(null);
+    try {
+      await onUninstall(pkg.id, purge);
+      setUninstallOpen(false);
+    } catch (err) {
+      setUninstallError(err instanceof ApiError ? err.message : t("common.action_failed"));
+    } finally {
+      setUninstallBusy(false);
+    }
+  }
+
+  const blocked = pkg.dependents.length > 0;
 
   return (
     <div className="rounded-lg border border-line bg-app">
@@ -107,16 +381,106 @@ function PackageRow({
             ? t("common.configured")
             : t("connections.missing", { fields: pkg.missing_config.join(", ") })}
         </Badge>
+        {pkg.requirement_problems.length > 0 && (
+          <Badge tone="warn">
+            {t("connections.requirement_problem", { detail: pkg.requirement_problems.join("; ") })}
+          </Badge>
+        )}
         {probe && (
           <Badge tone={probe.ok ? "ok" : "bad"}>{probe.ok ? t("connections.live") : probe.detail}</Badge>
         )}
+        {catalogEntry?.update_available && (
+          <Button
+            variant="primary"
+            disabled={busy || updatePreparing}
+            onClick={() => void prepareUpdate()}
+          >
+            {updatePreparing ? t("connections.preparing") : t("connections.update")}
+          </Button>
+        )}
+        <Button variant="danger" disabled={busy} onClick={() => setUninstallOpen(true)}>
+          {t("connections.uninstall")}
+        </Button>
         {hasPanel && (
-          <Button onClick={() => setOpen((value) => !value)}>
+          <Button onClick={onToggle}>
             {open ? t("connections.close") : t("connections.configure")}
           </Button>
         )}
       </div>
+
+      {updateError && <p className="px-3 pb-2 text-xs text-danger-text">{updateError}</p>}
+      {uninstallError && <p className="px-3 pb-2 text-xs text-danger-text">{uninstallError}</p>}
+
       {open && hasPanel && <PackagePanel pkg={pkg} onChanged={onChanged} />}
+
+      <ConfirmDialog
+        open={updatePlan !== null}
+        title={t("connections.plan_title_update", { id: pkg.id })}
+        confirmLabel={t("connections.update")}
+        cancelLabel={t("common.cancel")}
+        danger={false}
+        confirmDisabled={updateConfirmBusy}
+        onConfirm={() => void confirmUpdate()}
+        onCancel={() => setUpdatePlan(null)}
+      >
+        {updatePlan && <PlanSummary plan={updatePlan} />}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={uninstallOpen}
+        title={t("connections.uninstall_title", { id: pkg.id })}
+        confirmLabel={t("connections.uninstall")}
+        cancelLabel={t("common.cancel")}
+        danger
+        confirmDisabled={blocked || uninstallBusy}
+        onConfirm={() => void confirmUninstall()}
+        onCancel={() => setUninstallOpen(false)}
+      >
+        {blocked ? (
+          <div className="flex flex-col gap-1 text-xs">
+            <p className="text-fg-soft">
+              <span className="font-medium">{t("connections.dependents")}</span> {pkg.dependents.join(", ")}
+            </p>
+            <p className="text-danger-text">{t("connections.uninstall_blocked")}</p>
+          </div>
+        ) : (
+          <label className="flex items-center gap-2 text-xs text-fg-soft">
+            <input
+              type="checkbox"
+              checked={purge}
+              onChange={(event) => setPurge(event.target.checked)}
+              className="h-4 w-4 accent-accent"
+            />
+            {t("connections.uninstall_purge")}
+          </label>
+        )}
+      </ConfirmDialog>
+    </div>
+  );
+}
+
+/** The dependency/upgrade breakdown shown inside an install/update confirm
+ * dialog -- shared by the Installed tab's own Update button (here) and
+ * PackageCatalog's install/update flow. */
+function PlanSummary({ plan }: { plan: HostPackagePlan }) {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-1.5 text-xs text-fg-subtle">
+      {plan.entries
+        .filter((entry) => entry.needs_action && entry.reason !== "requested")
+        .map((entry) => (
+          <p key={entry.id} className="font-mono">
+            {entry.reason === "upgrade"
+              ? t("connections.plan_upgrade", {
+                  id: entry.id,
+                  from: entry.installed_version ?? "?",
+                  to: entry.version,
+                })
+              : t("connections.plan_dependency", { id: entry.id, version: entry.version })}
+          </p>
+        ))}
+      {!plan.complete && <p className="text-warn-text">{t("connections.plan_incomplete")}</p>}
+      <p>{t("connections.plan_note")}</p>
     </div>
   );
 }

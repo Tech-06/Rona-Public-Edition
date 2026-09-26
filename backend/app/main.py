@@ -17,6 +17,7 @@ import i18n
 from app.config import get_settings
 from app.dashboard import router as dashboard_router
 from app.logging_config import configure_file_logging
+from app.prompts_api import router as prompts_router
 from app.schemas import ChatRequest, ChatResponse, ToolCallInfo
 from app.streaming import StreamRun, encode_frame, get_or_create_run
 from graph import (
@@ -100,6 +101,7 @@ app = FastAPI(
     dependencies=[Depends(verify_bearer_token)],
 )
 app.include_router(dashboard_router)
+app.include_router(prompts_router)
 
 store_lock = asyncio.Lock()
 

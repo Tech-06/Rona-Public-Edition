@@ -103,7 +103,10 @@ always write to **both** `.env` files.
 
 Opens `backend/.env` (or `web-client/.env` with `--web`) in `$EDITOR`/
 `$VISUAL`, falling back to a per-OS default (`notepad` / `open -t` /
-`nano`).
+`nano`). `$VISUAL`/`$EDITOR` can be a whole command line, not just a bare
+executable name -- something like `code --wait` or `subl -w` works, since
+the value is split into an argv the same way a shell would rather than
+treated as a single program path.
 
 ### `rona edit memory search|add|edit|delete|list|archive|archived|restore|purge|stats`
 
@@ -166,7 +169,42 @@ rona edit lang en           # switch all three to English
 rona edit lang tr --backend --web   # only the backend and web dashboard
 ```
 
-### `rona tools list|available|install|uninstall|verify|config|actions|run`
+### `rona edit prompt list|show|edit|reset`
+
+A thin CLI over the backend's `/api/prompts*` endpoints -- the same nine
+identity/behavior prompt files (`persona`, `output_text`, `user`, `toolbox`,
+`memory`, `subagents`, `trigger`, plus the `subagent_worker`/`trigger_worker`
+prompts background jobs run with) that the dashboard's Prompts panel edits.
+Needs a running, reachable backend, same as `rona edit memory`; `edit` also
+needs a text editor (or `--file`), since these are multi-line Markdown, not
+single values.
+
+`list` shows each prompt's id and group, plus whether it's customized or the
+underlying default has changed since you customized it. `show <id>` prints
+the effective content (`--default` prints the shipped one instead, ignoring
+any override). `edit <id> [--file PATH]` writes the current content to a
+temp file (or reads `--file` if one was given), opens it in `$VISUAL`/
+`$EDITOR` and waits for it to close, then saves back only if something
+actually changed. A stale version (someone else saved it in the meantime)
+or a validation error (a required placeholder like
+`{{PRIMARY_LANGUAGE_RULE}}` removed, an empty worker prompt) is reported
+without discarding your edit -- the draft file's path is printed so nothing
+is lost. `reset <id> [--yes]` deletes the customization and reverts to the
+shipped default.
+
+```bash
+rona edit prompt list
+rona edit prompt show trigger_worker --default
+rona edit prompt edit user
+rona edit prompt reset persona --yes
+```
+
+A customization is written to `backend/prompts/custom/<filename>`, which
+git never tracks, so a `git pull` can never revert or conflict with it; a
+saved change takes effect on the very next message or task run, no restart
+needed.
+
+### `rona tools list|available|install|update|uninstall|verify|config|actions|run`
 
 A thin wrapper over the backend's own `toolbox.manager`, delegating to the
 backend's venv python exactly the way `rona web` delegates to
@@ -177,24 +215,56 @@ backend installed.
 `list`/`available`/`verify`/`actions`, and `config` without `--edit`, run the
 manager with `--json`, captured, and are re-printed through this CLI's own
 table (or passed straight through if `rona` itself was given `--json`).
-`install`/`uninstall`/`run`, and `config --edit`, inherit stdio instead, since
-a package's own config prompts (an API key read via `getpass`, the
-health-check retry/keep/cancel choice), the dependency confirmation and an
-action's input round trips all need a live terminal.
+`install`/`update`/`uninstall`/`run`, and `config --edit`, inherit stdio
+instead, since a package's own config prompts (an API key read via
+`getpass`, the health-check retry/keep/cancel choice), the dependency
+confirmation and an action's input round trips all need a live terminal.
 
 ```bash
 rona tools available                 # every package in the catalog
 rona tools install web_search        # prompts for its Tavily API key
 rona tools list                      # installed packages
 rona tools verify web_search
+rona tools update web_search         # pulls in a newer catalog version
 rona tools uninstall web_search
 ```
 
 `available` also prints what a package will drag in with it -- but only when
 the catalog actually publishes that metadata, since an older index saying
-nothing about dependencies is not the same as a package having none.
-`install` then surfaces the manager's own confirmation before anything is
-downloaded.
+nothing about dependencies is not the same as a package having none. A
+`requires` entry can also carry a version constraint (`google_auth>=2.0`,
+`x~=2.1`, and so on); when an installed dependency no longer satisfies one,
+`available` marks it `installed 1.0.0 -> 1.1.0 available` and prints a hint
+to run `rona tools update <package>` once the table is done. `install` then
+surfaces the manager's own confirmation before anything is downloaded, and
+so does `update`, described next.
+
+### `rona tools update <id> [--source --set --yes --keep-on-health-failure --defer-config]`
+
+Upgrades an installed package to whatever the catalog currently offers,
+through the same plan → confirm → install machinery as `rona tools install`
+(same flags, same interactive dependency confirmation unless `--yes`). A
+dependency that's too old to satisfy the package's `requires` is upgraded
+first, automatically, as part of the same plan; running `update` when
+nothing is newer just reports "up to date" rather than doing anything.
+Preserved across the update: `.env` values, `custom/<id>/config.json`, any
+file written through a `file`-typed config field, and anything matching the
+package's `user_data_globs` -- and if anything goes wrong, including the
+new version simply failing to load, the previous version is restored
+automatically. `--keep-on-health-failure` (implied by `--yes`) keeps a
+successful upgrade even if its post-install health check then fails,
+instead of rolling it back. `--defer-config` (also accepted by `install`)
+skips asking for newly-required configuration and leaves the package to be
+configured afterwards with `rona tools config <id>` -- this is what the
+dashboard's Catalog tab relies on, since a long-running install has no
+terminal to prompt. Only one install/update/uninstall runs at a time across
+the whole machine, CLI and dashboard alike; a second one is rejected rather
+than left to race the first.
+
+```bash
+rona tools update get_time --yes
+rona tools update google_calendar --defer-config
+```
 
 ### `rona tools config <id> [--set key=value] [--edit]`
 
@@ -271,9 +341,9 @@ directly when the backend is down.
 - **`commands/`** — one module per top-level command (`status.py`,
   `server.py`, `web.py`, `task.py`, `log.py`, `tools.py`), plus an `edit/`
   subpackage (`model.py`, `auth.py`, `env.py`, `memory.py`,
-  `memory_consolidate.py`, `lang.py`). `memory_consolidate.py` holds the
-  `consolidate run|status|config` subgroup that `memory.py`'s `register()`
-  wires in.
+  `memory_consolidate.py`, `lang.py`, `prompt.py`). `memory_consolidate.py`
+  holds the `consolidate run|status|config` subgroup that `memory.py`'s
+  `register()` wires in; `prompt.py` is `rona edit prompt`.
 
 ## Tests
 

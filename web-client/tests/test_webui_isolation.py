@@ -26,6 +26,7 @@ def test_webui_modules_never_import_the_backend_package():
         "import webui.logging_config\n"
         "import webui.proxy\n"
         "import webui.host\n"
+        "import webui.package_jobs\n"
         "import webui.server\n"
         "import webui.supervisor\n"
         "after = set(sys.modules)\n"

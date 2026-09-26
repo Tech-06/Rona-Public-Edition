@@ -46,6 +46,13 @@ STRINGS: dict[str, str] = {
     "dashboard.notes_not_installed": "The notes package is not installed.",
     "dashboard.invalid_layer": "Invalid layer: {layer}. Use deep, seasonal or short.",
     "dashboard.consolidation_busy": "A memory consolidation run is already in progress.",
+    # -- app/prompts_api.py (prompt store HTTP errors) -----------------------------------
+    "prompts.not_found": "Prompt not found",
+    "prompts.conflict": "The prompt was updated elsewhere; your version is stale",
+    "prompts.missing_placeholder": "Missing required placeholder: {names}",
+    "prompts.empty": "This prompt cannot be empty",
+    "prompts.too_large": "Prompt must be at most {limit} bytes",
+    "prompts.contract_warning": "Contract marker may be missing: {markers}",
     # -- trigger/executor.py: outcome text stored on a task run -------------------------
     "trigger.outcome_timeout": "The run timed out after {minutes} minutes.",
     "trigger.outcome_condition_not_met": "The condition was not met.",

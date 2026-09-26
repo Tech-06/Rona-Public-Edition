@@ -64,12 +64,15 @@ rona tools config <id>        # bir paketin ayarlarını göster/değiştir
 rona tools actions <id>       # paketin sunduğu işlemleri listele
 rona tools run <id> <işlem>   # bunlardan birini çalıştır
 rona tools verify <id>        # bir paketin sağlık kontrolünü tekrar çalıştır
+rona tools update <id>        # yeni bir sürüm varsa güncelle
 rona tools uninstall <id>
 ```
 
 Bir paketin ayarları kurulumdan sonra da değişebilir: `rona tools config <id>` (ya da web panelinde **Ayarlar → Bağlantılar → Araç paketleri → Yapılandır**) aynı `.env`/`config.json` yollarını kullanır. Bazı paketler ayrıca **işlem** sunar -- araçlardan farklı olarak bunları model değil siz çağırırsınız (bir Google hesabını yetkilendirmek gibi); hem `rona tools run` ile hem de aynı panelden çalıştırılabilirler.
 
-**Bağımlılıklar.** Bir paket, ihtiyaç duyduğu diğer paketleri kendi manifest'inde bildirir ve katalog bunu `index.json`'a da yazar; böylece kurulum, hiçbir şey indirmeden önce size ne olacağını söyleyebilir. `rona tools install google_calendar` önce "bu `google_auth`'u da kuracak" diye uyarır ve onay ister; kabul ederseniz `google_auth` tam olarak kurulup yapılandırıldıktan *sonra* asıl pakete geçilir. Başka bir paketin hâlâ ihtiyaç duyduğu bir paketi kaldırmak `--force` olmadan reddedilir.
+Kurulum, güncelleme ve kaldırma da artık terminale mecbur değil: web panelinde **Ayarlar → Bağlantılar → Katalog** sekmesinden bir paket seçip **Kur** ya da **Güncelle**'ye basarsanız önce bağımlılık planı (kurulacak/güncellenecek paketler) gösterilir ve onay istenir; onaylarsanız işlem arka planda çalışır ve logu canlı akar. Web'den kurulum zorunlu ayarları hemen sormaz -- paket önce kurulur, ardından açılan yapılandırma panelinden girilir. **Kurulu** sekmesinden kaldırırken kullanıcı verileri (token'lar, oturumlar vb.) varsayılan olarak saklanır; silmek isterseniz "kullanıcı verilerini de sil" kutusunu işaretleyin, ve başka bir paketin hâlâ ihtiyaç duyduğu bir paketi kaldırmak burada da engellenir. İşlem bitince backend paketleri kendiliğinden yeniden yükler; pip bir paketi güncellediyse bir yeniden başlatma önerisi gösterilir. `rona tools available`, kurulu bir paketin yeni bir sürümü varsa bunu `kurulu X → Y güncellemesi var` diye işaretler ve listenin sonunda `rona tools update <paket>` ipucu verir.
+
+**Bağımlılıklar.** Bir paket, ihtiyaç duyduğu diğer paketleri kendi manifest'inde bildirir ve katalog bunu `index.json`'a da yazar; böylece kurulum, hiçbir şey indirmeden önce size ne olacağını söyleyebilir. `rona tools install google_calendar` önce "bu `google_auth`'u da kuracak" diye uyarır ve onay ister; kabul ederseniz `google_auth` tam olarak kurulup yapılandırıldıktan *sonra* asıl pakete geçilir. Başka bir paketin hâlâ ihtiyaç duyduğu bir paketi kaldırmak `--force` olmadan reddedilir. Bir bağımlılık ayrıca bir sürüm kısıtı taşıyabilir (`google_auth>=2.0`, `x~=2.1` gibi); kurulu bir paket bu kısıtı karşılamıyorsa registry bunu bir uyarı olarak işaretler (paket yine yüklenir) ve panelde gösterilir -- düzeltmek için ilgili paketi `rona tools update` ile güncelleyin.
 
 `rona tools`, arka planda backend'in kendi `python -m toolbox.manager`'ına devreder (bkz. [`rona` komut referansı](#rona-komut-referansı)); backend'i elle kurduysanız aynı komutları doğrudan `backend/` içinden `python -m toolbox.manager ...` olarak da çalıştırabilirsiniz.
 
@@ -247,7 +250,8 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona edit memory search\|add\|edit\|delete\|list\|archive\|archived\|restore\|purge\|stats` | Hafıza kayıtlarını ve arşivi yönet (çalışan bir backend gerekir) |
 | `rona edit memory consolidate run [--dry-run]\|status\|config` | Konsolidasyonu (otomatik terfi/arşiv/silme) çalıştır, durumunu göster ya da eşiklerini düzenle |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Üç bileşenin de dilini göster/ayarla; hedef belirtilmezse üçünü birden değiştirir |
-| `rona tools list\|available\|install\|uninstall\|verify` | [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini yönet (backend'in `toolbox.manager`'ına devreder) |
+| `rona edit prompt list\|show\|edit\|reset` | Kimlik/davranış promptlarını (9 `.md` dosyası) görüntüle/düzenle/varsayılana döndür (çalışan bir backend gerekir) |
+| `rona tools list\|available\|install\|update\|uninstall\|verify` | [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini yönet (backend'in `toolbox.manager`'ına devreder) |
 | `rona tools config <id> [--set k=v] [--edit]` | Kurulu bir paketin ayarlarını göster ya da değiştir (sırlar maskelenir) |
 | `rona tools actions <id>` / `rona tools run <id> <işlem>` | Paketin operatöre dönük işlemlerini listele/çalıştır (ör. `google_auth add_account`) |
 | `rona task list\|del\|toggle` | Zamanlanmış görevleri listele/sil/aktif-pasif değiştir |
@@ -753,10 +757,24 @@ pytest -q
 
 ## Kimliği ve Davranışı Özelleştirme
 
-`backend/prompts/` altındaki dosyalar sistem promptunu oluşturur ve iki kategoriye ayrılır:
+Kişilik, çıktı biçimi, kullanıcı profili ve araç/hafıza/alt ajan/görev kuralları -- toplam dokuz `.md` prompt dosyası -- artık dosya sistemini elle düzenlemeden, web panelinden ya da `rona edit prompt` ile değiştirilebilir:
 
-- **Kimlik (sizin doldurmanız gereken):** `backend/prompts/user.md` — bu depoda kasıtlı olarak boş, doldurulacak alanlar içeren bir şablon halinde bırakılmıştır. Kim olduğunuz, ne iş yaptığınız, hangi teknolojileri kullandığınız ve Rona'nın sizinle nasıl etkileşmesini istediğiniz gibi bilgileri buraya siz yazarsınız.
-- **Davranış (olduğu gibi çalışır, isterseniz düzenlersiniz):** `persona.md` (kişilik ve ton), `output_text.md` (biçimlendirme kuralları), `toolbox.md`/`memory.md`/`subagents.md`/`trigger.md` (araç kullanım ve hafıza katmanı kuralları) — bunlar jeneriktir ve kişisel veri içermez; asistanın genel davranışını değiştirmek isterseniz düzenlemeniz gereken dosyalar bunlardır.
+- **Ana sohbet (7):** `persona` (kişilik ve ton), `output_text` (biçimlendirme kuralları), `user` (kullanıcı profili — kim olduğunuz, ne iş yaptığınız, Rona'nın sizinle nasıl etkileşmesini istediğiniz), `toolbox`/`memory`/`subagents`/`trigger` (araç kullanımı ve hafıza katmanı kuralları) — her sohbet turunda bu sırayla birleştirilir.
+- **Arka plan alt ajanları (1):** `subagent_worker` — alt ajanların çalıştığı sistem promptu.
+- **Zamanlanmış görevler (1):** `trigger_worker` — görev yürütücüsünün çalıştığı sistem promptu; döndürdüğü JSON karar biçimi (`outcome`, `condition_not_met` gibi alanlar) bir sözleşmedir — bozulursa zamanlanmış görevler çalışamaz hâle gelir, bu yüzden panel ve CLI bu işaretlerden birinin eksikliğini kaydederken bir uyarı olarak gösterir.
+
+Web panelinde **Ayarlar → Promptlar**'dan bir promptu açıp düzenleyebilir, kaydedebilir ya da "Varsayılana dön" ile sıfırlayabilirsiniz; aynı işlemler terminalden:
+
+```bash
+rona edit prompt list                  # dokuz promptun durumu (özelleştirildi mi, varsayılan güncellendi mi)
+rona edit prompt show user             # geçerli içeriği yazdır (--default ile varsayılanı)
+rona edit prompt edit user             # $VISUAL/$EDITOR'da aç, kapatınca kaydet
+rona edit prompt reset user            # override'ı sil, varsayılana dön
+```
+
+Bir özelleştirme, aynı ada sahip ama git'te izlenmeyen bir klasöre (`backend/prompts/custom/`) yazılır — izlenen `backend/prompts/*.md` dosyaları hiç değişmez, dolayısıyla bir `git pull` özelleştirmelerinizle asla çakışmaz. Bu override dosyası varsa o kullanılır, yoksa izlenen varsayılan. Siz bir promptu özelleştirdikten sonra ilgili varsayılan dosya bir güncellemeyle (`git pull`) değişirse, panelde ve `rona edit prompt list` çıktısında "varsayılan güncellendi" işareti belirir — bu, yeni varsayılanı gözden geçirip özelleştirmenizi buna göre elle taşımanız gerektiğinin işaretidir. Bir kayıt, bir sonraki mesajdan ya da görev çalıştırmasından itibaren geçerlidir; backend'i yeniden başlatmaya gerek yoktur.
+
+> **Daha önce `user.md`'yi elle düzenlediyseniz:** izlenen dosyadaki bu değişiklik olduğu gibi çalışmaya devam eder, hiçbir şey bozulmaz. Ama artık her `git pull`'da çakışma riski taşır; taşımak isterseniz içeriğini panelden (**Ayarlar → Promptlar → user**) ya da `rona edit prompt edit user` ile kaydedin — ikisi de onu `backend/prompts/custom/user.md`'ye yazar — sonra izlenen `backend/prompts/user.md`'deki yerel değişikliğinizi geri alın.
 
 Asistanın adını değiştirmek isterseniz `backend/.env` içindeki `APP_NAME`'in yalnızca `/health` yanıtı ve FastAPI başlığı gibi yüzeysel yerlerde göründüğünü, `persona.md` içinde "Rona" adının ayrıca sabit metin olarak geçtiğini unutmayın — tam bir yeniden adlandırma için ikisini birlikte güncelleyin.
 
@@ -764,5 +782,6 @@ Asistanın adını değiştirmek isterseniz `backend/.env` içindeki `APP_NAME`'
 
 - Backend'in tüm uç noktaları `AUTH_TOKEN` ile korunur; bu token'ı tahmin edilemeyecek şekilde rastgele üretin (`rona edit auth reset`) ve kimseyle paylaşmayın.
 - Web paneli, backend ile aynı `AUTH_TOKEN`'ı kullanır ve isteklerinizi backend'e bu token ile proxy'ler; paneli `127.0.0.1` dışına açacaksanız (ör. `WEB_HOST=0.0.0.0`) mutlaka bir ters proxy arkasında TLS ile sunun ve `WEB_ALLOWED_HOSTS`'u gerçek alan adınızla sınırlayın.
+- Web panelinin `/host/*` uç noktalarının (backend'i başlatma/durdurma, log takibi, ve artık paket kurma/güncelleme/kaldırma) kendine ait bir kimlik doğrulaması yoktur -- `/host/packages/*` de dahil, sunucudaki "yeniden başlat" butonuyla aynı erişim düzeyine sahiptir. Paneli yalnızca güvendiğiniz bir ağdan (ör. kendi VPN'iniz) erişilebilir tutun.
 - Hassas araç çağrıları (e-posta gönderme, kişi/görev/anı silme vb.) her zaman kullanıcı onayından geçer; `create_task` ile önceden onaylanan çağrılar yalnızca tanımlandıkları parametrelerle çalışabilir, yürütücü bunları değiştiremez. Anı ekleme/düzenleme ("deep" katmanı dahil) onay istemez -- katmanlar zaten konsolidasyon tarafından otomatik yönetilir; bir kişiyi silmek yine onaylıdır ve bağlı anılarını kalıcı silmek yerine arşive taşır.
 - Herhangi bir anahtarın veya token'ın sızdığından şüpheleniyorsanız ilgili sağlayıcıda hemen iptal edip yeniden oluşturun ve `AUTH_TOKEN`'ı değiştirin (`rona edit auth reset`).

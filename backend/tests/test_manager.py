@@ -6,16 +6,19 @@ nothing here touches the real Rona Tools repo or the developer's real .env.
 import json
 import os
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 
 import pytest
 
-from toolbox import manager, packages, registry, sources
+from toolbox import db, manager, packages, registry, sources
 from toolbox.manager import (
     HealthCheckFailed,
     InstallCancelled,
     ManagerError,
+    ManagerBusy,
+    PackageAlreadyInstalled,
     ToolNameConflict,
 )
 
@@ -41,10 +44,11 @@ def catalog(tmp_path):
         module_source: str = "",
         extra_files: dict[str, str] | None = None,
         declare_in_index: bool = True,
+        version: str = "0.1.0",
     ):
         manifest = {
             "id": package_id,
-            "version": "0.1.0",
+            "version": version,
             "kind": "tool",
             "name": package_id,
             "description": "fixture",
@@ -67,7 +71,12 @@ def catalog(tmp_path):
             (pkg_dir / name).write_text(content, encoding="utf-8")
 
         data = json.loads((root / "index.json").read_text(encoding="utf-8"))
-        entry = {"id": package_id, "version": "0.1.0", "name": package_id, "description": ""}
+        entry = {
+            "id": package_id,
+            "version": manifest["version"],
+            "name": package_id,
+            "description": "",
+        }
         if declare_in_index:
             # The real catalog mirrors these two manifest fields into
             # index.json so a dependency plan can be built without
@@ -79,7 +88,47 @@ def catalog(tmp_path):
         (root / "index.json").write_text(json.dumps(data), encoding="utf-8")
         return pkg_dir
 
+    def bump(
+        package_id: str,
+        version: str,
+        *,
+        manifest_extra: dict | None = None,
+        tools: list[dict] | None = None,
+        module_source: str = "",
+        extra_files: dict[str, str] | None = None,
+    ) -> Path:
+        """Publish a new version of an already-added package: updates its
+        manifest.json + index.json entry to ``version`` (and, optionally, its
+        tools.json/module source/extra files), as a new catalog release
+        would. Used to exercise resolve_plan()/update()'s version-aware
+        behaviour."""
+        pkg_dir = root / "packages" / package_id
+        manifest = json.loads((pkg_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest.update(manifest_extra or {})
+        manifest["version"] = version
+        (pkg_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        if tools is not None:
+            (pkg_dir / "tools.json").write_text(
+                json.dumps({"tools": tools}), encoding="utf-8"
+            )
+        if module_source:
+            mod_name = tools[0]["module"].lstrip(".") if tools else package_id
+            (pkg_dir / f"{mod_name}.py").write_text(module_source, encoding="utf-8")
+        for name, content in (extra_files or {}).items():
+            (pkg_dir / name).write_text(content, encoding="utf-8")
+
+        data = json.loads((root / "index.json").read_text(encoding="utf-8"))
+        for entry in data["packages"]:
+            if entry["id"] == package_id:
+                entry["version"] = version
+                entry["kind"] = manifest.get("kind", entry.get("kind", "tool"))
+                entry["requires"] = manifest.get("requires", entry.get("requires", []))
+                break
+        (root / "index.json").write_text(json.dumps(data), encoding="utf-8")
+        return pkg_dir
+
     add_package.source_spec = f"local:{root}"
+    add_package.bump = bump
     return add_package
 
 
@@ -97,6 +146,7 @@ def manager_env(tmp_path, monkeypatch):
             shutil.rmtree(packages.package_dir(pid), ignore_errors=True)
             shutil.rmtree(packages.preserved_dir(pid), ignore_errors=True)
             _purge_module_cache(pid)
+        shutil.rmtree(packages.UPDATING_DIR, ignore_errors=True)
         packages.write_lockfile(prior_lock)
         registry.reload_registry()
         for key in ("TESTPKG_API_KEY", "RETRY_KEY", "FRESH_KEY", "EXISTING_KEY"):
@@ -381,6 +431,50 @@ def test_dependency_cycle_detected(catalog, manager_env):
 
     with pytest.raises(manager.DependencyCycle):
         manager.install("cycle_a", source=catalog.source_spec)
+
+
+def test_install_resolves_constrained_requirement_by_name(catalog, manager_env):
+    """A `requires` entry carrying a version constraint (e.g. "dep_pkg>=0.1")
+    must still resolve and install the dependency by its bare name. The
+    constraint here is satisfied by what the catalog offers (0.1.0) so this
+    test isolates "resolves by name" from "rejects an unsatisfiable
+    constraint", which test_install_rejects_catalog_version_not_satisfying_
+    constraint covers on its own."""
+    catalog("dep_pkg", manifest_extra={"kind": "library"}, tools=[])
+    catalog(
+        "dependent_pkg",
+        manifest_extra={"requires": ["dep_pkg>=0.1,<2"]},
+        tools=[_simple_tool("dependent_pkg_tool")],
+        module_source="def dependent_pkg_tool():\n    return {'success': True}\n",
+    )
+    manager_env.extend(["dep_pkg", "dependent_pkg"])
+
+    staged = manager.install("dependent_pkg", source=catalog.source_spec)
+
+    ids = {s.manifest.id for s in staged}
+    assert ids == {"dep_pkg", "dependent_pkg"}
+    assert manager.is_installed("dep_pkg")
+    assert manager.is_installed("dependent_pkg")
+
+
+def test_uninstall_blocked_by_constrained_dependent(catalog, manager_env):
+    catalog("base_pkg2", manifest_extra={"kind": "library"}, tools=[])
+    catalog(
+        "leaf_pkg2",
+        manifest_extra={"requires": ["base_pkg2>=0.1"]},
+        tools=[_simple_tool("leaf_pkg2_tool")],
+        module_source="def leaf_pkg2_tool():\n    return {'success': True}\n",
+    )
+    manager_env.extend(["base_pkg2", "leaf_pkg2"])
+    manager.install("leaf_pkg2", source=catalog.source_spec)
+
+    with pytest.raises(ManagerError):
+        manager.uninstall("base_pkg2")
+    assert manager.is_installed("base_pkg2")
+
+    result = manager.uninstall("base_pkg2", force=True)
+    assert result.dependents == ["leaf_pkg2"]
+    assert not manager.is_installed("base_pkg2")
 
 
 def test_uninstall_blocked_by_dependent_without_force(catalog, manager_env):
@@ -1055,3 +1149,555 @@ def test_cli_install_reports_a_catalog_failure_as_json(manager_env, capsys, tmp_
         ["--json", "install", "anything", "--source", f"local:{tmp_path}", "--yes"]
     ) == 1
     assert "index.json not found" in _json_output(capsys)["error"]
+
+
+# ---------------------------------------------------------------------------
+# Version-aware planning, upgrade, `update`, --defer-config, locking and
+# crash recovery
+# ---------------------------------------------------------------------------
+
+
+def _updating_dir_empty() -> bool:
+    """True whether the scratch dir was fully cleaned up (the success path,
+    where finalize() rmdir's it) or is merely left empty (a rollback, which
+    doesn't bother) -- either way nothing stale is left behind."""
+    return not packages.UPDATING_DIR.exists() or not any(packages.UPDATING_DIR.iterdir())
+
+
+def test_install_rejects_catalog_version_not_satisfying_constraint(catalog, manager_env):
+    catalog("rc_dep", manifest_extra={"kind": "library"}, tools=[])
+    catalog("rc_leaf", manifest_extra={"requires": ["rc_dep>=1.0"]}, tools=[])
+    manager_env.extend(["rc_dep", "rc_leaf"])
+
+    with pytest.raises(ManagerError, match="rc_dep"):
+        manager.install("rc_leaf", source=catalog.source_spec)
+
+    assert not manager.is_installed("rc_dep")
+    assert not manager.is_installed("rc_leaf")
+
+
+def test_resolve_plan_marks_unsatisfied_installed_dependency_as_upgrade(catalog, manager_env):
+    catalog("rp_dep", manifest_extra={"kind": "library"}, tools=[])
+    manager_env.append("rp_dep")
+    manager.install("rp_dep", source=catalog.source_spec)
+
+    catalog.bump("rp_dep", "2.0.0")
+    catalog("rp_leaf", manifest_extra={"requires": ["rp_dep>=2.0"]}, tools=[])
+
+    plan, complete = _plan(catalog, "rp_leaf")
+
+    by_id = {e.id: e for e in plan}
+    assert by_id["rp_dep"].reason == "upgrade"
+    assert by_id["rp_dep"].already_installed is True
+    assert by_id["rp_dep"].installed_version == "0.1.0"
+    assert by_id["rp_dep"].version == "2.0.0"
+    assert by_id["rp_dep"].needs_action is True
+    assert by_id["rp_leaf"].reason == "requested"
+    assert complete is True
+
+
+def test_resolve_plan_refuses_when_no_catalog_version_satisfies(catalog, manager_env):
+    catalog("rp_dep2", manifest_extra={"kind": "library"}, tools=[])
+    manager_env.append("rp_dep2")
+    manager.install("rp_dep2", source=catalog.source_spec)  # stays at 0.1.0 in the catalog
+
+    catalog("rp_leaf2", manifest_extra={"requires": ["rp_dep2>=2.0"]}, tools=[])
+
+    with pytest.raises(ManagerError, match="rp_dep2"):
+        _plan(catalog, "rp_leaf2")
+
+
+def test_install_upgrades_too_old_dependency_and_keeps_its_config(catalog, manager_env):
+    catalog(
+        "iu_dep",
+        manifest_extra={
+            "kind": "library",
+            "config": [{"key": "shared_value", "target": "config", "required": True}],
+        },
+        tools=[],
+    )
+    manager_env.append("iu_dep")
+    manager.install(
+        "iu_dep", source=catalog.source_spec, answers={"iu_dep": {"shared_value": "hello"}}
+    )
+
+    catalog.bump("iu_dep", "2.0.0")
+    catalog("iu_leaf", manifest_extra={"requires": ["iu_dep>=2.0"]}, tools=[])
+    manager_env.append("iu_leaf")
+
+    staged = manager.install("iu_leaf", source=catalog.source_spec)
+
+    assert {s.manifest.id for s in staged} == {"iu_dep", "iu_leaf"}
+    manifest = packages.load_manifest(packages.package_dir("iu_dep"))
+    assert manifest.version == "2.0.0"
+    assert packages.read_config_file("iu_dep") == {"shared_value": "hello"}
+    assert _updating_dir_empty()
+
+
+def test_update_preserves_config_file_fields_env_and_user_data(catalog, manager_env, tmp_path):
+    creds_file = tmp_path / "creds.json"
+    creds_file.write_text('{"a": 1}', encoding="utf-8")
+
+    catalog(
+        "upd_full",
+        manifest_extra={
+            "config": [
+                {"key": "note", "target": "config", "required": True},
+                {
+                    "key": "creds",
+                    "target": "file",
+                    "dest_filename": "creds.json",
+                    "required": True,
+                },
+                {
+                    "key": "api_key",
+                    "target": "env",
+                    "env_var": "UPD_FULL_API_KEY",
+                    "required": True,
+                },
+            ],
+            "user_data_globs": ["token_*.json"],
+        },
+        tools=[_simple_tool("upd_full_tool")],
+        module_source="def upd_full_tool():\n    return {'value': 'old'}\n",
+    )
+    manager_env.append("upd_full")
+    manager.install(
+        "upd_full",
+        source=catalog.source_spec,
+        answers={"upd_full": {"note": "hello", "creds": str(creds_file), "api_key": "sekret"}},
+    )
+    (packages.package_dir("upd_full") / "token_work.json").write_text(
+        '{"token": "abc"}', encoding="utf-8"
+    )
+
+    config_before = packages.read_config_file("upd_full")
+    env_before = packages.ENV_PATH.read_text(encoding="utf-8")
+
+    catalog.bump(
+        "upd_full",
+        "0.2.0",
+        tools=[_simple_tool("upd_full_tool_v2")],
+        module_source="def upd_full_tool_v2():\n    return {'value': 'new'}\n",
+    )
+
+    staged = manager.update("upd_full", source=catalog.source_spec)
+
+    assert len(staged) == 1
+    manifest = packages.load_manifest(packages.package_dir("upd_full"))
+    assert manifest.version == "0.2.0"
+    import toolbox
+
+    assert toolbox.has_tool("upd_full_tool_v2")
+    assert not toolbox.has_tool("upd_full_tool")
+
+    assert packages.read_config_file("upd_full") == config_before
+    assert packages.ENV_PATH.read_text(encoding="utf-8") == env_before
+    assert os.environ["UPD_FULL_API_KEY"] == "sekret"
+    assert (
+        packages.package_dir("upd_full") / "creds.json"
+    ).read_text(encoding="utf-8") == '{"a": 1}'
+    assert (
+        packages.package_dir("upd_full") / "token_work.json"
+    ).read_text(encoding="utf-8") == '{"token": "abc"}'
+    lock = packages.read_lockfile()
+    assert lock["packages"]["upd_full"]["version"] == "0.2.0"
+    assert _updating_dir_empty()
+
+    os.environ.pop("UPD_FULL_API_KEY", None)
+
+
+def test_update_noop_when_up_to_date(catalog, manager_env):
+    catalog("noop_pkg", tools=[])
+    manager_env.append("noop_pkg")
+    manager.install("noop_pkg", source=catalog.source_spec)
+
+    staged = manager.update("noop_pkg", source=catalog.source_spec)
+
+    assert staged == []
+    manifest = packages.load_manifest(packages.package_dir("noop_pkg"))
+    assert manifest.version == "0.1.0"
+
+
+def test_update_rolls_back_on_schema_failure(catalog, manager_env, monkeypatch, tmp_path):
+    db_path = tmp_path / "schema_test.db"
+    sqlite3.connect(str(db_path)).close()
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+
+    catalog(
+        "sch_pkg",
+        tools=[_simple_tool("sch_pkg_tool")],
+        module_source="def sch_pkg_tool():\n    return {'value': 1}\n",
+    )
+    manager_env.append("sch_pkg")
+    manager.install("sch_pkg", source=catalog.source_spec)
+
+    catalog.bump(
+        "sch_pkg",
+        "0.2.0",
+        manifest_extra={"schema_sql": "broken.sql"},
+        tools=[_simple_tool("sch_pkg_tool")],
+        module_source="def sch_pkg_tool():\n    return {'value': 2}\n",
+        extra_files={"broken.sql": "THIS IS NOT VALID SQL AT ALL;"},
+    )
+
+    with pytest.raises(Exception):  # noqa: B017 -- _apply_schema lets sqlite3's own error through
+        manager.update("sch_pkg", source=catalog.source_spec)
+
+    assert manager.is_installed("sch_pkg")
+    manifest = packages.load_manifest(packages.package_dir("sch_pkg"))
+    assert manifest.version == "0.1.0"
+    lock = packages.read_lockfile()
+    assert lock["packages"]["sch_pkg"]["version"] == "0.1.0"
+    import toolbox
+
+    assert toolbox.get_tool("sch_pkg_tool")() == {"value": 1}
+    assert _updating_dir_empty()
+
+
+def test_update_rolls_back_when_new_version_fails_to_load(catalog, manager_env):
+    catalog(
+        "load_fail_pkg",
+        tools=[_simple_tool("load_fail_pkg_tool")],
+        module_source="def load_fail_pkg_tool():\n    return {'success': True}\n",
+    )
+    manager_env.append("load_fail_pkg")
+    manager.install("load_fail_pkg", source=catalog.source_spec)
+
+    catalog.bump(
+        "load_fail_pkg",
+        "0.2.0",
+        tools=[
+            {
+                "name": "load_fail_pkg_tool",
+                "description": "fixture tool",
+                "module": ".missing_module",
+                "function": "load_fail_pkg_tool",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+                "requires_confirmation": False,
+                "background": True,
+            }
+        ],
+        # deliberately no module_source -- ".missing_module" fails to import
+    )
+
+    with pytest.raises(ManagerError, match="failed to load"):
+        manager.update("load_fail_pkg", source=catalog.source_spec)
+
+    assert manager.is_installed("load_fail_pkg")
+    manifest = packages.load_manifest(packages.package_dir("load_fail_pkg"))
+    assert manifest.version == "0.1.0"
+    import toolbox
+
+    assert toolbox.has_tool("load_fail_pkg_tool")
+    assert _updating_dir_empty()
+
+
+def test_update_refused_when_dependent_constraint_breaks(catalog, manager_env):
+    catalog("dep_break", manifest_extra={"kind": "library"}, tools=[])
+    catalog(
+        "dependent_break",
+        manifest_extra={"requires": ["dep_break<2.0"]},
+        tools=[_simple_tool("dependent_break_tool")],
+        module_source="def dependent_break_tool():\n    return {'success': True}\n",
+    )
+    manager_env.extend(["dep_break", "dependent_break"])
+    manager.install("dependent_break", source=catalog.source_spec)
+
+    catalog.bump("dep_break", "2.0.0")
+
+    with pytest.raises(ManagerError, match="dependent_break"):
+        manager.update("dep_break", source=catalog.source_spec)
+
+    manifest = packages.load_manifest(packages.package_dir("dep_break"))
+    assert manifest.version == "0.1.0"
+    assert _updating_dir_empty()
+
+
+def test_update_installs_new_dependency(catalog, manager_env):
+    catalog(
+        "upd_root",
+        tools=[_simple_tool("upd_root_tool")],
+        module_source="def upd_root_tool():\n    return {'success': True}\n",
+    )
+    catalog("upd_newdep", manifest_extra={"kind": "library"}, tools=[])
+    manager_env.extend(["upd_root", "upd_newdep"])
+    manager.install("upd_root", source=catalog.source_spec)
+    assert not manager.is_installed("upd_newdep")
+
+    catalog.bump(
+        "upd_root",
+        "0.2.0",
+        manifest_extra={"requires": ["upd_newdep"]},
+        tools=[_simple_tool("upd_root_tool")],
+        module_source="def upd_root_tool():\n    return {'success': True}\n",
+    )
+
+    staged = manager.update("upd_root", source=catalog.source_spec)
+
+    assert manager.is_installed("upd_newdep")
+    manifest = packages.load_manifest(packages.package_dir("upd_root"))
+    assert manifest.version == "0.2.0"
+    assert {s.manifest.id for s in staged} == {"upd_root", "upd_newdep"}
+
+
+def test_update_health_failure_kept_non_interactive(catalog, manager_env):
+    catalog(
+        "upd_unhealthy",
+        manifest_extra={"health_check": ".health:check"},
+        tools=[_simple_tool("upd_unhealthy_tool")],
+        module_source="def upd_unhealthy_tool():\n    return {'success': True}\n",
+        extra_files={
+            "health.py": "def check(config):\n    return {'ok': False, 'detail': 'nope'}\n"
+        },
+    )
+    manager_env.append("upd_unhealthy")
+    manager.install("upd_unhealthy", source=catalog.source_spec, keep_on_health_failure=True)
+
+    catalog.bump(
+        "upd_unhealthy",
+        "0.2.0",
+        tools=[_simple_tool("upd_unhealthy_tool")],
+        module_source="def upd_unhealthy_tool():\n    return {'success': True}\n",
+        extra_files={
+            "health.py": "def check(config):\n    return {'ok': False, 'detail': 'still nope'}\n"
+        },
+    )
+
+    staged = manager.update(
+        "upd_unhealthy", source=catalog.source_spec, keep_on_health_failure=True
+    )
+
+    assert len(staged) == 1
+    assert staged[0].health is not None and not staged[0].health.ok
+    manifest = packages.load_manifest(packages.package_dir("upd_unhealthy"))
+    assert manifest.version == "0.2.0"
+
+
+def test_update_interactive_cancel_restores_old_version(catalog, manager_env):
+    catalog(
+        "upd_cancel",
+        manifest_extra={"health_check": ".health:check"},
+        tools=[_simple_tool("upd_cancel_tool")],
+        module_source="def upd_cancel_tool():\n    return {'success': True}\n",
+        extra_files={"health.py": "def check(config):\n    return {'ok': True, 'detail': 'fine'}\n"},
+    )
+    manager_env.append("upd_cancel")
+    manager.install("upd_cancel", source=catalog.source_spec)
+
+    catalog.bump(
+        "upd_cancel",
+        "0.2.0",
+        tools=[_simple_tool("upd_cancel_tool")],
+        module_source="def upd_cancel_tool():\n    return {'success': True}\n",
+        extra_files={
+            "health.py": "def check(config):\n    return {'ok': False, 'detail': 'broken now'}\n"
+        },
+    )
+
+    with pytest.raises(InstallCancelled):
+        manager.update(
+            "upd_cancel",
+            source=catalog.source_spec,
+            on_health_result=lambda staged, result: "cancel",
+        )
+
+    assert manager.is_installed("upd_cancel")
+    manifest = packages.load_manifest(packages.package_dir("upd_cancel"))
+    assert manifest.version == "0.1.0"
+    assert _updating_dir_empty()
+
+
+def test_update_runs_new_code_in_same_process(catalog, manager_env):
+    catalog(
+        "upd_code",
+        tools=[_simple_tool("upd_code_tool")],
+        module_source="def upd_code_tool():\n    return {'value': 1}\n",
+    )
+    manager_env.append("upd_code")
+    manager.install("upd_code", source=catalog.source_spec)
+    import toolbox
+
+    assert toolbox.get_tool("upd_code_tool")() == {"value": 1}
+
+    catalog.bump(
+        "upd_code",
+        "0.2.0",
+        tools=[_simple_tool("upd_code_tool")],
+        module_source="def upd_code_tool():\n    return {'value': 2}\n",
+    )
+    manager.update("upd_code", source=catalog.source_spec)
+
+    assert toolbox.get_tool("upd_code_tool")() == {"value": 2}
+
+
+def test_install_defer_config_skips_required_config_and_health(catalog, manager_env):
+    catalog(
+        "defer_pkg",
+        manifest_extra={
+            "config": [
+                {"key": "api_key", "target": "env", "env_var": "DEFER_API_KEY", "required": True}
+            ],
+            "health_check": ".health:check",
+        },
+        tools=[_simple_tool("defer_pkg_tool")],
+        module_source="def defer_pkg_tool():\n    return {'success': True}\n",
+        extra_files={
+            "health.py": (
+                "def check(config):\n"
+                "    return {'ok': bool(config.get('api_key')), 'detail': 'x'}\n"
+            )
+        },
+    )
+    manager_env.append("defer_pkg")
+
+    staged = manager.install("defer_pkg", source=catalog.source_spec, defer_config=True)
+
+    assert manager.is_installed("defer_pkg")
+    assert staged[0].config_pending == ["api_key"]
+    assert staged[0].health is not None and not staged[0].health.ok
+    assert "DEFER_API_KEY" not in os.environ
+
+
+def test_install_already_installed_raises(catalog, manager_env):
+    catalog("dup_pkg", tools=[])
+    manager_env.append("dup_pkg")
+    manager.install("dup_pkg", source=catalog.source_spec)
+
+    with pytest.raises(PackageAlreadyInstalled):
+        manager.install("dup_pkg", source=catalog.source_spec)
+
+
+def test_manager_lock_rejects_concurrent_mutation(catalog, manager_env, capsys):
+    catalog("lock_pkg", tools=[])
+
+    with manager._exclusive_lock():
+        rc = manager.main(
+            ["--json", "install", "lock_pkg", "--source", catalog.source_spec, "--yes"]
+        )
+
+    assert rc == 1
+    assert "already running" in _json_output(capsys)["error"]
+    assert not manager.is_installed("lock_pkg")
+
+
+def test_recover_interrupted_update_restores_backup(catalog, manager_env):
+    catalog(
+        "recover_pkg",
+        tools=[_simple_tool("recover_pkg_tool")],
+        module_source="def recover_pkg_tool():\n    return {'value': 'old'}\n",
+    )
+    manager_env.append("recover_pkg")
+    manager.install("recover_pkg", source=catalog.source_spec)
+
+    live_dir = packages.package_dir("recover_pkg")
+    updating_dir = packages.UPDATING_DIR
+    updating_dir.mkdir(parents=True, exist_ok=True)
+    old_backup = updating_dir / "recover_pkg.old"
+    # Simulate a crash between _swap_in's two renames: the live directory was
+    # already moved aside but never swapped back in.
+    shutil.move(str(live_dir), str(old_backup))
+    assert not live_dir.exists()
+
+    manager._recover_interrupted_updates()
+
+    assert live_dir.is_dir()
+    assert not old_backup.exists()
+    manifest = packages.load_manifest(live_dir)
+    assert manifest.id == "recover_pkg"
+
+
+def test_uninstall_uses_trash_rename(catalog, manager_env, monkeypatch):
+    catalog("trash_pkg", tools=[])
+    manager_env.append("trash_pkg")
+    manager.install("trash_pkg", source=catalog.source_spec)
+
+    calls = []
+    original = manager._rename_with_retry
+
+    def spy(src, dst, *a, **kw):
+        calls.append((Path(src), Path(dst)))
+        return original(src, dst, *a, **kw)
+
+    monkeypatch.setattr(manager, "_rename_with_retry", spy)
+
+    manager.uninstall("trash_pkg")
+
+    assert not manager.is_installed("trash_pkg")
+    assert calls, "uninstall should move the package dir via _rename_with_retry"
+    src, dst = calls[0]
+    assert src == packages.package_dir("trash_pkg")
+    assert dst.parent == packages.UPDATING_DIR
+    assert dst.name == "trash_pkg.trash"
+    assert _updating_dir_empty()
+
+
+def test_progress_goes_to_stderr(catalog, manager_env, capsys):
+    catalog(
+        "progress_pkg",
+        tools=[_simple_tool("progress_pkg_tool")],
+        module_source="def progress_pkg_tool():\n    return {'success': True}\n",
+    )
+    manager_env.append("progress_pkg")
+
+    manager.install("progress_pkg", source=catalog.source_spec)
+
+    assert "[toolbox]" in capsys.readouterr().err
+
+
+def test_cli_plan_json(catalog, manager_env, capsys):
+    catalog("plan_cli_base", manifest_extra={"kind": "library"}, tools=[])
+    catalog("plan_cli_leaf", manifest_extra={"requires": ["plan_cli_base"]}, tools=[])
+
+    assert manager.main(["--json", "plan", "plan_cli_leaf", "--source", catalog.source_spec]) == 0
+
+    payload = _json_output(capsys)
+    assert payload["action"] == "install"
+    assert payload["complete"] is True
+    entries = {e["id"]: e for e in payload["entries"]}
+    assert entries["plan_cli_base"]["reason"] == "dependency"
+    assert entries["plan_cli_leaf"]["reason"] == "requested"
+
+
+def test_cli_update_json_reports_upgraded_and_restart_flag(
+    catalog, manager_env, capsys, monkeypatch
+):
+    monkeypatch.setattr(manager, "_pip_install", lambda reqs: True)
+    catalog(
+        "cli_upd_pkg",
+        manifest_extra={"python_requirements": ["somepkg"]},
+        tools=[_simple_tool("cli_upd_pkg_tool")],
+        module_source="def cli_upd_pkg_tool():\n    return {'success': True}\n",
+    )
+    manager_env.append("cli_upd_pkg")
+    manager.install("cli_upd_pkg", source=catalog.source_spec)
+
+    catalog.bump(
+        "cli_upd_pkg",
+        "0.2.0",
+        tools=[_simple_tool("cli_upd_pkg_tool")],
+        module_source="def cli_upd_pkg_tool():\n    return {'success': True}\n",
+    )
+
+    assert manager.main(
+        ["--json", "update", "cli_upd_pkg", "--source", catalog.source_spec, "--yes"]
+    ) == 0
+
+    payload = _json_output(capsys)
+    assert payload["upgraded"] == [{"id": "cli_upd_pkg", "from": "0.1.0", "to": "0.2.0"}]
+    assert payload["restart_recommended"] is True
+
+
+def test_cli_available_reports_installed_version_and_update_available(
+    catalog, manager_env, capsys
+):
+    catalog("avail_pkg", tools=[])
+    manager_env.append("avail_pkg")
+    manager.install("avail_pkg", source=catalog.source_spec)
+    catalog.bump("avail_pkg", "0.2.0")
+
+    assert manager.main(["--json", "available", "--source", catalog.source_spec]) == 0
+
+    entries = {p["id"]: p for p in _json_output(capsys)["packages"]}
+    assert entries["avail_pkg"]["installed_version"] == "0.1.0"
+    assert entries["avail_pkg"]["update_available"] is True

@@ -29,13 +29,15 @@ import copy
 import json
 import logging
 import os
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import i18n
+from toolbox import versions
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -46,6 +48,11 @@ LOCKFILE_PATH = CUSTOM_DIR / "installed.json"
 # Where uninstall parks a package's user data when the user asks to keep it.
 # Named with a leading dot so iter_installed() never mistakes it for a package.
 PRESERVED_DIR = CUSTOM_DIR / ".preserved"
+# Scratch area toolbox.manager uses while swapping an upgraded package in (or
+# moving a removed one aside); also named with a leading dot so
+# iter_installed() never mistakes it for a package, and used by manager's
+# crash-recovery to detect a previous run that got killed mid-update.
+UPDATING_DIR = CUSTOM_DIR / ".updating"
 ENV_PATH = BACKEND_DIR / ".env"
 
 _PACKAGE_ID_PATTERN = r"^[a-z][a-z0-9_]*$"
@@ -153,6 +160,28 @@ class PackageManifest(BaseModel):
     # of deleting them with the rest of the package -- see manager.uninstall.
     user_data_globs: list[str] = Field(default_factory=list)
 
+    @field_validator("requires")
+    @classmethod
+    def _validate_requires(cls, value: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for raw in value:
+            try:
+                req = versions.parse_requirement(raw)
+            except versions.VersionError as exc:
+                raise ValueError(str(exc)) from exc
+            if req.name in seen:
+                raise ValueError(f"duplicate requirement for '{req.name}'")
+            seen.add(req.name)
+            normalized.append(str(req))
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_no_self_requirement(self) -> "PackageManifest":
+        if self.id in {versions.parse_requirement(r).name for r in self.requires}:
+            raise ValueError(f"package '{self.id}' cannot require itself")
+        return self
+
     def env_fields(self) -> list[ConfigField]:
         return [f for f in self.config if f.target == "env"]
 
@@ -161,6 +190,30 @@ class PackageManifest(BaseModel):
 
     def find_action(self, action_id: str) -> PackageAction | None:
         return next((a for a in self.actions if a.id == action_id), None)
+
+    def requirements(self) -> list["versions.Requirement"]:
+        """Parsed ``requires`` entries (already validated/normalized)."""
+        return [versions.parse_requirement(r) for r in self.requires]
+
+    def required_ids(self) -> list[str]:
+        """Bare package ids this package depends on, ignoring constraints."""
+        return [req.name for req in self.requirements()]
+
+
+def requirement_problems(
+    manifest: PackageManifest, installed_versions: Mapping[str, str]
+) -> list[str]:
+    """Human-readable problems with ``manifest``'s ``requires`` given what's
+    actually installed (``{package_id: version}``). Never raises -- used to
+    build warnings, not to block loading."""
+    problems: list[str] = []
+    for req in manifest.requirements():
+        installed = installed_versions.get(req.name)
+        if installed is None:
+            problems.append(f"requires '{req}' but '{req.name}' is not installed")
+        elif not req.is_satisfied_by(installed):
+            problems.append(f"requires '{req}' but '{req.name}' {installed} is installed")
+    return problems
 
 
 class PackageLoadError(Exception):
@@ -322,19 +375,20 @@ def iter_installed() -> list[Path]:
     return sorted(dirs, key=lambda p: p.name)
 
 
-def user_data_paths(manifest: PackageManifest) -> list[Path]:
-    """Files inside an installed package matching its ``user_data_globs``.
+def match_user_data(pkg_dir: Path, globs: Iterable[str], package_id: str) -> list[Path]:
+    """Files inside ``pkg_dir`` matching one of ``globs``.
 
-    Patterns are resolved strictly inside the package directory: a pattern
-    that escapes it (``../``, an absolute path) is ignored rather than
-    honoured, so a manifest can never point uninstall at arbitrary files.
+    Patterns are resolved strictly inside ``pkg_dir``: a pattern that escapes
+    it (``../``, an absolute path) is ignored rather than honoured, so a
+    manifest can never point uninstall (or an update's carry-over) at
+    arbitrary files. ``package_id`` is only used to name the package in the
+    warning logged for an escaping pattern.
     """
-    pkg_dir = package_dir(manifest.id)
     if not pkg_dir.is_dir():
         return []
     root = pkg_dir.resolve()
     found: list[Path] = []
-    for pattern in manifest.user_data_globs:
+    for pattern in globs:
         for path in sorted(pkg_dir.glob(pattern)):
             if not path.is_file() or path in found:
                 continue
@@ -342,13 +396,18 @@ def user_data_paths(manifest: PackageManifest) -> list[Path]:
                 logger.warning(
                     "toolbox: package '%s': user_data_globs pattern %r escapes the "
                     "package directory, ignoring %s",
-                    manifest.id,
+                    package_id,
                     pattern,
                     path,
                 )
                 continue
             found.append(path)
     return found
+
+
+def user_data_paths(manifest: PackageManifest) -> list[Path]:
+    """Files inside an installed package matching its ``user_data_globs``."""
+    return match_user_data(package_dir(manifest.id), manifest.user_data_globs, manifest.id)
 
 
 def preserved_dir(package_id: str) -> Path:

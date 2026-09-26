@@ -97,3 +97,7 @@ web-client/webui.log.*
 # Local agent handoff docs (not part of the public template)
 /project.md
 /project-plan.md
+
+# Prompt overrides (dashboard / rona edit prompt)
+backend/prompts/custom/*
+!backend/prompts/custom/.gitkeep

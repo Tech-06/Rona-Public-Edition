@@ -132,6 +132,7 @@ STRINGS: dict[str, str] = {
         "(sonra `rona tools install <id>` ile kurabilirsin)."
     ),
     "tools_step.catalog_unreachable": "Araç paketi kataloğuna ulaşılamadı, bu adım atlandı.",
+    "tools_step.all_installed": "Sunulan tüm araç paketleri zaten kurulu.",
     "tools_step.none_selected": "Hiçbir paket seçilmedi.",
     "tools_step.requires": "ayrıca kurar: {packages}",
     "tools_step.installing": "{id} kuruluyor...",

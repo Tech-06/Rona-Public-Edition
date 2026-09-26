@@ -1,7 +1,8 @@
 import importlib
 import json
 import logging
-from collections.abc import Callable
+import sys
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -110,7 +111,9 @@ def _load_tool_entry(item: dict[str, Any], *, origin: str) -> tuple[str, ToolEnt
     return spec.name, ToolEntry(spec, fn)
 
 
-def _load_manifest() -> tuple[dict[str, ToolEntry], list[PackageManifest], list[str]]:
+def _load_manifest() -> tuple[
+    dict[str, ToolEntry], list[PackageManifest], list[str], set[str]
+]:
     # A package installed (or removed) moments ago may not be visible to the
     # import system yet -- Python's path-based finders cache directory
     # listings. reload_registry() is exactly the "created/deleted files at
@@ -133,6 +136,7 @@ def _load_manifest() -> tuple[dict[str, ToolEntry], list[PackageManifest], list[
 
     loaded_packages: list[PackageManifest] = []
     warnings: list[str] = []
+    failures: set[str] = set()
     for pkg_dir in packages.iter_installed():
         try:
             manifest = packages.load_manifest(pkg_dir)
@@ -141,6 +145,7 @@ def _load_manifest() -> tuple[dict[str, ToolEntry], list[PackageManifest], list[
             message = f"skipping package in {pkg_dir}: {exc}"
             logger.warning("toolbox: %s", message)
             warnings.append(message)
+            failures.add(pkg_dir.name)
             continue
 
         package_ok = True
@@ -168,8 +173,19 @@ def _load_manifest() -> tuple[dict[str, ToolEntry], list[PackageManifest], list[
             warnings.append(
                 f"package '{manifest.id}' loaded with some tools skipped (see log)"
             )
+            failures.add(manifest.id)
 
-    return entries, loaded_packages, warnings
+    # Cross-package requirement checks, run once every manifest that made it
+    # this far is known. A package still loads even if what it requires is
+    # missing or the wrong version -- this only ever adds a warning.
+    installed_versions = {p.id: p.version for p in loaded_packages}
+    for manifest in loaded_packages:
+        for problem in packages.requirement_problems(manifest, installed_versions):
+            message = f"package '{manifest.id}' {problem}"
+            warnings.append(message)
+            logger.warning("toolbox: %s", message)
+
+    return entries, loaded_packages, warnings, failures
 
 
 def has_tool(name: str) -> bool:
@@ -228,6 +244,43 @@ def load_warnings() -> list[str]:
     return list(_load_warnings)
 
 
+def failed_packages() -> set[str]:
+    """Package ids (or, for a manifest that couldn't even be parsed, the
+    folder name) that failed to load or loaded with some tools skipped."""
+    return set(_load_failures)
+
+
+def purge_package_modules(package_ids: Iterable[str] | None = None) -> int:
+    """Drop cached ``toolbox.custom.<id>`` submodules from ``sys.modules``.
+
+    A package installed/removed/reinstalled at runtime leaves Python's
+    module cache pointing at stale (or now-deleted) files; this clears the
+    cache entries so the next import picks up what's actually on disk.
+    ``package_ids=None`` clears every custom package; the ``toolbox.custom``
+    package itself is never removed. Returns how many module entries were
+    dropped.
+    """
+    if package_ids is None:
+        prefix = "toolbox.custom."
+        targets = [
+            name
+            for name in sys.modules
+            if name.startswith(prefix) and name != "toolbox.custom"
+        ]
+    else:
+        targets = []
+        for pid in package_ids:
+            base = f"toolbox.custom.{pid}"
+            targets.extend(
+                name
+                for name in sys.modules
+                if name == base or name.startswith(base + ".")
+            )
+    for name in targets:
+        del sys.modules[name]
+    return len(targets)
+
+
 def reload_registry() -> None:
     """Re-scan toolbox/tools.json and every installed package from disk.
 
@@ -235,11 +288,12 @@ def reload_registry() -> None:
     running process picks up the change without a restart. Also used by
     tests to exercise package loading without a real process restart.
     """
-    global _registry, _installed_packages, _load_warnings
-    _registry, _installed_packages, _load_warnings = _load_manifest()
+    global _registry, _installed_packages, _load_warnings, _load_failures
+    _registry, _installed_packages, _load_warnings, _load_failures = _load_manifest()
 
 
 _registry: dict[str, ToolEntry]
 _installed_packages: list[PackageManifest]
 _load_warnings: list[str]
-_registry, _installed_packages, _load_warnings = _load_manifest()
+_load_failures: set[str]
+_registry, _installed_packages, _load_warnings, _load_failures = _load_manifest()

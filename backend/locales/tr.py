@@ -43,6 +43,13 @@ STRINGS: dict[str, str] = {
     "dashboard.notes_not_installed": "Notlar paketi kurulu değil.",
     "dashboard.invalid_layer": "Geçersiz katman: {layer}. deep, seasonal veya short kullanın.",
     "dashboard.consolidation_busy": "Bir hafıza konsolidasyonu zaten sürüyor.",
+    # -- app/prompts_api.py (prompt store HTTP hataları) ---------------------------------
+    "prompts.not_found": "Prompt bulunamadı",
+    "prompts.conflict": "Prompt başka bir yerden güncellendi; sürümünüz eski",
+    "prompts.missing_placeholder": "Zorunlu placeholder eksik: {names}",
+    "prompts.empty": "Bu prompt boş olamaz",
+    "prompts.too_large": "Prompt en fazla {limit} bayt olabilir",
+    "prompts.contract_warning": "Sözleşme işareti eksik olabilir: {markers}",
     # -- trigger/executor.py: outcome text stored on a task run -------------------------
     "trigger.outcome_timeout": "Çalışma {minutes} dakika sonra zaman aşımına uğradı.",
     "trigger.outcome_condition_not_met": "Koşul sağlanmadı.",

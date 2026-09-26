@@ -27,4 +27,11 @@ STRINGS: dict[str, str] = {
         "'rona web build' ya da web-client/frontend içinde "
         "'npm ci && npm run build' çalıştır."
     ),
+    # -- package_jobs.py ---------------------------------------------------------
+    "webui.invalid_package_id": "Geçersiz paket id'si: {package_id}",
+    "webui.package_job_busy": "Başka bir paket kurulum/güncelleme/kaldırma işlemi zaten çalışıyor",
+    "webui.backend_python_missing": "Backend python bulunamadı: {path}",
+    "webui.manager_no_output": "Manager komutu hiçbir çıktı üretmedi",
+    "webui.manager_timeout": "Manager komutu zaman aşımına uğradı",
+    "webui.package_job_timed_out": "Paket işlemi zaman aşımına uğradı ve sonlandırıldı",
 }

@@ -77,6 +77,7 @@ export type SettingsSectionId =
   | "status"
   | "connections"
   | "advanced"
+  | "prompts"
   | "tools"
   | "tasks"
   | "subagents"

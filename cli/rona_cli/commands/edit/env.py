@@ -2,12 +2,17 @@
 
 There's no `--cli` variant: the CLI itself is stdlib-only and keeps no
 .env of its own (see cli/README.md).
+
+`_editor_command` is also reused by `rona_cli.commands.edit.prompt`, which
+needs the editor to actually block until the user closes the file (it has
+to read the file back afterwards) -- hence the `wait` flag.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 
@@ -15,15 +20,38 @@ from rona_cli import i18n, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 
-def _editor_command() -> list[str]:
+def _split_editor(value: str) -> list[str]:
+    # A bare path to an existing file is one argument even with spaces in it
+    # (C:\Program Files\...), exactly as before `$EDITOR` could carry flags.
+    if os.path.isfile(value):
+        return [value]
+    if os.name == "nt":
+        # POSIX-mode shlex treats a backslash as an escape and would mangle
+        # a Windows path; non-POSIX mode keeps it but leaves quotes on tokens.
+        return [part.strip('"') for part in shlex.split(value, posix=False)]
+    return shlex.split(value)
+
+
+def _editor_command(wait: bool = False) -> list[str]:
+    """Build the argv prefix for the user's editor.
+
+    `$VISUAL`/`$EDITOR` may be a whole command line (e.g. ``code --wait``),
+    so it's split rather than treated as a single executable name (see
+    `_split_editor`). ``wait=True`` matters only for the macOS `open`
+    fallback: launched plainly, `open` starts the app and returns
+    immediately, so a caller that must read the file back afterwards needs
+    `-W` to make it wait for the app to close. Every other branch already
+    blocks in the foreground on its own (Notepad, nano, or whatever
+    `$VISUAL`/`$EDITOR` names).
+    """
     for var in ("VISUAL", "EDITOR"):
         value = os.environ.get(var)
         if value:
-            return [value]
+            return _split_editor(value)
     if sys.platform == "win32":
         return ["notepad"]
     if sys.platform == "darwin":
-        return ["open", "-t"]
+        return ["open", "-W", "-t"] if wait else ["open", "-t"]
     return ["nano"]
 
 
