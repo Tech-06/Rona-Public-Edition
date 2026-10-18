@@ -1,8 +1,9 @@
+import re
 from typing import Any
 
 import httpx
 from fastapi import Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from webui import i18n
 from webui.config import get_settings
@@ -19,6 +20,19 @@ _HOP_BY_HOP = {
     "proxy-authenticate",
     "proxy-authorization",
 }
+
+DEFAULT_READ_TIMEOUT = 45.0
+SLOW_READ_TIMEOUT = 180.0
+# Backend endpoints that legitimately block on LLM calls or the network.
+# /chat/stream is deliberately absent: the read timeout there applies between
+# SSE chunks, and the backend keeps the stream alive with events.
+_SLOW_PATHS = re.compile(
+    r"^/(?:chat"
+    r"|api/connections/probe"
+    r"|api/packages/reload"
+    r"|api/packages/[^/]+/actions/[^/]+"
+    r"|api/memory/consolidation/run)/?$"
+)
 
 _client: httpx.AsyncClient | None = None
 
@@ -40,7 +54,7 @@ def _request_headers(request: Request) -> dict[str, str]:
     result: dict[str, str] = {}
     for key, value in request.headers.items():
         lower = key.lower()
-        if lower in _HOP_BY_HOP or lower in ("host", "authorization", "accept-encoding"):
+        if lower in _HOP_BY_HOP or lower in ("host", "authorization", "accept-encoding", "cookie"):
             continue
         result[lower] = value
     result["authorization"] = f"Bearer {settings.auth_token}"
@@ -57,12 +71,12 @@ def _response_headers(response: httpx.Response) -> dict[str, str]:
     return result
 
 
+def _read_timeout(backend_path: str) -> float:
+    return SLOW_READ_TIMEOUT if _SLOW_PATHS.match(backend_path) else DEFAULT_READ_TIMEOUT
+
+
 def _error_response(status_code: int, detail: str) -> Response:
-    return Response(
-        content=f'{{"detail": "{detail}"}}',
-        status_code=status_code,
-        media_type="application/json",
-    )
+    return JSONResponse({"detail": detail}, status_code=status_code)
 
 
 async def proxy_request(request: Request, backend_path: str) -> Response:
@@ -75,6 +89,9 @@ async def proxy_request(request: Request, backend_path: str) -> Response:
         params=request.query_params,
         headers=headers,
         content=body,
+        timeout=httpx.Timeout(
+            connect=2.0, read=_read_timeout(backend_path), write=10.0, pool=5.0
+        ),
     )
     try:
         response = await client.send(upstream, stream=True)

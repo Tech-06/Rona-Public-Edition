@@ -14,7 +14,10 @@ from pathlib import Path
 
 from rona_cli import envio
 
+from installer import i18n, ui
+
 TOKEN_BYTES = 32
+MIN_TOKEN_LENGTH = 32
 
 
 def generate_token() -> str:
@@ -51,9 +54,18 @@ def ensure_auth_token(root: Path, *, install_web: bool) -> str:
     web_env = root / "web-client" / ".env"
 
     current = envio.read_env_file(backend_env).get("AUTH_TOKEN", "") if backend_env.exists() else ""
+    if current and len(current) < MIN_TOKEN_LENGTH:
+        ui.warn(i18n.t("envgen.short_token_replaced", min=MIN_TOKEN_LENGTH))
+        current = ""
     token = current or generate_token()
 
-    envio.write_env_updates(backend_env, {"AUTH_TOKEN": token})
+    updates = {"AUTH_TOKEN": token}
+    # Safe defaults for a fresh install; never override what the user set.
+    existing = envio.read_env_file(backend_env) if backend_env.exists() else {}
+    for key, default in (("HOST", "127.0.0.1"), ("RELOAD", "false")):
+        if key not in existing:
+            updates[key] = default
+    envio.write_env_updates(backend_env, updates)
     if install_web:
         envio.write_env_updates(web_env, {"AUTH_TOKEN": token})
     return token

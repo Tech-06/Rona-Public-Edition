@@ -13,9 +13,11 @@
 // tries the network first, only ever falling back to the cached
 // offline.html when the network is unreachable.
 
-const CACHE_NAME = "rona-offline-v1";
+const CACHE_NAME = "rona-offline-v2";
 const OFFLINE_URL = "/offline.html";
-const PRECACHE_URLS = [OFFLINE_URL, "/favicon.svg"];
+// offline.html's scripts are external (CSP script-src 'self'), so they have
+// to be cached too or the offline page would render without its logic.
+const PRECACHE_URLS = [OFFLINE_URL, "/offline.js", "/theme-init.js", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

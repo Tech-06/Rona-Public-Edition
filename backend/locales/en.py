@@ -28,8 +28,15 @@ STRINGS: dict[str, str] = {
     "main.model_call_failed": "Model call failed: {exc}",
     "main.log_reconcile_failed": "conversation registry reconcile failed",
     "main.log_history_record_failed": "failed to record chat history for a turn",
+    # -- run.py -----------------------------------------------------------------------
+    "run.insecure_exposure": (
+        "[run] WARNING: HOST={host} is not a loopback address and TLS is not "
+        "configured (SSL_CERTFILE/SSL_KEYFILE); the bearer token would travel "
+        "unencrypted. Set up TLS or put the backend behind a TLS reverse proxy."
+    ),
     # -- app/dashboard.py -----------------------------------------------------------
     "dashboard.not_editable": "Not editable: {names}",
+    "dashboard.config_invalid_value": "Config values must not contain line breaks or NUL characters",
     "dashboard.task_not_found": "Task not found",
     "dashboard.run_not_found": "Run not found",
     "dashboard.invalid_kind": "invalid kind: {kind}",

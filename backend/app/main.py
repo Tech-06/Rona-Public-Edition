@@ -33,6 +33,7 @@ from graph.state import replace_messages
 from memory import scheduler as memory_scheduler
 from memory import schema as memory_schema
 from subagents.store import cleanup_reported, reconcile_running
+from toolbox.db import restrict_permissions
 from trigger import scheduler as trigger_scheduler
 from trigger.store import reconcile_runs as reconcile_trigger_runs
 
@@ -65,8 +66,10 @@ async def _reconcile_conversation_registry(checkpointer: Any) -> None:
 
 async def verify_bearer_token(request: Request) -> None:
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    # Compare bytes: compare_digest raises TypeError on non-ASCII str, which
+    # would turn a junk header into a 500 instead of a 401.
     if scheme.lower() != "bearer" or not secrets.compare_digest(
-        token.strip(), settings.auth_token
+        token.strip().encode("utf-8"), settings.auth_token.encode("utf-8")
     ):
         raise HTTPException(
             status_code=401,
@@ -84,6 +87,7 @@ async def lifespan(app: FastAPI):
     trigger_scheduler.start()
     async with AsyncSqliteSaver.from_conn_string(str(CHECKPOINT_DB_PATH)) as checkpointer:
         await checkpointer.setup()
+        restrict_permissions(CHECKPOINT_DB_PATH)
         conversations.ensure_schema()
         history.ensure_schema()
         await _reconcile_conversation_registry(checkpointer)

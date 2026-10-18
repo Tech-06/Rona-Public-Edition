@@ -808,6 +808,13 @@ def apply_config(
         else:
             config_updates[cfg_field.key] = value
 
+    # Reject values that can't be written to .env (CR/LF/NUL would inject
+    # extra lines) before anything is touched.
+    try:
+        envfile.validate_env_updates(env_updates)
+    except envfile.EnvValueError as exc:
+        raise ManagerError(f"invalid config for '{manifest.id}': {exc}") from exc
+
     # Apply file copies first -- if a source path is bad we want to fail
     # before touching .env or config.json.
     for cfg_field, value in file_updates:

@@ -25,8 +25,15 @@ STRINGS: dict[str, str] = {
     "main.model_call_failed": "Model çağrısı başarısız oldu: {exc}",
     "main.log_reconcile_failed": "konuşma kaydı senkronizasyonu başarısız oldu",
     "main.log_history_record_failed": "bir tur için sohbet geçmişi kaydedilemedi",
+    # -- run.py -----------------------------------------------------------------------
+    "run.insecure_exposure": (
+        "[run] UYARI: HOST={host} loopback adresi değil ve TLS yapılandırılmamış "
+        "(SSL_CERTFILE/SSL_KEYFILE); bearer token şifrelenmeden iletilir. TLS "
+        "kurun ya da backend'i TLS'li bir ters proxy arkasına alın."
+    ),
     # -- app/dashboard.py -----------------------------------------------------------
     "dashboard.not_editable": "Düzenlenemez: {names}",
+    "dashboard.config_invalid_value": "Yapılandırma değerleri satır sonu veya NUL karakteri içeremez",
     "dashboard.task_not_found": "Görev bulunamadı",
     "dashboard.run_not_found": "Kayıt bulunamadı",
     "dashboard.invalid_kind": "geçersiz tür: {kind}",

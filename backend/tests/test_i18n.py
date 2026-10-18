@@ -16,7 +16,7 @@ def test_catalogs_are_non_empty():
 
 
 _REQUIRED_SETTINGS_FIELDS = {
-    "auth_token": "test-token",
+    "auth_token": "test-token-0123456789abcdef0123456789",
     "flash_model": "test-model",
     "flash_model_url": "http://example.com",
     "flash_model_api": "test-key",

@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 VALID_LANGUAGES = {"tr", "en"}
+MIN_AUTH_TOKEN_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -18,9 +19,15 @@ class Settings(BaseSettings):
 
     app_name: str = "Rona"
 
-    host: str = "0.0.0.0"
+    # Loopback by default: exposing the backend beyond localhost is an
+    # explicit choice and should come with TLS or a reverse proxy (run.py
+    # warns when it doesn't). reload is a dev-only auto-restarter.
+    host: str = "127.0.0.1"
     port: int = 8000
-    reload: bool = True
+    reload: bool = False
+    # Optional TLS for uvicorn; both must be set for run.py to enable it.
+    ssl_certfile: str = ""
+    ssl_keyfile: str = ""
     log_level: str = "INFO"
     log_file: str = "rona.log"
     # Rona's own speaking language (the persona prompt's directive), plus
@@ -30,7 +37,7 @@ class Settings(BaseSettings):
     # cover (tool-facing error strings, forwarded exception text).
     language: str = "tr"
 
-    auth_token: str
+    auth_token: str = Field(min_length=MIN_AUTH_TOKEN_LENGTH)
 
     flash_model: str
     flash_model_url: str
@@ -93,6 +100,18 @@ class Settings(BaseSettings):
         # custom header instead (see app/llm.py), and requiring a key here
         # silently disabled a Pro model that was set up perfectly well.
         return bool(self.pro_model and self.pro_model_url)
+
+    @field_validator("auth_token", mode="before")
+    @classmethod
+    def validate_auth_token(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if len(value) < MIN_AUTH_TOKEN_LENGTH:
+                raise ValueError(
+                    f"AUTH_TOKEN must be at least {MIN_AUTH_TOKEN_LENGTH} characters; "
+                    "generate a strong one with `rona edit auth reset`"
+                )
+        return value
 
     @field_validator("flash_model_headers", "pro_model_headers", mode="before")
     @classmethod

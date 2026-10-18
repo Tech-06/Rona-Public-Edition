@@ -105,23 +105,7 @@
         background: rgb(var(--accent-hover));
       }
     </style>
-    <script>
-      (function () {
-        var root = document.documentElement;
-        var dark = true;
-        try {
-          var stored = localStorage.getItem("rona:theme");
-          var mode = stored === "light" || stored === "dark" ? stored : "system";
-          dark =
-            mode === "dark" ||
-            (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-        } catch (e) {
-          // private mode / storage unavailable: fall back to dark
-        }
-        root.classList.toggle("dark", dark);
-        root.style.colorScheme = dark ? "dark" : "light";
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div class="card">
@@ -132,41 +116,8 @@
       </div>
       <h1 data-t="title">Rona sunucusuna ulaşılamıyor</h1>
       <p data-t="detail">Bağlantını kontrol et, sonra tekrar dene.</p>
-      <button type="button" onclick="location.reload()" data-t="retry">Tekrar dene</button>
+      <button type="button" id="retry" data-t="retry">Tekrar dene</button>
     </div>
-    <script>
-      (function () {
-        var STRINGS = {
-          tr: {
-            title: "Rona sunucusuna ulaşılamıyor",
-            detail: "Bağlantını kontrol et, sonra tekrar dene.",
-            retry: "Tekrar dene",
-          },
-          en: {
-            title: "Can't reach the Rona server",
-            detail: "Check your connection, then try again.",
-            retry: "Try again",
-          },
-        };
-        var lang = "tr";
-        try {
-          var stored = localStorage.getItem("rona:lang");
-          if (stored === "tr" || stored === "en") lang = stored;
-        } catch (e) {
-          // private mode / storage unavailable: fall back to tr
-        }
-        document.documentElement.lang = lang;
-        var strings = STRINGS[lang];
-        document.querySelectorAll("[data-t]").forEach(function (node) {
-          var key = node.getAttribute("data-t");
-          if (strings[key]) node.textContent = strings[key];
-        });
-        // The server coming back is the one thing worth reacting to on its
-        // own -- a background reload, not just re-showing the button.
-        window.addEventListener("online", function () {
-          location.reload();
-        });
-      })();
-    </script>
+    <script src="/offline.js"></script>
   </body>
 </html>

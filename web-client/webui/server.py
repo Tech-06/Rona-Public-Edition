@@ -7,10 +7,11 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from webui import frontend_build, host, i18n, package_jobs, proxy
+from webui import auth, frontend_build, host, i18n, package_jobs, proxy
 from webui.config import get_settings
 from webui.logging_config import configure_file_logging
 
@@ -59,6 +60,8 @@ _ROOT_FILES = {
     "manifest.webmanifest": "application/manifest+json",
     "sw.js": "text/javascript",
     "offline.html": "text/html",
+    "offline.js": "text/javascript",
+    "theme-init.js": "text/javascript",
     "favicon.svg": "image/svg+xml",
 }
 
@@ -73,12 +76,56 @@ def _root_static_file(full_path: str) -> FileResponse | None:
     return FileResponse(file_path, media_type=media_type, headers=_NO_CACHE_HEADERS)
 
 
+# One policy for every response (SPA, static, /api proxy, /auth, errors).
+# `style-src 'unsafe-inline'` stays because React style props and
+# theme-init.js set inline styles; scripts are strictly same-origin, and
+# img-src/connect-src have no remote hosts, so a prompt-injected markdown
+# image can't beacon data out even if the sanitizer is bypassed.
+_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+    "manifest-src 'self'; worker-src 'self'; object-src 'none'; "
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+)
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CSP,
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+class SecurityHeadersMiddleware:
+    """Pure ASGI (not BaseHTTPMiddleware) so streaming/SSE responses from
+    the proxy pass through untouched. Existing headers win (setdefault)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in _SECURITY_HEADERS.items():
+                    headers.setdefault(name, value)
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
 def _localized_index_html() -> str | None:
     """The built SPA's index.html with its default language baked in:
     ``<html lang="...">`` (the initial, pre-hydration value; the SPA's own
     LanguageProvider corrects it once mounted, the same way it already
-    does for the dark/light class) and a ``window.__RONA_LANG__`` the
-    LanguageProvider reads as its fallback when the viewer's browser has
+    does for the dark/light class) and a ``<meta name="rona-lang">`` the
+    LanguageProvider reads as its fallback (a meta tag, not an inline
+    script, so the CSP can keep ``script-src 'self'``) when the viewer's browser has
     no stored preference yet. UI_LANGUAGE doesn't change without a
     restart (Settings is lru_cache'd), so the result is cached -- but keyed
     on index.html's mtime, so an `npm run build` while this process keeps
@@ -96,7 +143,7 @@ def _localized_index_html() -> str | None:
         content = _INDEX_HTML_LANG_RE.sub(f'<html lang="{language}">', content, count=1)
         content = content.replace(
             "<head>",
-            f'<head>\n    <script>window.__RONA_LANG__ = "{language}";</script>',
+            f'<head>\n    <meta name="rona-lang" content="{language}" />',
             1,
         )
         _index_html_cache = (mtime, content)
@@ -105,6 +152,9 @@ def _localized_index_html() -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Before anything is written or served: a panel reachable beyond
+    # loopback with no password configured must not come up at all.
+    auth.check_startup(settings.web_host)
     PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
     if frontend_build.is_stale():
         logging.getLogger("uvicorn.error").warning(i18n.t("webui.frontend_stale"))
@@ -120,9 +170,17 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Rona Web", lifespan=lifespan)
 
     allowed_hosts = [h.strip() for h in settings.web_allowed_hosts.split(",") if h.strip()]
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or ["localhost"])
+    # Starlette runs the last-added middleware first: TrustedHost (outermost)
+    # -> CsrfGuard -> RequireSession, so a login-less request is still
+    # rejected for a bad Host / content type before the session is looked at.
+    app.add_middleware(auth.RequireSessionMiddleware)
     app.add_middleware(CsrfGuardMiddleware)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or ["localhost"])
+    # Added last = outermost: the headers also land on TrustedHost's 400,
+    # CsrfGuard's 403 and RequireSession's 401, not just on app responses.
+    app.add_middleware(SecurityHeadersMiddleware)
 
+    app.include_router(auth.router)
     app.include_router(host.router)
     app.include_router(package_jobs.router)
 

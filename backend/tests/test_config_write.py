@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 import app.dashboard as dashboard_module
 
 MINIMAL_ENV = """\
-AUTH_TOKEN=test-token
+AUTH_TOKEN=test-token-0123456789abcdef0123456789
 FLASH_MODEL=test-model
 FLASH_MODEL_URL=http://example.com
 FLASH_MODEL_API=test-key
@@ -54,7 +54,7 @@ def test_update_config_preserves_unknown_lines_and_order(client):
     test_client, env_path = client
     test_client.put("/api/config", json={"subagent_max_rounds": 75})
     lines = env_path.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "AUTH_TOKEN=test-token"
+    assert lines[0] == "AUTH_TOKEN=test-token-0123456789abcdef0123456789"
     assert "SUBAGENT_MAX_ROUNDS=75" in lines
     assert "FLASH_MODEL_URL=http://example.com" in lines
 
@@ -113,3 +113,14 @@ def test_read_config_excludes_secret_fields(client):
         "pro_model_headers",
     ):
         assert secret_field not in values
+
+
+def test_update_config_rejects_newline_injection_without_writing(client):
+    test_client, env_path = client
+    original = env_path.read_text(encoding="utf-8")
+    response = test_client.put(
+        "/api/config",
+        json={"flash_model": "gpt\nPIP_INDEX_URL=https://evil.example/simple\nAUTH_TOKEN="},
+    )
+    assert response.status_code == 400
+    assert env_path.read_text(encoding="utf-8") == original

@@ -27,6 +27,12 @@ export function readLocale(): Locale {
   } catch {
     // storage unavailable (private mode, quota) - fall through
   }
+  // The BFF bakes its default language into a <meta> tag (an inline script
+  // would break the CSP); window.__RONA_LANG__ is kept as a fallback.
+  const meta = document
+    .querySelector('meta[name="rona-lang"]')
+    ?.getAttribute("content");
+  if (meta === "tr" || meta === "en") return meta;
   const injected = (window as unknown as { __RONA_LANG__?: string }).__RONA_LANG__;
   if (injected === "tr" || injected === "en") return injected;
   return DEFAULT_LOCALE;

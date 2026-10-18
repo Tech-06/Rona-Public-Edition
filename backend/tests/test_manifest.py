@@ -51,9 +51,11 @@ def test_add_and_edit_memory_no_longer_require_confirmation():
 def test_registry_loads_every_manifest_tool():
     import toolbox
 
-    specs = toolbox.iter_specs()
-    raw = _load_raw_tools()
-    assert len(specs) == len(raw)
-    for spec in specs:
-        assert toolbox.has_tool(spec.name)
-        toolbox.get_tool(spec.name)  # must resolve without raising
+    # Locally installed custom packages (toolbox/custom/) also register
+    # tools; only the core manifest is under test here.
+    raw_names = {tool["name"] for tool in _load_raw_tools()}
+    specs = {spec.name: spec for spec in toolbox.iter_specs()}
+    assert raw_names <= specs.keys()
+    for name in raw_names:
+        assert toolbox.has_tool(name)
+        toolbox.get_tool(name)  # must resolve without raising

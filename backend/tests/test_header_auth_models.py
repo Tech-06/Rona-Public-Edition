@@ -14,7 +14,7 @@ import pytest
 from app.config import Settings
 
 HEADER_AUTH_ENV = {
-    "auth_token": "test-token",
+    "auth_token": "test-token-0123456789abcdef0123456789",
     "flash_model": "gateway-flash",
     "flash_model_url": "https://gateway.example.com/v1",
     "flash_model_api": "",

@@ -16,6 +16,7 @@ import {
   CalendarClockIcon,
   ChatBubbleIcon,
   DatabaseIcon,
+  LockIcon,
   PaletteIcon,
   PencilIcon,
   PlugIcon,
@@ -25,6 +26,7 @@ import {
 } from "../ui/icons";
 import { AppearanceSection } from "./AppearanceSection";
 import { ChatsSection } from "./ChatsSection";
+import { SecuritySection } from "./SecuritySection";
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -57,6 +59,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "subagents", labelKey: "settings.section_subagents", icon: BotIcon, component: SubagentsPanel },
   { id: "logs", labelKey: "settings.section_logs", icon: TerminalIcon, component: LogsPanel, selfScrolling: true },
   { id: "data", labelKey: "settings.section_data", icon: DatabaseIcon, component: DataPanel },
+  { id: "security", labelKey: "settings.section_security", icon: LockIcon, component: SecuritySection },
 ];
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "chats";

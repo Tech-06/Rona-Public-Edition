@@ -5,11 +5,21 @@ After=network.target rona.service
 [Service]
 Type=simple
 WorkingDirectory=%h/rona/web-client
+Environment=WEB_HOST=127.0.0.1
+Environment=WEB_PORT=8016
 EnvironmentFile=%h/rona/web-client/.env
 ExecStart=%h/rona/web-client/.venv/bin/python -m uvicorn webui.server:app --host ${WEB_HOST} --port ${WEB_PORT}
 Restart=always
 RestartSec=2
 Environment=PYTHONUNBUFFERED=1
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/rona/web-client
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
 
 [Install]
 WantedBy=default.target

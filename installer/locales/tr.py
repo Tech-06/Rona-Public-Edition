@@ -21,6 +21,9 @@ STRINGS: dict[str, str] = {
     "main.no_components_selected": "Hiçbir bileşen seçilmedi, çıkılıyor.",
     "main.node_required": "Node.js olmadan web paneli kurulamaz (--components ile çıkarabilirsin).",
     "main.auth_token_set": "AUTH_TOKEN ayarlandı (backend ve web .env dosyaları eşleşiyor).",
+    "envgen.short_token_replaced": (
+        "Mevcut AUTH_TOKEN {min} karakterden kısa; yeni bir tane üretildi."
+    ),
     "main.step_precheck": "Ön kontroller",
     "main.step_summary": "Özet",
     "main.status_done": "tamam",
@@ -71,6 +74,16 @@ STRINGS: dict[str, str] = {
     "steps.web.npm_install_failed": "npm install/ci başarısız oldu.",
     "steps.web.building_frontend": "Frontend derleniyor (npm run build)...",
     "steps.web.npm_build_failed": "npm run build başarısız oldu.",
+    "steps.web.password_intro": "Web panelinin giriş parolasını belirleyin.",
+    "steps.web.password_prompt": "  Panel parolası (boş = atla): ",
+    "steps.web.password_confirm_prompt": "  Parolayı tekrar girin: ",
+    "steps.web.password_mismatch": "Parolalar eşleşmiyor; tekrar deneyin.",
+    "steps.web.password_too_short": "Parola en az {min} karakter olmalı; tekrar deneyin.",
+    "steps.web.password_set": "Panel parolası kaydedildi.",
+    "steps.web.password_later_hint": (
+        "Henüz panel parolası ayarlanmadı; 'rona web password' çalıştırılana "
+        "kadar panel kilitli kalır."
+    ),
     "steps.web.done": "Web paneli kuruldu.",
     # -- pathsetup.py -----------------------------------------------------------------
     "pathsetup.windows_exe_missing": "rona.exe bulunamadı, PATH kurulumu atlandı.",

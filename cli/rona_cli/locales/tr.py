@@ -93,6 +93,19 @@ STRINGS: dict[str, str] = {
         "Arayüz derlemesi kaynak kodundan eski -- tarayıcılar hâlâ eski arayüzü alıyor "
         "(git pull sonrası derlenmemiş). Derlemek için: rona web build"
     ),
+    "web.help_password": "Web panelinin giriş parolasını ayarlar",
+    "web.help_password_stdin": "Yeni parolayı stdin'den tek satır olarak okur",
+    "web.password_prompt": "Yeni panel parolası: ",
+    "web.password_confirm_prompt": "Parolayı tekrar girin: ",
+    "web.password_mismatch": "Parolalar eşleşmiyor.",
+    "web.password_too_short": "Parola en az {min} karakter olmalı.",
+    "web.password_needs_tty": "stdin bir terminal değil; parolayı oradan okumak için --stdin verin.",
+    "web.password_not_installed": "Web paneli kurulu değil (web-client/.env bulunamadı).",
+    "web.password_write_failed": "Parola kaydedilemedi: {error}",
+    "web.password_set": (
+        "Panel parolası ayarlandı. Mevcut oturumlar kapatıldı; "
+        "yeniden başlatmaya gerek yok."
+    ),
     "web.build_npm_not_found": "npm bulunamadı; arayüz derlenemedi.",
     "web.build_installing": "Frontend bağımlılıkları kuruluyor ({cmd})...",
     "web.build_install_failed": "npm install/ci başarısız oldu.",
@@ -113,6 +126,7 @@ STRINGS: dict[str, str] = {
     "auth.restart_hint": "Değişikliğin geçmesi için `rona server restart` ve `rona web restart` çalıştır.",
     "auth.reset_ok": "Yeni AUTH_TOKEN backend ve web .env dosyalarına yazıldı.",
     "auth.empty_token": "token boş olamaz",
+    "auth.token_too_short": "token en az {min} karakter olmalı",
     "auth.set_ok": "AUTH_TOKEN backend ve web .env dosyalarına yazıldı.",
     "auth.help_group": "Paylaşılan AUTH_TOKEN'ı yönet",
     "auth.help_get": "Mevcut token'ı göster",

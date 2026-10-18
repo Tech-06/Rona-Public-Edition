@@ -592,14 +592,16 @@ If you cloned the repository somewhere other than `~/rona`, edit the `WorkingDir
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `AUTH_TOKEN` | Yes | — | Bearer token protecting every backend endpoint; generate it randomly (`rona edit auth reset` or e.g. `openssl rand -hex 32`) |
+| `AUTH_TOKEN` | Yes | — | Bearer token protecting every backend endpoint; generate it randomly (`rona edit auth reset` or e.g. `openssl rand -hex 32`); must be at least 32 characters, a shorter one stops the backend from starting |
 | `FLASH_MODEL` / `FLASH_MODEL_URL` / `FLASH_MODEL_API` | Yes | — | Default ("flash") model name, endpoint URL, and API key (`rona edit model flash --test`) |
 | `FLASH_MODEL_HEADERS` | No | `{}` | Extra request headers as a JSON object |
 | `PRO_MODEL` / `PRO_MODEL_URL` / `PRO_MODEL_API` / `PRO_MODEL_HEADERS` | No | empty | Optional "pro" tier (`rona edit model pro --test`); if left empty, subagents/tasks that request "pro" fail |
-| `RELOAD` | No | `true` | Auto-restart on code changes |
+| `HOST` | No | `127.0.0.1` | Address the backend listens on; exposing it beyond `127.0.0.1` requires TLS (`SSL_CERTFILE`/`SSL_KEYFILE`) or a TLS reverse proxy |
+| `SSL_CERTFILE` / `SSL_KEYFILE` | No | empty | When both are set the backend is served over HTTPS; a warning is logged at startup if `HOST` is non-loopback and TLS is off |
+| `RELOAD` | No | `false` | Auto-restart on code changes (development only) |
 | `LANGUAGE` | No | `tr` | Rona's conversation language (`persona.md`'s language rule) and the language of the backend's own messages/logs (`tr` or `en`); changed with `rona edit lang`, needs a restart |
 | `LOG_LEVEL` / `LOG_FILE` | No | `INFO` / `rona.log` | Log level and file path (`rona log tail`) |
-| `CONVERSATION_TTL_SECONDS` | No | `7200` | How long an idle conversation is kept before being purged |
+| `CONVERSATION_TTL_SECONDS` | No | `0` | How long an idle conversation is kept before being purged; `0` never purges (`rona_checkpoints.db` keeps growing) |
 | `MAX_HISTORY_MESSAGES` | No | `50` | Cap on history messages sent to the model |
 | `LLM_TIMEOUT_SECONDS` | No | `120` | Model request timeout |
 | `GRAPH_RECURSION_LIMIT` | No | `100` | Cap on the agent/tool loop within a single turn |

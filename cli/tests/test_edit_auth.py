@@ -45,10 +45,10 @@ def test_set_writes_given_token_to_both_envs(tmp_path):
     (root / "backend" / ".env").write_text("", encoding="utf-8")
     (root / "web-client" / ".env").write_text("", encoding="utf-8")
 
-    code = edit_auth._cmd_set(_args(root, token="my-custom-token"))
+    code = edit_auth._cmd_set(_args(root, token="my-custom-token-0123456789-abcdefghij"))
     assert code == 0
-    assert envio.read_env_file(root / "backend" / ".env")["AUTH_TOKEN"] == "my-custom-token"
-    assert envio.read_env_file(root / "web-client" / ".env")["AUTH_TOKEN"] == "my-custom-token"
+    assert envio.read_env_file(root / "backend" / ".env")["AUTH_TOKEN"] == "my-custom-token-0123456789-abcdefghij"
+    assert envio.read_env_file(root / "web-client" / ".env")["AUTH_TOKEN"] == "my-custom-token-0123456789-abcdefghij"
 
 
 def test_set_rejects_blank_token(tmp_path):
@@ -81,3 +81,15 @@ def test_get_json_mode(tmp_path, capsys):
     edit_auth._cmd_get(_args(root, json=True, show=True))
     payload = json.loads(capsys.readouterr().out)
     assert payload == {"ok": True, "token": "abcdefgh1234"}
+
+
+def test_set_rejects_token_shorter_than_minimum(tmp_path):
+    root = make_root(tmp_path)
+    (root / "backend" / ".env").write_text("", encoding="utf-8")
+    (root / "web-client" / ".env").write_text("", encoding="utf-8")
+
+    assert edit_auth._cmd_set(_args(root, token="a" * 31)) == 1
+    assert "AUTH_TOKEN" not in envio.read_env_file(root / "backend" / ".env")
+
+    assert edit_auth._cmd_set(_args(root, token="a" * 32)) == 0
+    assert envio.read_env_file(root / "backend" / ".env")["AUTH_TOKEN"] == "a" * 32

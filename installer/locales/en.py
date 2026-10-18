@@ -19,6 +19,9 @@ STRINGS: dict[str, str] = {
     "main.no_components_selected": "No components selected, exiting.",
     "main.node_required": "The web dashboard can't be installed without Node.js (or drop it with --components).",
     "main.auth_token_set": "AUTH_TOKEN set (the backend and web .env files match).",
+    "envgen.short_token_replaced": (
+        "The existing AUTH_TOKEN is shorter than {min} characters; generated a new one."
+    ),
     "main.step_precheck": "Pre-checks",
     "main.step_summary": "Summary",
     "main.status_done": "done",
@@ -69,6 +72,16 @@ STRINGS: dict[str, str] = {
     "steps.web.npm_install_failed": "npm install/ci failed.",
     "steps.web.building_frontend": "Building the frontend (npm run build)...",
     "steps.web.npm_build_failed": "npm run build failed.",
+    "steps.web.password_intro": "Choose a password for the web dashboard login.",
+    "steps.web.password_prompt": "  Panel password (empty = skip): ",
+    "steps.web.password_confirm_prompt": "  Repeat the password: ",
+    "steps.web.password_mismatch": "The passwords do not match; try again.",
+    "steps.web.password_too_short": "The password must be at least {min} characters; try again.",
+    "steps.web.password_set": "Dashboard password saved.",
+    "steps.web.password_later_hint": (
+        "No dashboard password set yet; the panel stays locked until you run "
+        "'rona web password'."
+    ),
     "steps.web.done": "Web dashboard installed.",
     # -- pathsetup.py -----------------------------------------------------------------
     "pathsetup.windows_exe_missing": "rona.exe not found, skipping PATH setup.",

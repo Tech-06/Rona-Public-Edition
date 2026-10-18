@@ -13,6 +13,7 @@ from rona_cli import envio, i18n, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 TOKEN_BYTES = 32
+MIN_TOKEN_LENGTH = 32
 
 
 def _resolve(args: argparse.Namespace) -> RonaPaths | None:
@@ -86,6 +87,9 @@ def _cmd_set(args: argparse.Namespace) -> int:
     token = args.token.strip()
     if not token:
         _emit_error(args, i18n.t("auth.empty_token"))
+        return 1
+    if len(token) < MIN_TOKEN_LENGTH:
+        _emit_error(args, i18n.t("auth.token_too_short", min=MIN_TOKEN_LENGTH))
         return 1
     _write_both(paths, token)
     if args.json:

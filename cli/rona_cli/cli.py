@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import sys
 
 from rona_cli import __version__, i18n
@@ -67,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if os.name == "posix":
+        os.umask(0o077)  # files this process creates (.env, logs) stay owner-only
     _ensure_utf8_streams()
     i18n.set_language(i18n.resolve_language())
     parser = build_parser()

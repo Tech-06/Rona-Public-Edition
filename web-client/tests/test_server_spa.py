@@ -19,7 +19,7 @@ FAKE_INDEX_HTML = """\
 
 
 def _settings(**overrides) -> Settings:
-    return Settings(_env_file=None, auth_token="test-token", **overrides)
+    return Settings(_env_file=None, auth_token="t" * 32, **overrides)
 
 
 def _reset_cache(monkeypatch):
@@ -41,7 +41,7 @@ def test_localized_index_html_substitutes_lang_attribute(tmp_path, monkeypatch):
     assert '<html lang="tr">' not in content
 
 
-def test_localized_index_html_injects_window_rona_lang(tmp_path, monkeypatch):
+def test_localized_index_html_injects_rona_lang_meta(tmp_path, monkeypatch):
     _reset_cache(monkeypatch)
     (tmp_path / "index.html").write_text(FAKE_INDEX_HTML, encoding="utf-8")
     monkeypatch.setattr(server_module, "DIST_DIR", tmp_path)
@@ -49,7 +49,7 @@ def test_localized_index_html_injects_window_rona_lang(tmp_path, monkeypatch):
 
     content = server_module._localized_index_html()
 
-    assert 'window.__RONA_LANG__ = "en";' in content
+    assert '<meta name="rona-lang" content="en" />' in content
 
 
 def test_localized_index_html_defaults_to_tr(tmp_path, monkeypatch):
@@ -61,7 +61,7 @@ def test_localized_index_html_defaults_to_tr(tmp_path, monkeypatch):
     content = server_module._localized_index_html()
 
     assert '<html lang="tr">' in content
-    assert 'window.__RONA_LANG__ = "tr";' in content
+    assert '<meta name="rona-lang" content="tr" />' in content
 
 
 def test_localized_index_html_is_cached_across_calls(tmp_path, monkeypatch):

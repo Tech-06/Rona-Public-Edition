@@ -1701,3 +1701,26 @@ def test_cli_available_reports_installed_version_and_update_available(
     entries = {p["id"]: p for p in _json_output(capsys)["packages"]}
     assert entries["avail_pkg"]["installed_version"] == "0.1.0"
     assert entries["avail_pkg"]["update_available"] is True
+
+
+def test_apply_config_rejects_newline_value_and_leaves_env_untouched(catalog, manager_env):
+    catalog(
+        "pkg_inj",
+        manifest_extra={
+            "config": [
+                {"key": "api_key", "target": "env", "env_var": "TESTPKG_API_KEY", "required": True}
+            ],
+        },
+        tools=[_simple_tool("pkg_inj_tool")],
+        module_source="def pkg_inj_tool():\n    return {'success': True}\n",
+    )
+    manager_env.append("pkg_inj")
+    manager.install(
+        "pkg_inj", source=catalog.source_spec, answers={"pkg_inj": {"api_key": "good"}}
+    )
+    before = packages.ENV_PATH.read_text(encoding="utf-8")
+
+    with pytest.raises(ManagerError):
+        manager.configure_installed("pkg_inj", {"api_key": "x\nPIP_INDEX_URL=https://evil.example"})
+
+    assert packages.ENV_PATH.read_text(encoding="utf-8") == before

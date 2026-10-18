@@ -93,6 +93,19 @@ STRINGS: dict[str, str] = {
         "The compiled frontend is older than its source -- browsers still get the old UI "
         "(not rebuilt after git pull). To rebuild: rona web build"
     ),
+    "web.help_password": "Set the dashboard login password",
+    "web.help_password_stdin": "Read the new password from one line of stdin",
+    "web.password_prompt": "New dashboard password: ",
+    "web.password_confirm_prompt": "Repeat the password: ",
+    "web.password_mismatch": "The passwords do not match.",
+    "web.password_too_short": "The password must be at least {min} characters.",
+    "web.password_needs_tty": "stdin is not a terminal; pass --stdin to read the password from it.",
+    "web.password_not_installed": "The web dashboard is not installed (web-client/.env not found).",
+    "web.password_write_failed": "Could not save the password: {error}",
+    "web.password_set": (
+        "Dashboard password set. Existing sessions were signed out; "
+        "no restart is needed."
+    ),
     "web.build_npm_not_found": "npm not found; the frontend could not be built.",
     "web.build_installing": "Installing frontend dependencies ({cmd})...",
     "web.build_install_failed": "npm install/ci failed.",
@@ -113,6 +126,7 @@ STRINGS: dict[str, str] = {
     "auth.restart_hint": "Run `rona server restart` and `rona web restart` for the change to take effect.",
     "auth.reset_ok": "New AUTH_TOKEN written to the backend and web .env files.",
     "auth.empty_token": "token cannot be empty",
+    "auth.token_too_short": "token must be at least {min} characters long",
     "auth.set_ok": "AUTH_TOKEN written to the backend and web .env files.",
     "auth.help_group": "Manage the shared AUTH_TOKEN",
     "auth.help_get": "Show the current token",

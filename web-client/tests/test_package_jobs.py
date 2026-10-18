@@ -24,9 +24,7 @@ import sys
 import time
 
 import pytest
-from fastapi.testclient import TestClient
 
-import webui.server as server_module
 from webui import host, package_jobs
 
 FAKE_MANAGER_SCRIPT = """\
@@ -74,8 +72,9 @@ def _reset_module_state(monkeypatch):
 
 
 @pytest.fixture
-def client():
-    return TestClient(server_module.create_app(), base_url="http://localhost")
+def client(authed_client):
+    # Every /host/* route needs a session; the logged-in client comes from conftest.
+    return authed_client
 
 
 @pytest.fixture

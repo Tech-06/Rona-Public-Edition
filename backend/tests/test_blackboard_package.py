@@ -24,6 +24,8 @@ import httpx
 import pytest
 from bs4 import BeautifulSoup
 
+pytest.importorskip("toolbox.custom.blackboard")
+
 from toolbox.custom.blackboard import (
     bb_auth,
     bb_client,

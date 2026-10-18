@@ -82,4 +82,5 @@ export type SettingsSectionId =
   | "tasks"
   | "subagents"
   | "logs"
-  | "data";
+  | "data"
+  | "security";

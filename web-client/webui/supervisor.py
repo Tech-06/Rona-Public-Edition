@@ -28,12 +28,24 @@ def _port_open(host: str, port: int, timeout: float = 0.5) -> bool:
         return False
 
 
+def _probe_host(host: str) -> str:
+    """Address to dial for a server bound to ``host`` (wildcards -> loopback)."""
+    host = (host or "").strip()
+    if host in ("", "0.0.0.0", "::", "[::]"):
+        return "127.0.0.1"
+    return host
+
+
 def is_running() -> dict[str, Any] | None:
-    if not _port_open(settings.web_host, settings.web_port):
+    probe_host = _probe_host(settings.web_host)
+    if not _port_open(probe_host, settings.web_port):
         return None
     try:
+        # TrustedHostMiddleware rejects "Host: 0.0.0.0", so always say localhost.
         response = httpx.get(
-            f"http://{settings.web_host}:{settings.web_port}/host/healthz", timeout=1.0
+            f"http://{probe_host}:{settings.web_port}/host/healthz",
+            headers={"Host": "localhost"},
+            timeout=1.0,
         )
         data = response.json()
     except Exception:  # noqa: BLE001
@@ -54,25 +66,28 @@ def start() -> bool:
         print("Another process is already starting rona-web")
         return False
     try:
-        log_file = LOG_PATH.open("a", encoding="utf-8")
-        kwargs: dict[str, Any] = {"cwd": ROOT_DIR, "stdout": log_file, "stderr": log_file}
+        kwargs: dict[str, Any] = {"cwd": ROOT_DIR}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.DETACHED_PROCESS
         else:
             kwargs["start_new_session"] = True
-        subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "webui.server:app",
-                "--host",
-                settings.web_host,
-                "--port",
-                str(settings.web_port),
-            ],
-            **kwargs,
-        )
+        # The child inherits its own copy of the handle; close ours afterwards.
+        with LOG_PATH.open("a", encoding="utf-8") as log_file:
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "webui.server:app",
+                    "--host",
+                    settings.web_host,
+                    "--port",
+                    str(settings.web_port),
+                ],
+                stdout=log_file,
+                stderr=log_file,
+                **kwargs,
+            )
         deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if is_running() is not None:

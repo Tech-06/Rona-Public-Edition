@@ -1,4 +1,5 @@
 import { t } from "../lib/i18n";
+import { notifyAuthRequired } from "./client";
 import type { ChatResult, ProgressEvent } from "../types";
 
 interface SseFrame {
@@ -39,6 +40,7 @@ export async function streamChat(
   const response = await fetch("/chat/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: JSON.stringify({ message, conversation_id: conversationId }),
     signal,
   });
@@ -47,6 +49,9 @@ export async function streamChat(
     try {
       const body = await response.json();
       detail = body.detail ?? detail;
+      if (response.status === 401 && body.code === "login_required") {
+        notifyAuthRequired();
+      }
     } catch {
       // no JSON body available
     }

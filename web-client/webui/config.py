@@ -1,10 +1,11 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 VALID_UI_LANGUAGES = {"tr", "en"}
+VALID_COOKIE_SECURE = {"auto", "true", "false"}
 
 
 class Settings(BaseSettings):
@@ -26,13 +27,24 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     # The dashboard's default language: the SPA's initial <html lang> and
-    # window.__RONA_LANG__ (see webui/server.py's SPA fallback), and the
+    # <meta name="rona-lang"> (see webui/server.py's SPA fallback), and the
     # language of this BFF's own user-facing strings (webui/i18n.py). A
     # viewer's own choice, saved in their browser, overrides this without
     # touching the setting -- see AppearanceSection.tsx on the frontend.
     ui_language: str = "tr"
 
-    auth_token: str
+    # Same minimum as the backend's own AUTH_TOKEN check -- the two must match.
+    auth_token: str = Field(min_length=32)
+
+    # Dashboard login (see webui/auth.py). The hash is written by
+    # `rona web password` / the installer, never by hand; the session secret
+    # signs the login cookie and is rotated together with the password.
+    web_password_hash: str = ""
+    web_session_secret: str = ""
+    web_session_days: int = 30
+    # "auto" marks the cookie Secure when the request came in over HTTPS
+    # (directly or via X-Forwarded-Proto from a tunnel/reverse proxy).
+    web_cookie_secure: str = "auto"
 
     web_host: str = "127.0.0.1"
     web_port: int = 8016
@@ -48,6 +60,14 @@ class Settings(BaseSettings):
         normalized = value.upper()
         if normalized not in VALID_LOG_LEVELS:
             raise ValueError(f"invalid log level: {value!r}")
+        return normalized
+
+    @field_validator("web_cookie_secure")
+    @classmethod
+    def validate_web_cookie_secure(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in VALID_COOKIE_SECURE:
+            raise ValueError(f"invalid web_cookie_secure: {value!r}")
         return normalized
 
     @field_validator("ui_language")

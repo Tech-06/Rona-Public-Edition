@@ -592,14 +592,16 @@ Depoyu `~/rona` dışında bir yere klonladıysanız, kopyaladığınız `.servi
 
 | Değişken | Zorunlu | Varsayılan | Açıklama |
 |---|---|---|---|
-| `AUTH_TOKEN` | Evet | — | Tüm backend uç noktalarını koruyan bearer token; rastgele üretin (`rona edit auth reset` ya da ör. `openssl rand -hex 32`) |
+| `AUTH_TOKEN` | Evet | — | Tüm backend uç noktalarını koruyan bearer token; rastgele üretin (`rona edit auth reset` ya da ör. `openssl rand -hex 32`); en az 32 karakter olmalıdır, daha kısası backend'in açılmasını engeller |
 | `FLASH_MODEL` / `FLASH_MODEL_URL` / `FLASH_MODEL_API` | Evet | — | Varsayılan ("flash") model adı, uç nokta adresi ve API anahtarı (`rona edit model flash --test`) |
 | `FLASH_MODEL_HEADERS` | Hayır | `{}` | JSON formatında ekstra istek başlıkları |
 | `PRO_MODEL` / `PRO_MODEL_URL` / `PRO_MODEL_API` / `PRO_MODEL_HEADERS` | Hayır | boş | İsteğe bağlı "pro" katmanı (`rona edit model pro --test`); boş bırakılırsa alt ajanlar ve görevler "pro" istendiğinde hata verir |
-| `RELOAD` | Hayır | `true` | Kod değişikliğinde otomatik yeniden başlatma |
+| `HOST` | Hayır | `127.0.0.1` | Backend'in dinleyeceği adres; `127.0.0.1` dışına açmak TLS (`SSL_CERTFILE`/`SSL_KEYFILE`) ya da TLS'li bir ters proxy gerektirir |
+| `SSL_CERTFILE` / `SSL_KEYFILE` | Hayır | boş | İkisi birlikte verilirse backend HTTPS ile sunulur; `HOST` loopback dışındaysa ve TLS yoksa açılışta uyarı verilir |
+| `RELOAD` | Hayır | `false` | Kod değişikliğinde otomatik yeniden başlatma (yalnızca geliştirme için) |
 | `LANGUAGE` | Hayır | `tr` | Rona'nın konuşma dili (`persona.md`'nin dil kuralı) ve backend'in kendi ürettiği mesaj/log dili (`tr` ya da `en`); `rona edit lang` ile değiştirilir, restart gerekir |
 | `LOG_LEVEL` / `LOG_FILE` | Hayır | `INFO` / `rona.log` | Log seviyesi ve dosya yolu (`rona log tail`) |
-| `CONVERSATION_TTL_SECONDS` | Hayır | `7200` | Boşta kalan konuşmaların silinme süresi |
+| `CONVERSATION_TTL_SECONDS` | Hayır | `0` | Boşta kalan konuşmaların silinme süresi; `0` konuşmaları hiç silmez (`rona_checkpoints.db` büyümeye devam eder) |
 | `MAX_HISTORY_MESSAGES` | Hayır | `50` | Modele gönderilen geçmiş mesaj sınırı |
 | `LLM_TIMEOUT_SECONDS` | Hayır | `120` | Model isteği zaman aşımı |
 | `GRAPH_RECURSION_LIMIT` | Hayır | `100` | Tek bir turdaki ajan/araç döngüsü sınırı |

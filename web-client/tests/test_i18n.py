@@ -15,7 +15,7 @@ def test_catalogs_are_non_empty():
 
 
 def _settings(**overrides) -> Settings:
-    return Settings(_env_file=None, auth_token="test-token", **overrides)
+    return Settings(_env_file=None, auth_token="t" * 32, **overrides)
 
 
 def test_settings_ui_language_defaults_to_tr():

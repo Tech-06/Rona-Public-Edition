@@ -1,6 +1,13 @@
 """Shared fixtures for the backend test suite."""
 
+import os
+
 import pytest
+
+# app.config reads backend/.env at import; a developer's local .env may hold a
+# short placeholder token that the 32-char minimum now rejects. Environment
+# variables win over .env, so pin a valid one before anything imports app.
+os.environ["AUTH_TOKEN"] = "pytest-auth-token-0123456789abcdef"
 
 
 @pytest.fixture(autouse=True)

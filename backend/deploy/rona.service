@@ -10,6 +10,15 @@ Restart=on-failure
 RestartSec=5
 TimeoutStopSec=25
 Environment=PYTHONUNBUFFERED=1
+Environment=RELOAD=false
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/rona/backend
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
 
 [Install]
 WantedBy=default.target

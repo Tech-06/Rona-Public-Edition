@@ -24,13 +24,14 @@ def port_open(host: str, port: int, timeout: float = 0.5) -> bool:
 
 
 def spawn_detached(cmd: list[str], cwd: Path, log_path: Path) -> subprocess.Popen:
-    log_file = log_path.open("a", encoding="utf-8")
-    kwargs: dict = {"cwd": cwd, "stdout": log_file, "stderr": log_file}
+    kwargs: dict = {"cwd": cwd}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.DETACHED_PROCESS
     else:
         kwargs["start_new_session"] = True
-    return subprocess.Popen(cmd, **kwargs)
+    # The child inherits its own copy of the handle; close ours afterwards.
+    with log_path.open("a", encoding="utf-8") as log_file:
+        return subprocess.Popen(cmd, stdout=log_file, stderr=log_file, **kwargs)
 
 
 def pid_alive(pid: int) -> bool:
@@ -145,9 +146,27 @@ def clear_pid_file(path: Path) -> None:
         pass
 
 
-def tail_lines(path: Path, count: int) -> list[str]:
-    if not path.exists():
+def tail_lines(path: Path, count: int, block_size: int = 8192) -> list[str]:
+    """Last ``count`` lines of ``path``, read backwards in blocks (logs reach 10 MB)."""
+    if count <= 0:
         return []
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()
-    return [line.rstrip("\n") for line in lines[-count:]]
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            position = handle.tell()
+            data = b""
+            # Need count + 1 newlines so the earliest wanted line is complete.
+            while position > 0 and data.count(b"\n") <= count:
+                read_size = min(block_size, position)
+                position -= read_size
+                handle.seek(position)
+                data = handle.read(read_size) + data
+    except OSError:
+        return []
+    text = data.decode("utf-8", errors="replace")
+    lines = [line.rstrip("\r") for line in text.split("\n")]
+    if lines and lines[-1] == "":
+        lines.pop()
+    if position > 0 and len(lines) > count:
+        lines = lines[1:]
+    return lines[-count:]

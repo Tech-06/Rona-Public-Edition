@@ -35,4 +35,24 @@ STRINGS: dict[str, str] = {
     "webui.manager_no_output": "The manager command produced no output",
     "webui.manager_timeout": "The manager command timed out",
     "webui.package_job_timed_out": "The package job timed out and was terminated",
+    # -- auth.py (dashboard login) ----------------------------------------------
+    "webui.login_required": "Login required",
+    "webui.invalid_password": "Incorrect password",
+    "webui.password_not_set": "No panel password is set; run 'rona web password' first",
+    "webui.too_many_attempts": "Too many failed attempts; try again in {seconds} seconds",
+    "webui.password_wrong_current": "Current password is incorrect",
+    "webui.password_too_short": "The new password must be at least {min} characters",
+    "webui.password_write_failed": "Could not save the new password",
+    "webui.session_secret_ephemeral": (
+        "WEB_SESSION_SECRET is empty; using a temporary one, so logins will not "
+        "survive a restart. Run 'rona web password' to set a permanent one."
+    ),
+    "webui.public_without_password": (
+        "Refusing to start: WEB_HOST is {host} (not loopback) but no panel "
+        "password is set. Run 'rona web password' first."
+    ),
+    "webui.panel_locked_warning": (
+        "No panel password is set; the dashboard stays locked until you run "
+        "'rona web password'."
+    ),
 }

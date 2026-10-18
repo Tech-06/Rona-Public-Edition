@@ -384,6 +384,10 @@ async def update_config(payload: dict[str, Any]):
     if unknown:
         raise HTTPException(400, i18n.t("dashboard.not_editable", names=", ".join(sorted(unknown))))
     updates = {field.upper(): _encode_env_value(value) for field, value in payload.items()}
+    try:
+        envfile.validate_env_updates(updates)
+    except envfile.EnvValueError:
+        raise HTTPException(400, i18n.t("dashboard.config_invalid_value")) from None
     candidate = {**envfile.read_env_file(ENV_PATH), **updates}
     error = _validate_candidate(candidate)
     if error:

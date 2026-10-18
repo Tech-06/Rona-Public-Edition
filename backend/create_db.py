@@ -1,7 +1,7 @@
 import sqlite3
 
 from memory import schema as memory_schema
-from toolbox.db import DB_PATH
+from toolbox.db import DB_PATH, restrict_permissions
 
 INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id)",
@@ -228,6 +228,7 @@ def create_database() -> None:
 
     connection.commit()
     connection.close()
+    restrict_permissions(DB_PATH)
     print("Database operations completed successfully.")
 
 

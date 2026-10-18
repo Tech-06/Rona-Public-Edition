@@ -3,6 +3,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from app.config import Settings
+from toolbox.db import restrict_permissions
 
 LOG_DIR = Path(__file__).resolve().parent.parent
 
@@ -25,6 +26,7 @@ def configure_file_logging(settings: Settings) -> None:
         backupCount=BACKUP_COUNT,
         encoding="utf-8",
     )
+    restrict_permissions(Path(handler.baseFilename))
     handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )

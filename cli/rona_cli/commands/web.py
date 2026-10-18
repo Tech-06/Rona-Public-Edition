@@ -11,13 +11,15 @@ module's own messages live), and reports status via the same
 from __future__ import annotations
 
 import argparse
+import getpass
 import json as jsonlib
+import secrets
 import shutil
 import subprocess
 import sys
 from typing import Any
 
-from rona_cli import envio, http, i18n, ui
+from rona_cli import envio, http, i18n, ui, webauth
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 
@@ -131,6 +133,61 @@ def _cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_new_password(args: argparse.Namespace) -> str | None:
+    """The new password from stdin (--stdin) or a hidden, confirmed prompt.
+
+    Never from argv: a command-line value lands in shell history and in
+    every other user's process list.
+    """
+    if args.stdin:
+        return sys.stdin.readline().rstrip("\r\n")
+    if not sys.stdin.isatty():
+        _fail(args, i18n.t("web.password_needs_tty"))
+        return None
+    first = getpass.getpass(i18n.t("web.password_prompt"))
+    if first != getpass.getpass(i18n.t("web.password_confirm_prompt")):
+        _fail(args, i18n.t("web.password_mismatch"))
+        return None
+    return first
+
+
+def _cmd_password(args: argparse.Namespace) -> int:
+    """`rona web password` -- (re)sets the dashboard's login password.
+
+    Writes WEB_PASSWORD_HASH plus a fresh WEB_SESSION_SECRET (so every
+    existing browser session is signed out). The running dashboard re-reads
+    web-client/.env on change, so no restart is needed.
+    """
+    paths = _resolve(args)
+    if paths is None:
+        return 1
+    if not paths.web_env.is_file():
+        _fail(args, i18n.t("web.password_not_installed"))
+        return 1
+    password = _read_new_password(args)
+    if password is None:
+        return 1
+    if len(password) < webauth.MIN_PASSWORD_LENGTH:
+        _fail(args, i18n.t("web.password_too_short", min=webauth.MIN_PASSWORD_LENGTH))
+        return 1
+    try:
+        envio.write_env_updates(
+            paths.web_env,
+            {
+                "WEB_PASSWORD_HASH": webauth.hash_password(password),
+                "WEB_SESSION_SECRET": secrets.token_urlsafe(32),
+            },
+        )
+    except (OSError, envio.EnvValueError) as exc:
+        _fail(args, i18n.t("web.password_write_failed", error=exc))
+        return 1
+    if args.json:
+        print(jsonlib.dumps({"ok": True}, ensure_ascii=False))
+    else:
+        ui.ok(i18n.t("web.password_set"))
+    return 0
+
+
 def _cmd_start(args: argparse.Namespace) -> int:
     return _delegate(args, "start")
 
@@ -185,3 +242,9 @@ def register(subparsers, common) -> None:
 
     p_build = sub.add_parser("build", parents=[common], help=i18n.t("web.help_build"))
     p_build.set_defaults(func=_cmd_build)
+
+    p_password = sub.add_parser("password", parents=[common], help=i18n.t("web.help_password"))
+    p_password.add_argument(
+        "--stdin", action="store_true", help=i18n.t("web.help_password_stdin")
+    )
+    p_password.set_defaults(func=_cmd_password)

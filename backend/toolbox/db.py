@@ -1,7 +1,19 @@
+import os
 import sqlite3
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parents[1] / "rona.db"
+
+
+def restrict_permissions(path: Path) -> None:
+    """Best-effort chmod 0600 on POSIX (DB and log files hold private data);
+    a no-op on Windows, where mode bits don't map to ACLs."""
+    if os.name == "nt":
+        return
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def _configure(connection: sqlite3.Connection) -> sqlite3.Connection:

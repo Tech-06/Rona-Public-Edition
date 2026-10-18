@@ -70,15 +70,18 @@ async def _spawn_backend() -> dict[str, Any]:
     if _backend_process is not None and _backend_process.poll() is None:
         return {"ok": False, "detail": i18n.t("webui.already_running")}
     python = backend_python() or Path(sys.executable)
-    log_file = SPAWN_LOG_PATH.open("a", encoding="utf-8")
-    log_file.write(f"[host] spawning backend with python: {python}\n")
-    log_file.flush()
-    kwargs: dict[str, Any] = {"cwd": BACKEND_DIR, "stdout": log_file, "stderr": log_file}
+    kwargs: dict[str, Any] = {"cwd": BACKEND_DIR}
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.DETACHED_PROCESS
     else:
         kwargs["start_new_session"] = True
-    _backend_process = subprocess.Popen([str(python), "run.py"], **kwargs)  # noqa: ASYNC220
+    # The child inherits its own copy of the handle; close ours afterwards.
+    with SPAWN_LOG_PATH.open("a", encoding="utf-8") as log_file:
+        log_file.write(f"[host] spawning backend with python: {python}\n")
+        log_file.flush()
+        _backend_process = subprocess.Popen(  # noqa: ASYNC220
+            [str(python), "run.py"], stdout=log_file, stderr=log_file, **kwargs
+        )
     await asyncio.sleep(1.5)
     if _backend_process.poll() is not None:
         detail = i18n.t("webui.exited_immediately", code=_backend_process.returncode)
@@ -104,12 +107,30 @@ def _kill_backend() -> dict[str, Any]:
     return {"ok": True, "detail": i18n.t("webui.stop_requested")}
 
 
-def _tail_lines(path: Path, count: int) -> list[str]:
-    if not path.exists():
+def _tail_lines(path: Path, count: int, block_size: int = 8192) -> list[str]:
+    """Last ``count`` lines of ``path``, read backwards in blocks (logs reach 10 MB)."""
+    if count <= 0:
         return []
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()
-    return [line.rstrip("\n") for line in lines[-count:]]
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            position = handle.tell()
+            data = b""
+            # Need count + 1 newlines so the earliest wanted line is complete.
+            while position > 0 and data.count(b"\n") <= count:
+                read_size = min(block_size, position)
+                position -= read_size
+                handle.seek(position)
+                data = handle.read(read_size) + data
+    except OSError:
+        return []
+    text = data.decode("utf-8", errors="replace")
+    lines = [line.rstrip("\r") for line in text.split("\n")]
+    if lines and lines[-1] == "":
+        lines.pop()
+    if position > 0 and len(lines) > count:
+        lines = lines[1:]
+    return lines[-count:]
 
 
 @router.get("/healthz")
@@ -180,13 +201,15 @@ async def degraded_tasks():
     connection = db.connect_if_exists()
     if connection is None:
         return {"degraded": True, "tasks": []}
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT id, name, status, is_recurring, cron_expression, scheduled_at, "
-        "timezone, created_at FROM tasks ORDER BY created_at DESC LIMIT 100"
-    )
-    rows = [dict(row) for row in cursor.fetchall()]
-    connection.close()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT id, name, status, is_recurring, cron_expression, scheduled_at, "
+            "timezone, created_at FROM tasks ORDER BY created_at DESC LIMIT 100"
+        )
+        rows = [dict(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
     return {"degraded": True, "tasks": rows}
 
 
@@ -195,11 +218,13 @@ async def degraded_subagents():
     connection = db.connect_if_exists()
     if connection is None:
         return {"degraded": True, "runs": []}
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT id, task, tier, status, created_at, finished_at FROM subagent_runs "
-        "ORDER BY created_at DESC LIMIT 50"
-    )
-    rows = [dict(row) for row in cursor.fetchall()]
-    connection.close()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT id, task, tier, status, created_at, finished_at FROM subagent_runs "
+            "ORDER BY created_at DESC LIMIT 50"
+        )
+        rows = [dict(row) for row in cursor.fetchall()]
+    finally:
+        connection.close()
     return {"degraded": True, "runs": rows}
