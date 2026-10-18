@@ -321,6 +321,8 @@ export const en: Record<keyof typeof tr, string> = {
 
   // -- hooks/useChat.ts -----------------------------------------------------------------
   "chat.approve_text": "yes, I approve",
+  "chat.stopped": "Stopped.",
+  "chat.conversation_busy": "This conversation is already busy on another device.",
   "chat.reject_text": "no, cancel that",
 
   // -- chat/Composer.tsx -----------------------------------------------------------------
@@ -348,6 +350,7 @@ export const en: Record<keyof typeof tr, string> = {
 
   // -- api/sse.ts -----------------------------------------------------------------
   "sse.request_failed": "The request failed.",
+  "sse.stream_ended": "The connection ended before the reply was complete.",
   "sse.unknown_error": "Unknown error.",
 
   // -- layout/MobileTopBar.tsx -----------------------------------------------------------

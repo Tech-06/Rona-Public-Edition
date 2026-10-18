@@ -245,6 +245,27 @@ def fail_run(
     connection.close()
 
 
+def mark_action_done(run_id: str) -> None:
+    connection = _get_connection()
+    cursor = connection.cursor()
+    cursor.execute(
+        "UPDATE task_runs SET action_done_at = ? "
+        "WHERE id = ? AND action_done_at IS NULL",
+        (_now_utc(), run_id),
+    )
+    connection.commit()
+    connection.close()
+
+
+def action_done(run_id: str) -> bool:
+    connection = _get_connection()
+    cursor = connection.cursor()
+    cursor.execute("SELECT action_done_at FROM task_runs WHERE id = ?", (run_id,))
+    row = cursor.fetchone()
+    connection.close()
+    return row is not None and row["action_done_at"] is not None
+
+
 def get_run(run_id: str) -> dict[str, Any] | None:
     connection = _get_connection()
     cursor = connection.cursor()

@@ -173,7 +173,15 @@ export function useChat(initialConversationId: string | null, onConversationId?:
         }
       }
 
-      streamChat(
+      // Single exit path for every terminal outcome (done / error / abort).
+      function settle() {
+        setSending(false);
+        sendingRef.current = false;
+        setLivePhase(null);
+        if (abortRef.current === controller) abortRef.current = null;
+      }
+
+      void streamChat(
         text,
         conversationId,
         {
@@ -221,15 +229,19 @@ export function useChat(initialConversationId: string | null, onConversationId?:
             }
             onConversationId?.(finalId);
             setAwaitingConfirmation(result.status === "confirmation_required");
-            setSending(false);
-            sendingRef.current = false;
-            setLivePhase(null);
+            settle();
           },
-          onError: (detail) => {
-            updateAssistant({ pending: false, error: detail });
-            setSending(false);
-            sendingRef.current = false;
-            setLivePhase(null);
+          onAbort: () => {
+            updateAssistant({ pending: false, error: t("chat.stopped") });
+            settle();
+          },
+          onError: (detail, info) => {
+            const busy = info?.code === "conversation_busy";
+            updateAssistant({
+              pending: false,
+              error: busy ? detail || t("chat.conversation_busy") : detail,
+            });
+            settle();
             // The stream can die (network drop, backgrounded tab killed by
             // the OS, ...) after the backend already finished and recorded
             // the turn -- reconcile with the server rather than leaving a
@@ -251,7 +263,11 @@ export function useChat(initialConversationId: string | null, onConversationId?:
           },
         },
         controller.signal,
-      );
+      ).catch((error: unknown) => {
+        // streamChat is not expected to reject; never leave the turn stuck.
+        updateAssistant({ pending: false, error: (error as Error)?.message || t("sse.unknown_error") });
+        settle();
+      });
     },
     [conversationId, onConversationId, sending, t],
   );

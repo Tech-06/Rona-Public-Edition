@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
@@ -19,7 +19,13 @@ from app.dashboard import router as dashboard_router
 from app.logging_config import configure_file_logging
 from app.prompts_api import router as prompts_router
 from app.schemas import ChatRequest, ChatResponse, ToolCallInfo
-from app.streaming import StreamRun, encode_frame, get_or_create_run
+from app.streaming import (
+    StreamRun,
+    encode_frame,
+    find_run,
+    get_or_create_run,
+    has_active_run,
+)
 from graph import (
     CHECKPOINT_DB_PATH,
     build_graph,
@@ -232,10 +238,22 @@ async def _run_turn(
         }
 
 
+def _conversation_busy_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": i18n.t("main.conversation_busy"),
+            "code": "conversation_busy",
+        },
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
-async def chat(chat_request: ChatRequest, http_request: Request) -> ChatResponse:
+async def chat(chat_request: ChatRequest, http_request: Request):
     graph = http_request.app.state.graph
     conversation_id = chat_request.conversation_id or str(uuid.uuid4())
+    if has_active_run(conversation_id):
+        return _conversation_busy_response()
     try:
         result = await _run_turn(graph, conversation_id, chat_request.message)
     except Exception as exc:  # noqa: BLE001
@@ -327,15 +345,35 @@ async def _stream_worker(
 async def chat_stream(chat_request: ChatRequest, http_request: Request):
     graph = http_request.app.state.graph
     conversation_id = chat_request.conversation_id or str(uuid.uuid4())
-    run, created = get_or_create_run(conversation_id)
-    if created:
+    # Resume contract. Frames carry per-run ids 1, 2, ... (the leading
+    # "conversation" frame is id 0 and is not replayable). A request WITH
+    # Last-Event-ID only ever resumes: it replays retained frames with a
+    # greater id (the ring keeps the last STREAM_RING_SIZE; a finished run
+    # stays for STREAM_RUN_TTL_SECONDS) and never starts a turn, so a
+    # reconnect can't be mistaken for a new message. A request WITHOUT it is
+    # a new message: refused with 409 while a turn is still running instead
+    # of being silently dropped.
+    header_value = http_request.headers.get("last-event-id")
+    if header_value is not None:
+        existing = find_run(conversation_id)
+        if existing is None:
+            return JSONResponse(
+                status_code=410,
+                content={
+                    "detail": i18n.t("main.run_not_found"),
+                    "code": "run_not_found",
+                },
+            )
+        run = existing
+        last_event_id = int(header_value) if header_value.strip().isdigit() else 0
+    else:
+        if has_active_run(conversation_id):
+            return _conversation_busy_response()
+        run, _ = get_or_create_run(conversation_id)
         run.task = asyncio.create_task(
             _stream_worker(graph, conversation_id, chat_request.message, run)
         )
-    last_event_id = 0
-    header_value = http_request.headers.get("last-event-id")
-    if header_value and header_value.isdigit():
-        last_event_id = int(header_value)
+        last_event_id = 0
     backlog, queue = run.subscribe(last_event_id)
 
     async def event_source():
@@ -345,6 +383,9 @@ async def chat_stream(chat_request: ChatRequest, http_request: Request):
                 yield encode_frame(event_id, event_type, data)
                 if event_type in ("done", "error"):
                     return
+            if run.done and queue.empty():
+                # Finished run and the client already has every frame.
+                return
             while True:
                 try:
                     event_id, event_type, data = await asyncio.wait_for(

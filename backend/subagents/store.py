@@ -44,6 +44,29 @@ def create_run(run_id: str, task: str, tier: str) -> None:
     connection.close()
 
 
+def create_run_if_below_limit(run_id: str, task: str, tier: str, limit: int) -> bool:
+    """Insert a running row only if fewer than `limit` are running.
+
+    The count and the insert are one statement, so concurrent starts (even
+    from separate connections) cannot both pass a check-then-insert race.
+    Returns False when the limit is already reached.
+    """
+    connection = _get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "INSERT INTO subagent_runs (id, task, tier, status) "
+            "SELECT ?, ?, ?, 'running' "
+            "WHERE (SELECT COUNT(*) FROM subagent_runs WHERE status = 'running') < ?",
+            (run_id, task, tier, limit),
+        )
+        created = cursor.rowcount > 0
+        connection.commit()
+        return created
+    finally:
+        connection.close()
+
+
 def complete_run(run_id: str, summary: str, report: str) -> None:
     connection = _get_connection()
     cursor = connection.cursor()

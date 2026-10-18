@@ -132,6 +132,8 @@ async def _execute_tool_call(
     free_names: set[str],
     entries: list[dict[str, Any]],
     action_entry: dict[str, Any] | None,
+    executed: set[int] | None = None,
+    run_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     call_id = tool_call["id"]
     name = tool_call["function"]["name"]
@@ -162,6 +164,22 @@ async def _execute_tool_call(
             },
         ), {"is_action": False, "ok": False}
     is_action = action_entry is not None and matched is action_entry
+    if matched is not None and executed is not None:
+        # Check-and-mark with no await in between: identical calls in one
+        # round run under asyncio.gather, and the first await below would
+        # otherwise let every sibling pass the check before any is marked.
+        if id(matched) in executed:
+            return _tool_message(
+                call_id,
+                {
+                    "status": "error",
+                    "error": (
+                        "This pre-approved action was already executed in this "
+                        "run; do not call it again."
+                    ),
+                },
+            ), {"is_action": False, "ok": False}
+        executed.add(id(matched))
     try:
         fn = get_tool(name)
         if inspect.iscoroutinefunction(fn):
@@ -169,10 +187,19 @@ async def _execute_tool_call(
         else:
             result = await asyncio.to_thread(fn, **args)
     except Exception as exc:  # noqa: BLE001
+        if matched is not None and executed is not None:
+            # A failed call did not complete the action; let the model retry.
+            executed.discard(id(matched))
         return _tool_message(call_id, {"status": "error", "error": str(exc)}), {
             "is_action": is_action,
             "ok": False,
         }
+    if is_action and run_id is not None:
+        try:
+            # Persisted so a later attempt never repeats the side effect.
+            store.mark_action_done(run_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(i18n.t("trigger.log_action_done_persist_failed"), run_id[:8], exc)
     return _tool_message(call_id, {"status": "ok", "result": result}), {
         "is_action": is_action,
         "ok": True,
@@ -262,6 +289,7 @@ async def _agent_loop(
     max_attempts: int,
     entries: list[dict[str, Any]],
     action_entry: dict[str, Any] | None,
+    action_already_done: bool = False,
 ) -> tuple[dict[str, Any] | None, str, bool, str | None, bool]:
     free_names = _free_tool_names()
     allowed_names = free_names | {entry["tool_name"] for entry in entries}
@@ -274,6 +302,15 @@ async def _agent_loop(
         },
     ]
     action_ok = False
+    if action_already_done:
+        # An earlier attempt of this run already executed the action (and its
+        # entry was removed from `entries`); only the verdict is left.
+        messages[0] = {
+            **messages[0],
+            "content": messages[0]["content"] + ACTION_ALREADY_DONE_NOTE,
+        }
+        action_ok = True
+    executed: set[int] = set()
     rounds = 0
     try:
         async with asyncio.timeout(task["timeout_minutes"] * 60):
@@ -301,7 +338,9 @@ async def _agent_loop(
                     return _parse_verdict(content), content, action_ok, None, False
                 results = await asyncio.gather(
                     *(
-                        _execute_tool_call(tool_call, free_names, entries, action_entry)
+                        _execute_tool_call(
+                            tool_call, free_names, entries, action_entry, executed, run_id
+                        )
                         for tool_call in tool_calls
                     )
                 )
@@ -395,12 +434,31 @@ async def _run_attempt(
     max_attempts: int,
     entries: list[dict[str, Any]],
     action_entry: dict[str, Any] | None,
+    action_already_done: bool = False,
 ) -> dict[str, Any]:
     verdict, raw_content, action_ok, loop_error, capped = await _agent_loop(
-        run_id, task, attempt, max_attempts, entries, action_entry
+        run_id, task, attempt, max_attempts, entries, action_entry, action_already_done
     )
     if verdict is not None:
         message = verdict["message"]
+        if verdict["outcome"] != "done" and action_ok:
+            # The side effect already happened; retrying would only repeat it.
+            # Finish the run and let the report carry the model's complaint.
+            report_result = await _report(
+                run_id,
+                task,
+                message,
+                capped,
+                abnormal_end=i18n.t(
+                    "trigger.outcome_action_verdict_problem",
+                    outcome=verdict["outcome"],
+                ),
+            )
+            return {
+                "kind": "done",
+                "summary": report_result["summary"],
+                "report": report_result["report"],
+            }
         if verdict["outcome"] == "done":
             report_result = await _report(run_id, task, message, capped)
             return {
@@ -455,9 +513,21 @@ async def _execute_occurrence(run_id: str, task_id: str) -> None:
                 store.set_run_attempt(run_id, attempt)
             entries = _pre_approved_entries(task)
             action_entry = entries[0] if task.get("tool_name") else None
+            action_already_done = store.action_done(run_id)
+            if action_already_done:
+                # Persisted by an earlier attempt: take the action away so the
+                # model cannot run it a second time.
+                entries = [e for e in entries if e is not action_entry]
+                action_entry = None
             async with _execution_semaphore():
                 result = await _run_attempt(
-                    run_id, task, attempt, max_attempts, entries, action_entry
+                    run_id,
+                    task,
+                    attempt,
+                    max_attempts,
+                    entries,
+                    action_entry,
+                    action_already_done,
                 )
             if result["kind"] == "done":
                 store.complete_run(run_id, result["summary"], result["report"])

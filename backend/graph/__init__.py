@@ -9,7 +9,7 @@ from graph.nodes import (
     tools_node,
 )
 from graph.state import RonaState
-from graph.threads import get_lock, purge_expired
+from graph.threads import get_lock, purge_expired, release_lock
 from toolbox.db import DB_PATH
 
 CHECKPOINT_DB_PATH = DB_PATH.parent / "rona_checkpoints.db"
@@ -19,6 +19,7 @@ __all__ = [
     "build_graph",
     "get_lock",
     "purge_expired",
+    "release_lock",
     "touch",
 ]
 

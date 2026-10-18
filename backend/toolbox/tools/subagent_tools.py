@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from app.config import get_settings
@@ -10,6 +11,9 @@ PRO_NOT_CONFIGURED_ERROR = (
 )
 
 
+_start_lock = asyncio.Lock()
+
+
 async def start_subagent(task: str, tier: str) -> dict:
     from subagents import runner, store
 
@@ -18,7 +22,17 @@ async def start_subagent(task: str, tier: str) -> dict:
             return {"success": False, "error": "tier must be 'flash' or 'pro'."}
         if tier == "pro" and not settings.pro_configured:
             return {"success": False, "error": PRO_NOT_CONFIGURED_ERROR}
-        if store.count_running() >= settings.subagent_max_concurrent:
+        run_id = str(uuid.uuid4())
+        # The lock serializes in-process starts; the conditional INSERT makes
+        # the count+create atomic in the database too (a plain count_running()
+        # followed by create_run() let concurrent calls overshoot the limit).
+        async with _start_lock:
+            created = store.create_run_if_below_limit(
+                run_id, task, tier, settings.subagent_max_concurrent
+            )
+            if created:
+                runner.spawn(run_id, task, tier)
+        if not created:
             return {
                 "success": False,
                 "error": (
@@ -26,9 +40,6 @@ async def start_subagent(task: str, tier: str) -> dict:
                     "running). Wait for one to finish."
                 ),
             }
-        run_id = str(uuid.uuid4())
-        store.create_run(run_id, task, tier)
-        runner.spawn(run_id, task, tier)
         return {
             "success": True,
             "run_id": run_id,

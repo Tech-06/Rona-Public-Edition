@@ -33,6 +33,23 @@ def get_lock(thread_id: str) -> Lock:
     return lock
 
 
+def release_lock(thread_id: str) -> None:
+    """Drop a conversation's lock entry once nothing holds or awaits it.
+
+    With CONVERSATION_TTL_SECONDS=0 (the default) the TTL purge never pops
+    entries, so without this every id ever locked (including ids passed to
+    the dashboard DELETE endpoints) would stay in `_locks` forever. A lock
+    that is held, or still has queued waiters, is kept: replacing it would
+    let a second holder in.
+    """
+    lock = _locks.get(thread_id)
+    if lock is None or lock.locked():
+        return
+    if getattr(lock, "_waiters", None):
+        return
+    del _locks[thread_id]
+
+
 def is_locked(thread_id: str) -> bool:
     lock = _locks.get(thread_id)
     return lock is not None and lock.locked()

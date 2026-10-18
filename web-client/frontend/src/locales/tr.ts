@@ -318,6 +318,8 @@ export const tr = {
 
   // -- hooks/useChat.ts -----------------------------------------------------------------
   "chat.approve_text": "evet, onaylıyorum",
+  "chat.stopped": "Durduruldu.",
+  "chat.conversation_busy": "Bu konuşma başka bir cihazda zaten meşgul.",
   "chat.reject_text": "hayır, iptal et",
 
   // -- chat/Composer.tsx -----------------------------------------------------------------
@@ -345,6 +347,7 @@ export const tr = {
 
   // -- api/sse.ts -----------------------------------------------------------------
   "sse.request_failed": "İstek başarısız oldu.",
+  "sse.stream_ended": "Bağlantı yanıt tamamlanmadan kesildi.",
   "sse.unknown_error": "Bilinmeyen hata.",
 
   // -- layout/MobileTopBar.tsx -----------------------------------------------------------

@@ -17,7 +17,7 @@ from app.config import Settings, get_settings
 from app.llm import chat_completion
 from app.streaming import drop_run
 from graph import CHECKPOINT_DB_PATH, conversations, history
-from graph.threads import get_lock
+from graph.threads import get_lock, release_lock
 from memory import archive as memory_archive
 from memory import consolidation as memory_consolidation
 from memory import policy as memory_policy
@@ -820,6 +820,7 @@ async def delete_conversation(conversation_id: str, request: Request):
         history.delete(conversation_id)
     finally:
         lock.release()
+        release_lock(conversation_id)
     drop_run(conversation_id)
     return {"deleted": True}
 
@@ -843,6 +844,7 @@ async def delete_all_conversations(request: Request):
                 await delete(conversation_id)
             conversations.forget(conversation_id)
             drop_run(conversation_id)
+        release_lock(conversation_id)
         deleted += 1
     # "Delete all" is a full reset, same as the old client-side clearAll()
     # (web-client/frontend/src/lib/storage.ts) that used to wipe folders

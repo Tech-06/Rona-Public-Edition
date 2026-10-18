@@ -71,6 +71,22 @@ def _sweep_expired() -> None:
         del _runs[conversation_id]
 
 
+def find_run(conversation_id: str) -> StreamRun | None:
+    """The conversation's run, active or finished-but-still-retained.
+
+    Finished runs (and their replay ring) stay for STREAM_RUN_TTL_SECONDS
+    after finish() so a reconnecting client can still fetch the tail,
+    including the terminal "done"/"error" frame.
+    """
+    _sweep_expired()
+    return _runs.get(conversation_id)
+
+
+def has_active_run(conversation_id: str) -> bool:
+    run = find_run(conversation_id)
+    return run is not None and not run.done
+
+
 def get_or_create_run(conversation_id: str) -> tuple[StreamRun, bool]:
     _sweep_expired()
     existing = _runs.get(conversation_id)

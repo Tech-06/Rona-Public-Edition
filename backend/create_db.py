@@ -81,6 +81,14 @@ MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
         3,
         memory_schema.MIGRATION_STATEMENTS,
     ),
+    (
+        # Set once a run's pre-approved action has executed successfully, so
+        # retry attempts (and a restarted attempt) never repeat a side effect
+        # such as sending an e-mail. Fresh databases also get it here since
+        # CREATE TABLE task_runs above predates the column.
+        4,
+        ("ALTER TABLE task_runs ADD COLUMN action_done_at TEXT",),
+    ),
 ]
 
 
