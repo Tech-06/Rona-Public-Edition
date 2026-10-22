@@ -24,7 +24,8 @@ STRINGS: dict[str, str] = {
     "main.auth_invalid_token": "Geçersiz ya da eksik bearer token",
     "main.conversation_busy": "Bu konuşmada zaten devam eden bir yanıt var. Bitmesini bekleyin.",
     "main.run_not_found": "Bu konuşma için devam ettirilecek etkin ya da yakın zamanlı bir yanıt bulunamadı.",
-    "main.model_call_failed": "Model çağrısı başarısız oldu: {exc}",
+    "main.model_call_failed": "Model çağrısı başarısız oldu (hata kimliği: {error_id}). Ayrıntılar backend günlüğünde.",
+    "errors.logged": "[hata kimliği: %s] %s içinde beklenmeyen hata",
     "main.log_reconcile_failed": "konuşma kaydı senkronizasyonu başarısız oldu",
     "main.log_history_record_failed": "bir tur için sohbet geçmişi kaydedilemedi",
     # -- run.py -----------------------------------------------------------------------
@@ -45,6 +46,9 @@ STRINGS: dict[str, str] = {
     "dashboard.history_not_found": "Konuşma bulunamadı",
     "dashboard.folder_not_found": "Klasör bulunamadı",
     "dashboard.history_unavailable": "Sohbet geçmişi kullanılamıyor",
+    "dashboard.import_too_large": "İçe aktarma verisi çok büyük",
+    "dashboard.internal_error": "İşlem başarısız oldu (hata kimliği: {error_id}). Ayrıntılar backend günlüğünde.",
+    "dashboard.probe_llm_failed": "Model çağrısı başarısız oldu: {kind} (hata kimliği: {error_id}). Ayrıntılar backend günlüğünde.",
     "dashboard.memory_not_found": "#{id} numaralı anı bulunamadı.",
     "dashboard.archived_memory_not_found": "#{id} numaralı arşivlenmiş anı bulunamadı.",
     "dashboard.person_not_found": "#{id} numaralı kişi bulunamadı.",
@@ -108,6 +112,11 @@ STRINGS: dict[str, str] = {
     "memory.log_schema_upgraded": "[memory] memories tablosu güncellendi, eklenen kolonlar: %s",
     "memory.log_schema_failed": "[memory] şema kontrolü başarısız: %s",
     "memory.log_access_failed": "[memory] anı erişimi kaydedilemedi: %s",
+    "memory.log_embedding_unavailable": "[memory] embedding kullanılamıyor, onsuz devam ediliyor: %s",
+    "memory.log_search_skipped": (
+        "[memory] arama bazı satırları atladı -- başka model: %d, boyut uyuşmazlığı: %d, "
+        "bozuk: %d, embedding yok: %d; modeli kayıtsız (eski) karşılaştırılan satır: %d"
+    ),
     "memory.log_promoted": "[memory] #%d terfi etti %s -> %s (%d erişim): %s",
     "memory.log_archived": "[memory] #%d arşivlendi (%s, neden: %s): %s",
     "memory.log_deleted": "[memory] #%d silindi (short, %d erişim): %s",

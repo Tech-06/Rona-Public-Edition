@@ -6,8 +6,10 @@ every proxied request)."""
 from __future__ import annotations
 
 import argparse
+import getpass
 import json as jsonlib
 import secrets
+import sys
 
 from rona_cli import envio, i18n, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
@@ -84,7 +86,17 @@ def _cmd_set(args: argparse.Namespace) -> int:
     paths = _resolve(args)
     if paths is None:
         return 1
-    token = args.token.strip()
+    if args.token is not None:
+        # stderr so `--json` stdout stays machine-readable.
+        print(f"[!] {i18n.t('secret.argv_warning', alternative='--stdin')}", file=sys.stderr, flush=True)
+        token = args.token.strip()
+    elif getattr(args, "stdin", False):
+        token = sys.stdin.readline().strip()
+    elif sys.stdin.isatty():
+        token = getpass.getpass(i18n.t("auth.token_prompt")).strip()
+    else:
+        _emit_error(args, i18n.t("auth.no_token_source"))
+        return 1
     if not token:
         _emit_error(args, i18n.t("auth.empty_token"))
         return 1
@@ -113,5 +125,6 @@ def register(subparsers, common) -> None:
     p_reset.set_defaults(func=_cmd_reset)
 
     p_set = sub.add_parser("set", parents=[common], help=i18n.t("auth.help_set"))
-    p_set.add_argument("token")
+    p_set.add_argument("token", nargs="?", default=None)
+    p_set.add_argument("--stdin", action="store_true", help=i18n.t("auth.help_stdin"))
     p_set.set_defaults(func=_cmd_set)

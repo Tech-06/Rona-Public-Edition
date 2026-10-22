@@ -14,6 +14,7 @@ import json as jsonlib
 import os
 import shutil
 import subprocess
+import sys
 import time
 from typing import Any
 
@@ -64,8 +65,27 @@ def _healthy(client: http.Client, host: str, port: int, have_token: bool) -> boo
     return procutil.port_open(host, port)
 
 
-def _systemctl_available() -> bool:
-    return shutil.which("systemctl") is not None and os.name != "nt"
+def _systemd_unit_available() -> bool:
+    """True only if the ``rona`` *user unit* is installed and loadable.
+
+    ``systemctl`` merely existing is not enough: the README makes the unit
+    optional, and WSL/containers have systemctl but no user bus. In both
+    cases ``systemctl --user start rona`` fails, so we fall back to
+    spawning/killing the process directly.
+    """
+    if os.name == "nt" or sys.platform == "darwin" or shutil.which("systemctl") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", "-p", "LoadState", "--value", "rona.service"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "loaded"
 
 
 def _run_systemctl(action: str) -> tuple[bool, str]:
@@ -101,7 +121,7 @@ def _start(paths: RonaPaths) -> tuple[bool, str]:
     if _healthy(client, host, port, have_token):
         return True, i18n.t("server.already_running")
 
-    if _systemctl_available():
+    if _systemd_unit_available():
         started, detail = _run_systemctl("start")
         if not started:
             return False, detail or i18n.t("server.systemctl_start_failed")
@@ -132,17 +152,26 @@ def _stop(paths: RonaPaths) -> tuple[bool, str]:
         procutil.clear_pid_file(paths.backend_pid)
         return True, i18n.t("server.already_stopped")
 
-    if _systemctl_available():
+    if _systemd_unit_available():
         stopped, detail = _run_systemctl("stop")
         if not stopped:
             return False, detail or i18n.t("server.systemctl_stop_failed")
     else:
+        # Never kill on the strength of a pid alone: a stale pid file's pid may
+        # have been reused, and whatever listens on the port may not be ours.
+        backend_dir = paths.backend_dir
         pid = procutil.read_pid_file(paths.backend_pid)
-        if pid is None or not procutil.pid_alive(pid):
-            pid = procutil.find_pid_by_port(host, port)
-        if pid is None:
-            return False, i18n.t("server.stop_no_pid")
-        procutil.kill_tree(pid)
+        target = None
+        if pid is not None and procutil.pid_alive(pid) and procutil.is_rona_backend(pid, backend_dir):
+            target = pid
+        else:
+            listener = procutil.find_pid_by_port(host, port)
+            if listener is None:
+                return False, i18n.t("server.stop_no_pid")
+            if not procutil.is_rona_backend(listener, backend_dir):
+                return False, i18n.t("server.stop_not_rona", pid=listener, port=port)
+            target = listener
+        procutil.kill_tree(target)
 
     procutil.clear_pid_file(paths.backend_pid)
     deadline = time.monotonic() + STOP_TIMEOUT_SECONDS

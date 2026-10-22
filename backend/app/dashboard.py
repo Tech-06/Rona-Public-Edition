@@ -13,8 +13,10 @@ from pydantic import BaseModel
 
 import i18n
 import toolbox
+from app import errors as app_errors
 from app.config import Settings, get_settings
 from app.llm import chat_completion
+from app.schemas import HISTORY_IMPORT_MAX_BYTES, HistoryImportPayload
 from app.streaming import drop_run
 from graph import CHECKPOINT_DB_PATH, conversations, history
 from graph.threads import get_lock, release_lock
@@ -192,6 +194,16 @@ async def get_connections():
     }
 
 
+def _exception_kind(exc: BaseException) -> str:
+    """Short, non-sensitive category for an exception: its class name plus
+    the HTTP status when it carries one (httpx / SDK status errors)."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(exc, "status_code", None)
+    name = type(exc).__name__
+    return f"{name} (HTTP {status})" if isinstance(status, int) else name
+
+
 @router.post("/connections/probe")
 async def probe_connections():
     package_results: dict[str, dict[str, Any]] = {}
@@ -206,7 +218,13 @@ async def probe_connections():
         )
     except Exception as exc:  # noqa: BLE001
         llm_ok = False
-        llm_detail = str(exc)
+        # str(exc) can contain the upstream URL with its key, so the client
+        # only gets the exception class / HTTP status; the rest is logged.
+        error_id = app_errors.new_error_id()
+        app_errors.log_exception("connections probe", error_id)
+        llm_detail = app_errors.client_message(
+            "dashboard.probe_llm_failed", error_id, kind=_exception_kind(exc)
+        )
     return {
         "packages": package_results,
         "llm": {"ok": llm_ok, "detail": llm_detail},
@@ -753,8 +771,12 @@ async def run_consolidation_endpoint(payload: ConsolidationRunRequest):
         )
     except memory_consolidation.ConsolidationBusy:
         raise HTTPException(409, i18n.t("dashboard.consolidation_busy"))
-    except Exception as exc:
-        raise HTTPException(500, str(exc)) from exc
+    except Exception:
+        error_id = app_errors.new_error_id()
+        app_errors.log_exception("memory consolidation", error_id)
+        raise HTTPException(
+            500, app_errors.client_message("dashboard.internal_error", error_id)
+        ) from None
     return report
 
 
@@ -896,18 +918,22 @@ async def export_history():
     return history.export_all()
 
 
-class HistoryImportPayload(BaseModel):
-    conversations: list[dict[str, Any]] = []
-    folders: list[dict[str, Any]] = []
-
-
 @router.post("/history/import")
-async def import_history(payload: HistoryImportPayload):
+async def import_history(payload: HistoryImportPayload, request: Request):
     """One-time migration for a browser's pre-server localStorage history
     (see graph.history.import_conversations's docstring). Safe to call more
     than once, from more than one device: a conversation the server already
-    has is merged with the incoming copy, never overwritten by it."""
-    result = history.import_conversations(payload.conversations, payload.folders)
+    has is merged with the incoming copy, never overwritten by it.
+
+    Schema errors (bad ids/timestamps, too many conversations/messages)
+    reject the whole payload with a 422; see app/schemas.py."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > HISTORY_IMPORT_MAX_BYTES:
+        raise HTTPException(413, i18n.t("dashboard.import_too_large"))
+    result = history.import_conversations(
+        [c.model_dump() for c in payload.conversations],
+        [f.model_dump() for f in payload.folders],
+    )
     return {
         "conversationsImported": result["conversations_imported"],
         "conversationsMerged": result["conversations_merged"],
@@ -991,30 +1017,62 @@ async def update_history_conversation(conversation_id: str, payload: dict[str, A
     return _history_summary_json(row)
 
 
+class _LogTailer:
+    """Incremental reader for the log file.
+
+    `offset` counts BYTES (it comes from st_size), so the file is read in
+    binary: reading text mode with a byte count would drift on multi-byte
+    (Turkish) text, repeating or losing lines. A trailing line without its
+    newline yet is held in `pending` and only emitted once it is complete.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.offset = path.stat().st_size if path.exists() else 0
+        self.pending = b""
+
+    def read_lines(self) -> list[str] | None:
+        """New complete lines (possibly empty), or None if nothing changed."""
+        if not self.path.exists():
+            return None
+        size = self.path.stat().st_size
+        if size < self.offset:
+            # Truncated or rotated: start over from the top of the new file.
+            self.offset = 0
+            self.pending = b""
+        if size == self.offset:
+            return None
+        with self.path.open("rb") as handle:
+            handle.seek(self.offset)
+            data = handle.read(size - self.offset)
+        self.offset += len(data)
+        self.pending += data
+        head, newline, tail = self.pending.rpartition(b"\n")
+        if not newline:
+            return []
+        self.pending = tail
+        return [
+            line
+            for line in head.decode("utf-8", errors="replace").splitlines()
+            if line
+        ]
+
+
 @router.get("/logs")
 async def tail_logs(level: str | None = None, q: str | None = None):
     log_path = _log_path()
 
     async def event_source():
-        offset = log_path.stat().st_size if log_path.exists() else 0
+        tailer = _LogTailer(log_path)
         started = time.monotonic()
         while time.monotonic() - started < LOG_TAIL_MAX_SECONDS:
             await asyncio.sleep(LOG_TAIL_INTERVAL_SECONDS)
-            if not log_path.exists():
+            lines = tailer.read_lines()
+            if lines is None:
+                if log_path.exists():
+                    yield ": ping\n\n"
                 continue
-            size = log_path.stat().st_size
-            if size < offset:
-                offset = 0
-            if size == offset:
-                yield ": ping\n\n"
-                continue
-            with log_path.open("r", encoding="utf-8", errors="replace") as handle:
-                handle.seek(offset)
-                chunk = handle.read(size - offset)
-            offset = size
-            for line in chunk.splitlines():
-                if not line:
-                    continue
+            for line in lines:
                 if level and f" {level} " not in line:
                     continue
                 if q and q.lower() not in line.lower():

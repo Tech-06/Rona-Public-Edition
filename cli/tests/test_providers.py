@@ -1,6 +1,6 @@
 import pytest
 
-from rona_cli import providers
+from rona_cli import http, providers
 
 
 def test_parse_headers_empty_returns_empty_dict():
@@ -71,7 +71,8 @@ def test_test_embedding_success(fake_api, monkeypatch):
     ok, _detail = providers.test_embedding("google-key", "embedding-001")
     assert ok is True
     request = fake_api.requests[0]
-    assert "key=google-key" in request["path"]
+    assert request["headers"]["x-goog-api-key"] == "google-key"
+    assert "key=" not in request["path"]
 
 
 def test_test_embedding_normalizes_bare_model_name():
@@ -126,3 +127,38 @@ def test_test_chat_model_does_not_double_the_completions_path(fake_api):
     )
     assert ok is True, detail
     assert len(fake_api.requests) == 1
+
+
+def test_test_chat_model_without_key_sends_no_authorization(fake_api):
+    fake_api.set_route("POST", "/chat/completions", 200, {})
+    ok, detail = providers.test_chat_model(
+        f"http://127.0.0.1:{fake_api.port}", "", "m", {"x-gateway-token": "abc"}
+    )
+    assert ok is True, detail
+    headers = fake_api.requests[0]["headers"]
+    assert "authorization" not in headers
+    assert headers["x-gateway-token"] == "abc"
+
+
+def test_test_chat_model_requires_url_and_model():
+    assert providers.test_chat_model("", "k", "m")[0] is False
+    assert providers.test_chat_model("http://x", "k", "")[0] is False
+
+
+def test_external_provider_hosts_use_proxy_but_loopback_does_not(monkeypatch):
+    used = []
+
+    class _Spy:
+        def __init__(self, base_url, **kwargs):
+            used.append((base_url, kwargs["use_proxy"]))
+
+        def post(self, *args, **kwargs):
+            return {}
+
+    monkeypatch.setattr(providers.http, "Client", _Spy)
+    providers.test_chat_model("https://api.example.com/v1", "k", "m")
+    providers.test_chat_model("http://localhost:11434/v1", "", "m")
+    providers.test_embedding("k", "embedding-001")
+    assert used[0] == ("https://api.example.com/v1", True)
+    assert used[1] == ("http://localhost:11434/v1", False)
+    assert used[2] == (providers.GOOGLE_EMBED_BASE_URL, True)

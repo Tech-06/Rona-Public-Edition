@@ -39,7 +39,7 @@ STRINGS: dict[str, str] = {
     "http.connection_failed": "could not connect: {reason}",
     "http.timeout": "the request timed out",
     # -- providers.py ------------------------------------------------------------
-    "providers.chat_missing_fields": "url, key and model name are required",
+    "providers.chat_missing_fields": "url and model name are required",
     "providers.embedding_missing_fields": "api key and model name are required",
     "providers.headers_invalid_json": "headers is not valid JSON: {exc}",
     "providers.headers_not_object": "headers must be a JSON object",
@@ -65,6 +65,11 @@ STRINGS: dict[str, str] = {
     "server.stop_no_pid": (
         "no process to stop was found (no pid file); the backend may have "
         "been started outside of rona, you'll need to stop it by hand"
+    ),
+    "server.stop_not_rona": (
+        "a process (PID {pid}) is listening on port {port}, but it isn't Rona's "
+        "backend (or it could not be verified); not touching it -- stop it "
+        "yourself if you need to"
     ),
     "server.stopped": "backend stopped",
     "server.stop_timeout": "backend did not stop in time",
@@ -152,7 +157,7 @@ STRINGS: dict[str, str] = {
     "model.help_target": "which model tier to edit",
     "model.help_name": "model name",
     "model.help_url": "API base URL (flash/pro)",
-    "model.help_key": "API key",
+    "model.help_key": "API key (visible in shell history and process lists; prefer --key-stdin)",
     "model.help_headers": "extra HTTP headers (JSON, flash/pro)",
     "model.help_test": "verify with a real API call before saving",
     # -- commands/edit/memory.py -------------------------------------------------------
@@ -345,4 +350,12 @@ STRINGS: dict[str, str] = {
     "prompt.confirm_reset": "Revert '{id}' to its default?",
     "prompt.conflict": "The version on the server has changed; fetch the current content first (`rona edit prompt show`).",
     "prompt.kept_draft": "Your changes were kept in: {path}",
+    "secret.argv_warning": "Warning: a secret passed on the command line is visible in shell history and process lists. Prefer {alternative}.",
+    "secret.stdin_empty": "nothing was read from stdin",
+    "model.help_key_stdin": "read the API key from one line of stdin",
+    "model.key_prompt": "  {field} key [{shown}] (input hidden, leave blank = keep): ",
+    "model.key_conflict": "--key and --key-stdin cannot be used together",
+    "auth.help_stdin": "read the token from one line of stdin",
+    "auth.token_prompt": "New AUTH_TOKEN (input hidden): ",
+    "auth.no_token_source": "no token given: pass --stdin, or run in a terminal to be prompted",
 }

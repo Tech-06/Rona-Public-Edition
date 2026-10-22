@@ -37,6 +37,7 @@ def add_person(
     birthday: str | None = None,
     address: str | None = None,
 ) -> dict:
+    connection_db = None
     try:
         connection_db = _get_connection()
         cursor = connection_db.cursor()
@@ -58,7 +59,6 @@ def add_person(
         cursor.execute(query, params)
         connection_db.commit()
         person_id = cursor.lastrowid
-        connection_db.close()
 
         return {
             "success": True,
@@ -67,6 +67,9 @@ def add_person(
         }
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
+    finally:
+        if connection_db is not None:
+            connection_db.close()
 
 
 class _PersonNotFound(Exception):
@@ -125,6 +128,7 @@ def edit_person(
     birthday: str | None = None,
     address: str | None = None,
 ) -> dict:
+    connection_db = None
     try:
         fields = {
             "name": name,
@@ -155,31 +159,36 @@ def edit_person(
         cursor.execute(query, params)
 
         if cursor.rowcount == 0:
-            connection_db.close()
             return {"success": False, "error": f"ID {person_id} not found."}
 
         connection_db.commit()
-        connection_db.close()
         return {"success": True, "message": "Person updated successfully."}
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
+    finally:
+        if connection_db is not None:
+            connection_db.close()
 
 
 def get_people() -> dict:
+    connection_db = None
     try:
         connection_db = _get_connection()
         cursor = connection_db.cursor()
         cursor.execute("SELECT * FROM people ORDER BY id ASC")
         rows = cursor.fetchall()
-        connection_db.close()
 
         people_list = [_row_to_dict(r) for r in rows]
         return {"success": True, "people": people_list}
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
+    finally:
+        if connection_db is not None:
+            connection_db.close()
 
 
 def search_person(query: str, search_field: str | None = None) -> dict:
+    connection_db = None
     try:
         connection_db = _get_connection()
         cursor = connection_db.cursor()
@@ -188,7 +197,6 @@ def search_person(query: str, search_field: str | None = None) -> dict:
 
         if search_field:
             if search_field not in _SEARCH_FIELDS:
-                connection_db.close()
                 return {
                     "success": False,
                     "error": "Invalid search_field. Only 'name', 'nickname', "
@@ -217,7 +225,9 @@ def search_person(query: str, search_field: str | None = None) -> dict:
             rows = cursor.fetchall()
             results = [_row_to_dict(r) for r in rows]
 
-        connection_db.close()
         return {"success": True, "results": results}
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
+    finally:
+        if connection_db is not None:
+            connection_db.close()

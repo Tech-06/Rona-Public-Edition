@@ -207,12 +207,18 @@ def requirement_problems(
     actually installed (``{package_id: version}``). Never raises -- used to
     build warnings, not to block loading."""
     problems: list[str] = []
-    for req in manifest.requirements():
-        installed = installed_versions.get(req.name)
-        if installed is None:
-            problems.append(f"requires '{req}' but '{req.name}' is not installed")
-        elif not req.is_satisfied_by(installed):
-            problems.append(f"requires '{req}' but '{req.name}' {installed} is installed")
+    for raw in manifest.requires:
+        # A malformed entry (or one that cannot be evaluated) is a problem to
+        # report, never a crash: this runs while the registry is imported.
+        try:
+            req = versions.parse_requirement(raw)
+            installed = installed_versions.get(req.name)
+            if installed is None:
+                problems.append(f"requires '{req}' but '{req.name}' is not installed")
+            elif not req.is_satisfied_by(installed):
+                problems.append(f"requires '{req}' but '{req.name}' {installed} is installed")
+        except (versions.VersionError, ValueError) as exc:
+            problems.append(f"has an invalid requires entry {raw!r}: {exc}")
     return problems
 
 

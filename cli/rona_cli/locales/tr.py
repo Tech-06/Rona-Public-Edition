@@ -39,7 +39,7 @@ STRINGS: dict[str, str] = {
     "http.connection_failed": "bağlantı kurulamadı: {reason}",
     "http.timeout": "istek zaman aşımına uğradı",
     # -- providers.py ------------------------------------------------------------
-    "providers.chat_missing_fields": "url, key ve model adı gerekli",
+    "providers.chat_missing_fields": "url ve model adı gerekli",
     "providers.embedding_missing_fields": "api key ve model adı gerekli",
     "providers.headers_invalid_json": "headers geçerli bir JSON nesnesi değil: {exc}",
     "providers.headers_not_object": "headers bir JSON nesnesi (obje) olmalı",
@@ -65,6 +65,11 @@ STRINGS: dict[str, str] = {
     "server.stop_no_pid": (
         "durdurulacak süreç bulunamadı (pid dosyası yok); backend rona "
         "dışında başlatılmış olabilir, elle durdurman gerekir"
+    ),
+    "server.stop_not_rona": (
+        "{port} portunu dinleyen bir süreç (PID {pid}) var, ama Rona'nın "
+        "backend'i değil (ya da doğrulanamadı); dokunulmadı -- gerekirse "
+        "kendin durdur"
     ),
     "server.stopped": "backend durduruldu",
     "server.stop_timeout": "backend zaman aşımı içinde durmadı",
@@ -152,7 +157,7 @@ STRINGS: dict[str, str] = {
     "model.help_target": "düzenlenecek model katmanı",
     "model.help_name": "model adı",
     "model.help_url": "API taban URL'si (flash/pro)",
-    "model.help_key": "API anahtarı",
+    "model.help_key": "API anahtarı (kabuk geçmişinde ve işlem listesinde görünür; --key-stdin tercih edin)",
     "model.help_headers": "ek HTTP başlıkları (JSON, flash/pro)",
     "model.help_test": "kaydetmeden önce gerçek bir API çağrısıyla doğrula",
     # -- commands/edit/memory.py -------------------------------------------------------
@@ -345,4 +350,12 @@ STRINGS: dict[str, str] = {
     "prompt.confirm_reset": "'{id}' varsayılana döndürülsün mü?",
     "prompt.conflict": "Sunucudaki sürüm değişmiş; önce güncel içeriği al (`rona edit prompt show`).",
     "prompt.kept_draft": "Değişikliklerin saklandığı dosya: {path}",
+    "secret.argv_warning": "Uyarı: komut satırında verilen gizli değer kabuk geçmişinde ve işlem listesinde görünür. Bunun yerine {alternative} kullanın.",
+    "secret.stdin_empty": "stdin'den hiçbir şey okunamadı",
+    "model.help_key_stdin": "API anahtarını stdin'den tek satır olarak oku",
+    "model.key_prompt": "  {field} anahtarı [{shown}] (giriş gizli, boş bırakma = koru): ",
+    "model.key_conflict": "--key ve --key-stdin birlikte kullanılamaz",
+    "auth.help_stdin": "token'ı stdin'den tek satır olarak oku",
+    "auth.token_prompt": "Yeni AUTH_TOKEN (giriş gizli): ",
+    "auth.no_token_source": "token verilmedi: --stdin kullanın ya da bir terminalde çalıştırıp istemi doldurun",
 }

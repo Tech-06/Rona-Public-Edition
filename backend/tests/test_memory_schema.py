@@ -95,7 +95,7 @@ def test_create_database_fresh_db_has_full_memory_schema(db_paths):
         assert {"layer_since", "layer_hits"} <= _memories_columns(connection)
         assert {"memory_archive", "memory_consolidation_runs"} <= _table_names(connection)
         assert "idx_memories_layer" in _index_names(connection)
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
     finally:
         connection.close()
 
@@ -113,7 +113,7 @@ def test_create_database_upgrades_legacy_db_at_user_version_1(db_paths):
     try:
         assert {"layer_since", "layer_hits"} <= _memories_columns(connection)
         assert {"memory_archive", "memory_consolidation_runs"} <= _table_names(connection)
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
     finally:
         connection.close()
 

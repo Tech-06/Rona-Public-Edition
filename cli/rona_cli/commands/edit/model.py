@@ -6,7 +6,9 @@ before writing (`--test`).
 from __future__ import annotations
 
 import argparse
+import getpass
 import json as jsonlib
+import sys
 
 from rona_cli import envio, i18n, providers, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
@@ -57,8 +59,14 @@ def _prompt_for_missing(
         if given.get(field) is not None:
             result[field] = given[field]
             continue
-        shown = _mask(current[field]) if field == "key" else (current[field] or i18n.t("common.empty"))
-        raw = input(i18n.t("model.prompt_field", field=field, shown=shown)).strip()
+        if field == "key":
+            shown = _mask(current[field])
+            prompt = i18n.t("model.key_prompt", field=target, shown=shown)
+            # Hidden input on a real terminal so the key never echoes.
+            raw = (getpass.getpass(prompt) if sys.stdin.isatty() else input(prompt)).strip()
+        else:
+            shown = current[field] or i18n.t("common.empty")
+            raw = input(i18n.t("model.prompt_field", field=field, shown=shown)).strip()
         if raw:
             result[field] = raw
     return result
@@ -91,10 +99,27 @@ def _run_test(target: str, values: dict[str, str]) -> tuple[bool, str]:
     )
 
 
+def _warn_argv_secret() -> None:
+    # stderr so `--json` stdout stays machine-readable.
+    print(f"[!] {i18n.t('secret.argv_warning', alternative='--key-stdin')}", file=sys.stderr, flush=True)
+
+
 def _cmd(args: argparse.Namespace) -> int:
     paths = _resolve(args)
     if paths is None:
         return 1
+
+    if getattr(args, "key_stdin", False):
+        if args.key is not None:
+            _emit_error(args, i18n.t("model.key_conflict"))
+            return 1
+        line = sys.stdin.readline()
+        if not line:
+            _emit_error(args, i18n.t("secret.stdin_empty"))
+            return 1
+        args.key = line.strip()
+    elif args.key is not None:
+        _warn_argv_secret()
 
     field_map = _TARGETS[args.target]
     if args.target == "embedding" and not args.json:
@@ -151,6 +176,7 @@ def register(subparsers, common) -> None:
     parser.add_argument("--name", default=None, help=i18n.t("model.help_name"))
     parser.add_argument("--url", default=None, help=i18n.t("model.help_url"))
     parser.add_argument("--key", default=None, help=i18n.t("model.help_key"))
+    parser.add_argument("--key-stdin", action="store_true", help=i18n.t("model.help_key_stdin"))
     parser.add_argument("--headers", default=None, help=i18n.t("model.help_headers"))
     parser.add_argument("--test", action="store_true", help=i18n.t("model.help_test"))
     parser.set_defaults(func=_cmd)

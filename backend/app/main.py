@@ -14,6 +14,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 
 import i18n
+from app import errors as app_errors
 from app.config import get_settings
 from app.dashboard import router as dashboard_router
 from app.logging_config import configure_file_logging
@@ -256,8 +257,13 @@ async def chat(chat_request: ChatRequest, http_request: Request):
         return _conversation_busy_response()
     try:
         result = await _run_turn(graph, conversation_id, chat_request.message)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=i18n.t("main.model_call_failed", exc=exc))
+    except Exception:  # noqa: BLE001
+        error_id = app_errors.new_error_id()
+        app_errors.log_exception("chat", error_id)
+        raise HTTPException(
+            status_code=502,
+            detail=app_errors.client_message("main.model_call_failed", error_id),
+        ) from None
     return ChatResponse(
         reply=result["reply"],
         model=settings.flash_model,
@@ -324,11 +330,13 @@ async def _stream_worker(
     try:
         try:
             result = await _run_turn(graph, conversation_id, message, sink=recorder)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
+            error_id = app_errors.new_error_id()
+            app_errors.log_exception("chat stream", error_id)
             run.publish(
                 "error",
                 {
-                    "detail": i18n.t("main.model_call_failed", exc=exc),
+                    "detail": app_errors.client_message("main.model_call_failed", error_id),
                     "conversation_id": conversation_id,
                 },
             )

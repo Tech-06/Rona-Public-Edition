@@ -473,3 +473,15 @@ def test_failed_packages_lists_broken_package(fixture_package):
     finally:
         shutil.rmtree(pkg_dir, ignore_errors=True)
         registry.reload_registry()
+
+
+def test_malformed_compatible_release_requires_does_not_break_registry(fixture_package):
+    fixture_package(
+        "tilde_pkg",
+        _manifest("tilde_pkg", requires=["google_auth~=2"]),
+        _tools("tilde_tool"),
+        "def tilde_tool():\n    return 1\n",
+        module_name="tilde_tool",
+    )
+    registry.reload_registry()  # must not raise
+    assert toolbox.has_tool("web_scraper")

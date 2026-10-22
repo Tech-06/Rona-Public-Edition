@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,20 @@ _DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _INVALID_LAYER_ERROR = "Invalid layer. Only 'deep', 'seasonal' or 'short' are allowed."
 
 _client: genai.Client | None = None
+# The key the cached client was built with, so a changed GOOGLE_API_KEY
+# (edited in the dashboard, no restart) rebuilds the client instead of
+# silently using the old one.
+_client_key: str | None = None
+
+# `memories.embedding` is NOT NULL on existing databases (SQLite cannot drop
+# a constraint), so "no embedding yet" is stored as an empty blob.
+_NO_EMBEDDING = b""
+
+_KEYWORD_NOTE = (
+    "Keyword mode: the embedding model is unavailable (missing API key or "
+    "failed call), so results are case-insensitive keyword matches, not "
+    "semantic ones."
+)
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -38,10 +53,38 @@ def _check_person_exists(cursor: sqlite3.Cursor, person_id: int | None) -> bool:
 
 
 def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY", ""))
+    global _client, _client_key
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    if _client is None or _client_key != api_key:
+        _client = genai.Client(api_key=api_key)
+        _client_key = api_key
     return _client
+
+
+def _current_model() -> str:
+    return (os.getenv("EMBEDDING_MODEL_NAME") or "").strip()
+
+
+def _ensure_embedding_model_column(connection: sqlite3.Connection) -> None:
+    """Self-heal for databases that haven't re-run create_db.py since
+    migration 5 -- the column is nullable, so a plain ALTER is safe."""
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(memories)")}
+    if "embedding_model" not in columns:
+        connection.execute("ALTER TABLE memories ADD COLUMN embedding_model TEXT")
+        connection.commit()
+
+
+def _try_embedding(text: str, task_type: str) -> tuple[list[float] | None, str | None]:
+    """(vector, model_name), or (None, None) if embedding is unavailable.
+    Memory must keep working without a Gemini key, so failure here is
+    degraded behaviour, never an error."""
+    try:
+        return _get_embedding(text, task_type), (_current_model() or None)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("uvicorn.error").warning(
+            i18n.t("memory.log_embedding_unavailable"), exc
+        )
+        return None, None
 
 
 def _get_embedding(text: str, task_type: str) -> list[float]:
@@ -155,33 +198,44 @@ def add_memory(
                 "error": f"Person with ID {person_id} not found in people table.",
             }
 
-        embedding_blob = json.dumps(
-            _get_embedding(content, "RETRIEVAL_DOCUMENT")
-        ).encode("utf-8")
+        vector, model_name = _try_embedding(content, "RETRIEVAL_DOCUMENT")
+        embedding_blob = (
+            json.dumps(vector).encode("utf-8") if vector is not None else _NO_EMBEDDING
+        )
         meta_str = json.dumps(metadata) if metadata else "{}"
 
+        _ensure_embedding_model_column(connection)
         cursor.execute(
             """
             INSERT INTO memories
-                (person_id, layer, content, embedding, metadata, layer_since, layer_hits)
-            VALUES (?, ?, ?, ?, ?, ?, 0)
+                (person_id, layer, content, embedding, embedding_model, metadata,
+                 layer_since, layer_hits)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
             """,
             (
                 person_id,
                 layer,
                 content,
                 embedding_blob,
+                model_name,
                 meta_str,
                 memory_clock.to_db(memory_clock.utc_now()),
             ),
         )
         connection.commit()
         memory_id = cursor.lastrowid
-        return {
+        result = {
             "success": True,
             "id": memory_id,
             "message": "Memory added successfully.",
         }
+        if vector is None:
+            result["embedded"] = False
+            result["message"] = (
+                "Memory added without an embedding (embedding model unavailable); "
+                "it is findable by keyword search only until it is re-embedded."
+            )
+        return result
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
     finally:
@@ -231,14 +285,20 @@ def edit_memory(
             params.append(layer)
             updates.append("layer = ?")
             params.append(layer)
+        embedded = True
         if content is not None:
-            embedding_blob = json.dumps(
-                _get_embedding(content, "RETRIEVAL_DOCUMENT")
-            ).encode("utf-8")
+            vector, model_name = _try_embedding(content, "RETRIEVAL_DOCUMENT")
+            embedded = vector is not None
+            embedding_blob = (
+                json.dumps(vector).encode("utf-8") if embedded else _NO_EMBEDDING
+            )
+            _ensure_embedding_model_column(connection)
             updates.append("content = ?")
             params.append(content)
             updates.append("embedding = ?")
             params.append(embedding_blob)
+            updates.append("embedding_model = ?")
+            params.append(model_name)
         if metadata is not None:
             updates.append("metadata = ?")
             params.append(json.dumps(metadata))
@@ -249,7 +309,14 @@ def edit_memory(
             return {"success": False, "error": f"ID {memory_id} not found."}
 
         connection.commit()
-        return {"success": True, "message": "Memory updated successfully."}
+        result = {"success": True, "message": "Memory updated successfully."}
+        if not embedded:
+            result["embedded"] = False
+            result["message"] = (
+                "Memory updated without an embedding (embedding model unavailable); "
+                "it is findable by keyword search only until it is re-embedded."
+            )
+        return result
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
     finally:
@@ -306,6 +373,30 @@ def get_memories(
             connection.close()
 
 
+def _keyword_search(rows: list[sqlite3.Row], query: str, limit: int) -> dict:
+    """Fallback when no query embedding can be made: case-insensitive term
+    matching over content and the metadata text, best match count first,
+    then newest. Filters were already applied in SQL by the caller."""
+    terms = list(dict.fromkeys(re.findall(r"\w+", query.casefold())))
+    scored = []
+    for row in rows:
+        haystack = f"{row['content']} {row['metadata'] or ''}".casefold()
+        matched = sum(1 for term in terms if term in haystack)
+        if matched:
+            scored.append((matched, row["created_at"], row["id"], row))
+    scored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    results = [
+        {**_row_to_memory(row), "score": round(matched / len(terms), 4)}
+        for matched, _, _, row in scored[:limit]
+    ]
+    return {
+        "success": True,
+        "results": results,
+        "mode": "keyword",
+        "note": _KEYWORD_NOTE,
+    }
+
+
 def _search(
     query: str,
     person: int | str | None = None,
@@ -325,23 +416,47 @@ def _search(
         scope = _validate_person(person)
         conditions, params = _resolve_filters(scope, date_from, date_to)
 
-        query_embedding = _get_embedding(query, "RETRIEVAL_QUERY")
+        query_embedding, _ = _try_embedding(query, "RETRIEVAL_QUERY")
 
         connection = _get_connection()
+        _ensure_embedding_model_column(connection)
         cursor = connection.cursor()
         cursor.execute(
-            f"SELECT id, person_id, layer, content, created_at, metadata, embedding "
-            f"FROM memories{_where_clause(conditions)}",
+            f"SELECT id, person_id, layer, content, created_at, metadata, "
+            f"embedding, embedding_model FROM memories{_where_clause(conditions)}",
             params,
         )
         rows = cursor.fetchall()
 
+        if query_embedding is None:
+            return _keyword_search(rows, query, limit)
+
+        current_model = _current_model()
         scored = []
+        skipped_model = skipped_dim = skipped_bad = skipped_unembedded = legacy = 0
         for row in rows:
-            stored = json.loads(row["embedding"])
-            if len(stored) != len(query_embedding):
+            row_model = row["embedding_model"]
+            if row_model is not None and current_model and row_model != current_model:
+                # Same dimension from a different model still gives
+                # meaningless cosine scores, so don't compare at all.
+                skipped_model += 1
                 continue
-            score = _cosine_similarity(query_embedding, stored)
+            if not row["embedding"]:
+                skipped_unembedded += 1
+                continue
+            try:
+                stored = json.loads(row["embedding"])
+                if not isinstance(stored, list):
+                    raise ValueError("embedding is not a list")
+                if len(stored) != len(query_embedding):
+                    skipped_dim += 1
+                    continue
+                score = _cosine_similarity(query_embedding, stored)
+            except (ValueError, TypeError):
+                skipped_bad += 1
+                continue
+            if row_model is None:
+                legacy += 1
             scored.append((score, row))
         scored.sort(key=lambda item: item[0], reverse=True)
         top = scored[:limit]
@@ -349,7 +464,30 @@ def _search(
         results = [
             {**_row_to_memory(row), "score": round(score, 4)} for score, row in top
         ]
-        return {"success": True, "results": results}
+        result = {"success": True, "results": results}
+        skipped = skipped_model + skipped_dim + skipped_bad + skipped_unembedded
+        if skipped or legacy:
+            logging.getLogger("uvicorn.error").warning(
+                i18n.t("memory.log_search_skipped"),
+                skipped_model,
+                skipped_dim,
+                skipped_bad,
+                skipped_unembedded,
+                legacy,
+            )
+        if skipped:
+            result["skipped"] = {
+                "other_model": skipped_model,
+                "dimension_mismatch": skipped_dim,
+                "malformed": skipped_bad,
+                "not_embedded": skipped_unembedded,
+            }
+            result["note"] = (
+                f"{skipped} memories were not searched because their embeddings "
+                "are missing, malformed or from a different embedding model; "
+                "they may need re-embedding."
+            )
+        return result
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
     finally:

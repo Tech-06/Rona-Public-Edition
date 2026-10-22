@@ -522,6 +522,16 @@ def _merge_messages(
     return sorted([*server, *extra], key=_created_at)
 
 
+def _safe_int(value: object, default: int) -> int:
+    """Timestamp coercion that never raises: the API layer rejects bad
+    values, this keeps direct callers from aborting a whole import on one."""
+    try:
+        number = int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
 def import_conversations(
     conversations_in: list[dict[str, Any]],
     folders_in: list[dict[str, Any]],
@@ -571,7 +581,7 @@ def import_conversations(
                 (
                     folder_id,
                     name,
-                    int(folder.get("createdAt") or _now_ms()),
+                    _safe_int(folder.get("createdAt"), _now_ms()),
                     int(bool(folder.get("collapsed"))),
                 ),
             )
@@ -586,11 +596,17 @@ def import_conversations(
             title = str(conv.get("title") or "").strip()
             title_custom = bool(conv.get("titleCustom")) and bool(title)
             folder_id = conv.get("folderId") or None
+            if folder_id is not None:
+                # An id the server doesn't know (deleted folder, or one that
+                # was never imported) would orphan the chat from the sidebar.
+                cursor.execute("SELECT 1 FROM chat_folders WHERE id = ?", (folder_id,))
+                if cursor.fetchone() is None:
+                    folder_id = None
             messages = conv.get("messages")
             if not isinstance(messages, list):
                 messages = []
             messages = [message for message in messages if isinstance(message, dict)]
-            updated_at = int(conv.get("updatedAt") or _now_ms())
+            updated_at = _safe_int(conv.get("updatedAt"), _now_ms())
             if conv.get("pinned"):
                 pins_to_apply.append(thread_id)
 

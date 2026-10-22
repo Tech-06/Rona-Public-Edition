@@ -25,7 +25,8 @@ STRINGS: dict[str, str] = {
         "where you'd like me to pick up from?"
     ),
     "main.auth_invalid_token": "Invalid or missing bearer token",
-    "main.model_call_failed": "Model call failed: {exc}",
+    "main.model_call_failed": "Model call failed (error id: {error_id}). Details are in the backend log.",
+    "errors.logged": "[error id: %s] unexpected failure in %s",
     "main.conversation_busy": "This conversation already has a response in progress. Wait for it to finish.",
     "main.run_not_found": "No running or recent response found for this conversation to resume.",
     "main.log_reconcile_failed": "conversation registry reconcile failed",
@@ -48,6 +49,9 @@ STRINGS: dict[str, str] = {
     "dashboard.history_not_found": "Conversation not found",
     "dashboard.folder_not_found": "Folder not found",
     "dashboard.history_unavailable": "Chat history is unavailable",
+    "dashboard.import_too_large": "Import payload is too large",
+    "dashboard.internal_error": "Operation failed (error id: {error_id}). Details are in the backend log.",
+    "dashboard.probe_llm_failed": "Model call failed: {kind} (error id: {error_id}). Details are in the backend log.",
     "dashboard.memory_not_found": "Memory #{id} not found.",
     "dashboard.archived_memory_not_found": "Archived memory #{id} not found.",
     "dashboard.person_not_found": "Person #{id} not found.",
@@ -111,6 +115,11 @@ STRINGS: dict[str, str] = {
     "memory.log_schema_upgraded": "[memory] memories table upgraded, added columns: %s",
     "memory.log_schema_failed": "[memory] schema check failed: %s",
     "memory.log_access_failed": "[memory] could not record memory access: %s",
+    "memory.log_embedding_unavailable": "[memory] embedding unavailable, continuing without it: %s",
+    "memory.log_search_skipped": (
+        "[memory] search skipped rows -- other model: %d, dimension mismatch: %d, "
+        "malformed: %d, not embedded: %d; legacy rows without a model compared: %d"
+    ),
     "memory.log_promoted": "[memory] #%d promoted %s -> %s (%d hits): %s",
     "memory.log_archived": "[memory] #%d archived (%s, reason: %s): %s",
     "memory.log_deleted": "[memory] #%d deleted (short, %d hits): %s",

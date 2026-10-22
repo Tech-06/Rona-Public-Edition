@@ -430,7 +430,7 @@ def test_config_set_is_captured_and_reports_health(tmp_path, monkeypatch, capsys
     captured = capsys.readouterr()
     assert "accounts" in captured.out
     assert "no authorization" in captured.out + captured.err
-    assert "--set" in calls[0] and "accounts=work" in calls[0]
+    assert "--set" in calls[-1] and "accounts=work" in calls[-1]
 
 
 def test_config_edit_inherits_stdio(tmp_path, monkeypatch):
@@ -533,3 +533,41 @@ def test_uninstall_forwards_purge_flag(tmp_path, monkeypatch):
     monkeypatch.setattr(tools.subprocess, "run", _fake_run)
     assert tools._cmd_uninstall(_args(root, package_id="google_auth", purge=True)) == 0
     assert "--purge" in calls[0]
+
+
+def _config_fake_run(calls):
+    def _fake_run(cmd, cwd, capture_output, text, check):
+        calls.append(cmd)
+        if "--set" in cmd:
+            payload = {"ok": True, "package": "p", "changed": ["x"], "health_ok": True, "detail": "fine"}
+        else:
+            payload = {
+                "ok": True,
+                "package": "p",
+                "fields": [
+                    {"key": "accounts", "secret": False, "set": True, "value": ["a"]},
+                    {"key": "api_key", "secret": True, "set": False, "value": None},
+                ],
+            }
+        return _FakeCompleted(stdout=json.dumps(payload) + "\n")
+
+    return _fake_run
+
+
+def test_config_set_on_secret_field_warns(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    calls = []
+    monkeypatch.setattr(tools.subprocess, "run", _config_fake_run(calls))
+    assert tools._cmd_config(_args(root, package_id="p", set=["api_key=sekret"])) == 0
+    err = capsys.readouterr().err
+    assert i18n.t("secret.argv_warning", alternative="`rona tools config p --edit`") in err
+    assert any("--set" in c and "api_key=sekret" in c for c in calls)
+
+
+def test_config_set_on_plain_field_does_not_warn(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _add_fake_backend_venv(root)
+    monkeypatch.setattr(tools.subprocess, "run", _config_fake_run([]))
+    assert tools._cmd_config(_args(root, package_id="p", set=["accounts=a"])) == 0
+    assert "[!]" not in capsys.readouterr().err

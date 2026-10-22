@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
@@ -262,22 +263,61 @@ def test_web_describe_reports_not_running_when_closed(tmp_path):
     assert data["running"] is False
 
 
-def test_systemctl_available_false_on_windows(monkeypatch):
+def _fake_systemctl_run(monkeypatch, *, returncode=0, stdout="loaded\n", raises=None):
+    calls = []
+
+    def _run(cmd, **kwargs):
+        calls.append(cmd)
+        if raises is not None:
+            raise raises
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(server.subprocess, "run", _run)
     monkeypatch.setattr(server.shutil, "which", lambda _: "/usr/bin/systemctl")
+    monkeypatch.setattr(server.os, "name", "posix")
+    monkeypatch.setattr(server.sys, "platform", "linux")
+    return calls
+
+
+def test_systemd_unit_available_false_on_windows(monkeypatch):
+    _fake_systemctl_run(monkeypatch)
     monkeypatch.setattr(server.os, "name", "nt")
-    assert server._systemctl_available() is False
+    assert server._systemd_unit_available() is False
 
 
-def test_systemctl_available_true_when_present_on_posix(monkeypatch):
-    monkeypatch.setattr(server.shutil, "which", lambda _: "/usr/bin/systemctl")
-    monkeypatch.setattr(server.os, "name", "posix")
-    assert server._systemctl_available() is True
+def test_systemd_unit_available_false_on_macos(monkeypatch):
+    _fake_systemctl_run(monkeypatch)
+    monkeypatch.setattr(server.sys, "platform", "darwin")
+    assert server._systemd_unit_available() is False
 
 
-def test_systemctl_available_false_when_not_on_path(monkeypatch):
+def test_systemd_unit_available_false_without_systemctl(monkeypatch):
+    _fake_systemctl_run(monkeypatch)
     monkeypatch.setattr(server.shutil, "which", lambda _: None)
-    monkeypatch.setattr(server.os, "name", "posix")
-    assert server._systemctl_available() is False
+    assert server._systemd_unit_available() is False
+
+
+def test_systemd_unit_available_true_when_loaded(monkeypatch):
+    calls = _fake_systemctl_run(monkeypatch, stdout="loaded\n")
+    assert server._systemd_unit_available() is True
+    assert calls[0][-1] == "rona.service"
+
+
+def test_systemd_unit_available_false_when_not_found(monkeypatch):
+    _fake_systemctl_run(monkeypatch, stdout="not-found\n")
+    assert server._systemd_unit_available() is False
+
+
+def test_systemd_unit_available_false_on_bus_error(monkeypatch):
+    _fake_systemctl_run(monkeypatch, returncode=1, stdout="")
+    assert server._systemd_unit_available() is False
+
+
+def test_systemd_unit_available_false_on_timeout(monkeypatch):
+    _fake_systemctl_run(
+        monkeypatch, raises=subprocess.TimeoutExpired(cmd="systemctl", timeout=10)
+    )
+    assert server._systemd_unit_available() is False
 
 
 def test_start_prefers_systemd_when_available(tmp_path, monkeypatch):
@@ -290,7 +330,7 @@ def test_start_prefers_systemd_when_available(tmp_path, monkeypatch):
     (root / "backend" / ".env").write_text(
         f"AUTH_TOKEN=testtoken\nPORT={port}\nHOST=127.0.0.1\n", encoding="utf-8"
     )
-    monkeypatch.setattr(server, "_systemctl_available", lambda: True)
+    monkeypatch.setattr(server, "_systemd_unit_available", lambda: True)
     monkeypatch.setattr(server, "START_TIMEOUT_SECONDS", 2)
     monkeypatch.setattr(server, "POLL_INTERVAL_SECONDS", 0.05)
 
@@ -328,7 +368,7 @@ def test_start_falls_back_to_spawn_when_no_systemd(tmp_path, monkeypatch):
     (root / "backend" / ".env").write_text(
         f"AUTH_TOKEN=testtoken\nPORT={port}\nHOST=127.0.0.1\n", encoding="utf-8"
     )
-    monkeypatch.setattr(server, "_systemctl_available", lambda: False)
+    monkeypatch.setattr(server, "_systemd_unit_available", lambda: False)
     monkeypatch.setattr(server, "EARLY_EXIT_CHECK_SECONDS", 0)
     monkeypatch.setattr(server, "START_TIMEOUT_SECONDS", 2)
     monkeypatch.setattr(server, "POLL_INTERVAL_SECONDS", 0.05)
@@ -411,3 +451,73 @@ def test_find_pid_by_port_returns_none_when_nothing_listening():
 def test_pid_alive_false_for_bogus_pid():
     # A pid this large is never a real process on any platform.
     assert procutil.pid_alive(2**30) is False
+
+
+def _stop_setup(tmp_path, monkeypatch, *, pid_file=None):
+    root = _make_root(tmp_path)
+    port = _free_port()
+    (root / "backend" / ".env").write_text(
+        f"AUTH_TOKEN=testtoken\nPORT={port}\nHOST=127.0.0.1\n", encoding="utf-8"
+    )
+    paths = RonaPaths(root)
+    if pid_file is not None:
+        procutil.write_pid_file(paths.backend_pid, pid_file)
+    monkeypatch.setattr(server, "_systemd_unit_available", lambda: False)
+    monkeypatch.setattr(server, "STOP_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(server, "POLL_INTERVAL_SECONDS", 0.05)
+    # Pretend something is listening so _stop does not short-circuit.
+    monkeypatch.setattr(server.procutil, "port_open", lambda *a, **k: True)
+    return paths
+
+
+def test_stop_does_not_kill_unrelated_listener(tmp_path, monkeypatch):
+    paths = _stop_setup(tmp_path, monkeypatch)
+    killed = []
+    monkeypatch.setattr(server.procutil, "find_pid_by_port", lambda h, p: 4321)
+    monkeypatch.setattr(server.procutil, "is_rona_backend", lambda pid, d: False)
+    monkeypatch.setattr(server.procutil, "kill_tree", killed.append)
+    ok, detail = server._stop(paths)
+    assert ok is False
+    assert killed == []
+    assert "4321" in detail
+
+
+def test_stop_kills_verified_listener(tmp_path, monkeypatch):
+    paths = _stop_setup(tmp_path, monkeypatch)
+    killed = []
+    monkeypatch.setattr(server.procutil, "find_pid_by_port", lambda h, p: 4321)
+    monkeypatch.setattr(server.procutil, "is_rona_backend", lambda pid, d: True)
+    monkeypatch.setattr(server.procutil, "kill_tree", killed.append)
+    server._stop(paths)
+    assert killed == [4321]
+
+
+def test_stop_ignores_stale_pid_file_that_is_not_the_backend(tmp_path, monkeypatch):
+    paths = _stop_setup(tmp_path, monkeypatch, pid_file=777)
+    killed = []
+    monkeypatch.setattr(server.procutil, "pid_alive", lambda pid: True)
+    monkeypatch.setattr(server.procutil, "find_pid_by_port", lambda h, p: None)
+    monkeypatch.setattr(server.procutil, "is_rona_backend", lambda pid, d: False)
+    monkeypatch.setattr(server.procutil, "kill_tree", killed.append)
+    ok, _detail = server._stop(paths)
+    assert ok is False
+    assert killed == []
+
+
+def test_stop_kills_verified_pid_file_process(tmp_path, monkeypatch):
+    paths = _stop_setup(tmp_path, monkeypatch, pid_file=777)
+    killed = []
+    monkeypatch.setattr(server.procutil, "pid_alive", lambda pid: True)
+    monkeypatch.setattr(server.procutil, "is_rona_backend", lambda pid, d: True)
+    monkeypatch.setattr(server.procutil, "kill_tree", killed.append)
+    server._stop(paths)
+    assert killed == [777]
+
+
+def test_cmd_stop_exits_nonzero_for_unrelated_listener(tmp_path, monkeypatch, capsys):
+    paths = _stop_setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(server.procutil, "find_pid_by_port", lambda h, p: 4321)
+    monkeypatch.setattr(server.procutil, "is_rona_backend", lambda pid, d: False)
+    args = SimpleNamespace(root=str(paths.root), json=True)
+    assert server._cmd_stop(args) == 1
+    assert "4321" in capsys.readouterr().out

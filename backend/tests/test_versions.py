@@ -142,3 +142,20 @@ def test_requirement_dataclass_direct_construction():
     req = Requirement(name="x", specifiers=(Specifier(op=">=", version=Version.parse("1"), raw="1"),))
     assert req.is_satisfied_by("1.0")
     assert not req.is_satisfied_by("0.9")
+
+
+def test_compatible_release_needs_two_components():
+    with pytest.raises(VersionError, match="two components"):
+        parse_requirement("google_auth~=2")
+    assert parse_requirement("google_auth~=2.0").is_satisfied_by("2.5")
+
+
+def test_requirement_problems_reports_bad_entry_instead_of_raising():
+    from toolbox import packages
+
+    manifest = packages.PackageManifest.model_construct(
+        id="demo", requires=["google_auth~=2", "other>=1"]
+    )
+    problems = packages.requirement_problems(manifest, {"other": "1.0"})
+    assert len(problems) == 1
+    assert "google_auth~=2" in problems[0]

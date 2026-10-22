@@ -197,5 +197,9 @@ def parse_requirement(text: str) -> Requirement:
             )
         op, version_text = spec_match.group(1), spec_match.group(2)
         version = Version.parse(version_text)
+        if op == "~=" and len(version.parts) < 2:
+            raise VersionError(
+                f"invalid requires entry {original!r}: ~= needs at least two components"
+            )
         specifiers.append(Specifier(op=op, version=version, raw=version_text))
     return Requirement(name=name, specifiers=tuple(specifiers))

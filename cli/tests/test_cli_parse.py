@@ -102,9 +102,10 @@ def test_edit_auth_reset_parses():
     assert args.yes is True
 
 
-def test_edit_auth_set_requires_token_positional():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["edit", "auth", "set"])
+def test_edit_auth_set_token_positional_is_optional():
+    args = build_parser().parse_args(["edit", "auth", "set", "--stdin"])
+    assert args.token is None
+    assert args.stdin is True
     args = build_parser().parse_args(["edit", "auth", "set", "my-token"])
     assert args.token == "my-token"
 

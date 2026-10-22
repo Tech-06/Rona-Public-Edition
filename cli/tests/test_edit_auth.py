@@ -1,13 +1,13 @@
 from types import SimpleNamespace
 
-from rona_cli import envio
+from rona_cli import envio, i18n
 from rona_cli.commands.edit import auth as edit_auth
 
 from .helpers import make_root
 
 
 def _args(root, **overrides):
-    defaults = {"root": str(root), "json": False, "show": False, "yes": False, "token": None}
+    defaults = {"root": str(root), "json": False, "show": False, "yes": False, "token": None, "stdin": False}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -93,3 +93,65 @@ def test_set_rejects_token_shorter_than_minimum(tmp_path):
 
     assert edit_auth._cmd_set(_args(root, token="a" * 32)) == 0
     assert envio.read_env_file(root / "backend" / ".env")["AUTH_TOKEN"] == "a" * 32
+
+
+_TOKEN = "t" * 40
+
+
+class _Tty:
+    def isatty(self):
+        return True
+
+
+def _envs(root):
+    (root / "backend" / ".env").write_text("A=1\n", encoding="utf-8")
+    (root / "web-client" / ".env").write_text("B=2\n", encoding="utf-8")
+
+
+def test_set_stdin_reads_one_line(tmp_path, monkeypatch, capsys):
+    import io
+
+    root = make_root(tmp_path)
+    _envs(root)
+    monkeypatch.setattr(edit_auth.sys, "stdin", io.StringIO(_TOKEN + "\nrest\n"))
+    assert edit_auth._cmd_set(_args(root, stdin=True)) == 0
+    assert envio.read_env_file(root / "backend" / ".env")["AUTH_TOKEN"] == _TOKEN
+    assert envio.read_env_file(root / "web-client" / ".env")["AUTH_TOKEN"] == _TOKEN
+    assert capsys.readouterr().err == ""
+
+
+def test_set_prompts_with_getpass_on_tty(tmp_path, monkeypatch):
+    root = make_root(tmp_path)
+    _envs(root)
+    monkeypatch.setattr(edit_auth.sys, "stdin", _Tty())
+    monkeypatch.setattr(edit_auth.getpass, "getpass", lambda prompt="": _TOKEN)
+    assert edit_auth._cmd_set(_args(root)) == 0
+    assert envio.read_env_file(root / "backend" / ".env")["AUTH_TOKEN"] == _TOKEN
+
+
+def test_set_without_source_and_no_tty_errors(tmp_path, monkeypatch):
+    import io
+
+    root = make_root(tmp_path)
+    _envs(root)
+    monkeypatch.setattr(edit_auth.sys, "stdin", io.StringIO(""))
+    assert edit_auth._cmd_set(_args(root)) == 1
+    assert "AUTH_TOKEN" not in envio.read_env_file(root / "backend" / ".env")
+
+
+def test_set_positional_works_but_warns(tmp_path, capsys):
+    root = make_root(tmp_path)
+    _envs(root)
+    assert edit_auth._cmd_set(_args(root, token=_TOKEN)) == 0
+    assert envio.read_env_file(root / "backend" / ".env")["AUTH_TOKEN"] == _TOKEN
+    assert i18n.t("secret.argv_warning", alternative="--stdin") in capsys.readouterr().err
+
+
+def test_set_stdin_short_token_rejected(tmp_path, monkeypatch):
+    import io
+
+    root = make_root(tmp_path)
+    _envs(root)
+    monkeypatch.setattr(edit_auth.sys, "stdin", io.StringIO("short\n"))
+    assert edit_auth._cmd_set(_args(root, stdin=True)) == 1
+    assert "AUTH_TOKEN" not in envio.read_env_file(root / "backend" / ".env")

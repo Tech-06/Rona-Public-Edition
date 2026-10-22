@@ -319,7 +319,8 @@ def test_import_fills_a_missing_folder_but_never_moves_a_filed_one(db_path):
             _legacy_conv("unfiled", folderId="browser-folder", messages=_pair("a", "b", 10)),
             _legacy_conv("filed", folderId="browser-folder", messages=_pair("a", "b", 10)),
         ],
-        folders_in=[],
+        # The folder must exist: an unknown folderId is dropped on import.
+        folders_in=[{"id": "browser-folder", "name": "B", "createdAt": 1, "collapsed": False}],
     )
 
     assert history.get("unfiled")["folder_id"] == "browser-folder"

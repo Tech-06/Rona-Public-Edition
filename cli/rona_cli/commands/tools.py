@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json as jsonlib
 import subprocess
+import sys
 
 from rona_cli import i18n, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
@@ -221,10 +222,37 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     return _run_inherited(paths, args, *manager_args)
 
 
+def _warn_secret_set_fields(paths: RonaPaths, args: argparse.Namespace) -> None:
+    """Warn when a `--set key=value` names a field the package manifest marks
+    secret (`secret: true` in its config fields): the value would sit in shell
+    history and `ps`. Best effort -- a failed lookup just skips the warning."""
+    wanted = {item.split("=", 1)[0].strip() for item in args.set or [] if "=" in item}
+    if not wanted:
+        return
+    try:
+        python = paths.backend_python()
+        result = subprocess.run(
+            [str(python), "-m", "toolbox.manager", "--json", "config", args.package_id],
+            cwd=paths.backend_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        lines = result.stdout.strip().splitlines()
+        fields = jsonlib.loads(lines[-1]).get("fields", []) if lines else []
+    except (RonaNotFoundError, OSError, ValueError, AttributeError):
+        return
+    secret_keys = {f.get("key") for f in fields if isinstance(f, dict) and f.get("secret")}
+    if wanted & secret_keys:
+        alternative = f"`rona tools config {args.package_id} --edit`"
+        print(f"[!] {i18n.t('secret.argv_warning', alternative=alternative)}", file=sys.stderr, flush=True)
+
+
 def _cmd_config(args: argparse.Namespace) -> int:
     paths = _resolve(args)
     if paths is None:
         return 1
+    _warn_secret_set_fields(paths, args)
     manager_args = ["config", args.package_id]
     for item in args.set or []:
         manager_args.extend(["--set", item])

@@ -29,8 +29,27 @@ _backend_process: subprocess.Popen | None = None
 _last_restart_at = 0.0
 
 
-def _systemctl_available() -> bool:
-    return shutil.which("systemctl") is not None and sys.platform != "win32"
+def _systemd_unit_available() -> bool:
+    """True only if the backend's ``rona`` *user unit* is installed and loadable.
+
+    ``systemctl`` merely existing is not enough: the README makes the unit
+    optional, and WSL/containers have systemctl but no user bus. In both
+    cases ``systemctl --user start rona`` fails, so the panel falls back to
+    spawning/killing the backend process directly.
+    """
+    if sys.platform in ("win32", "darwin") or shutil.which("systemctl") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", "-p", "LoadState", "--value", "rona.service"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "loaded"
 
 
 def _run_systemctl(action: str) -> dict[str, Any]:
@@ -154,7 +173,7 @@ async def server_status():
         "backend_detail": health["detail"],
         "tracked_process_alive": tracked_alive,
         "tracked_pid": _backend_process.pid if tracked_alive else None,
-        "systemctl_available": _systemctl_available(),
+        "systemctl_available": _systemd_unit_available(),
         "recent_log_lines": _tail_lines(LOG_PATH, 50),
     }
 
@@ -171,7 +190,7 @@ def _check_restart_rate_limit() -> None:
 async def server_start(request: Request):
     _check_restart_rate_limit()
     logger.info("[host] start requested by %s", request.client.host if request.client else "?")
-    if _systemctl_available():
+    if _systemd_unit_available():
         return _run_systemctl("start")
     return await _spawn_backend()
 
@@ -180,7 +199,7 @@ async def server_start(request: Request):
 async def server_stop(request: Request):
     _check_restart_rate_limit()
     logger.info("[host] stop requested by %s", request.client.host if request.client else "?")
-    if _systemctl_available():
+    if _systemd_unit_available():
         return _run_systemctl("stop")
     return _kill_backend()
 
@@ -189,7 +208,7 @@ async def server_stop(request: Request):
 async def server_restart(request: Request):
     _check_restart_rate_limit()
     logger.info("[host] restart requested by %s", request.client.host if request.client else "?")
-    if _systemctl_available():
+    if _systemd_unit_available():
         return _run_systemctl("restart")
     _kill_backend()
     await asyncio.sleep(1.0)

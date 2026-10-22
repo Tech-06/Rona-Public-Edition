@@ -40,13 +40,20 @@ def test_chat_model(
 ) -> tuple[bool, str]:
     """POST a one-token ping to an OpenAI-compatible `/chat/completions`
     endpoint (the same shape `app/llm.py` uses via the `openai` SDK)."""
-    if not url or not api_key or not model:
+    # The key is optional on purpose: the backend supports keyless and
+    # header-authenticated gateways (credentials in *_MODEL_HEADERS), and
+    # http.Client sends no Authorization header for an empty token.
+    if not url or not model:
         return False, i18n.t("providers.chat_missing_fields")
+    base_url = normalize_chat_base_url(url)
     client = http.Client(
-        base_url=normalize_chat_base_url(url),
-        token=api_key,
+        base_url=base_url,
+        token=api_key or None,
         timeout=15.0,
         extra_headers=headers or {},
+        # External providers may legitimately sit behind a corporate proxy;
+        # a local gateway (Ollama etc.) must not be routed through one.
+        use_proxy=not http.is_loopback_url(base_url),
     )
     try:
         client.post(
@@ -67,10 +74,16 @@ def test_embedding(api_key: str, model: str) -> tuple[bool, str]:
     if not api_key or not model:
         return False, i18n.t("providers.embedding_missing_fields")
     normalized = _normalize_embedding_model(model)
-    client = http.Client(base_url=GOOGLE_EMBED_BASE_URL, timeout=15.0)
+    # The key goes in a header, never the URL (URLs end up in proxy/server logs).
+    client = http.Client(
+        base_url=GOOGLE_EMBED_BASE_URL,
+        timeout=15.0,
+        extra_headers={"x-goog-api-key": api_key},
+        use_proxy=not http.is_loopback_url(GOOGLE_EMBED_BASE_URL),
+    )
     try:
         client.post(
-            f"/v1beta/{normalized}:embedContent?key={api_key}",
+            f"/v1beta/{normalized}:embedContent",
             {"content": {"parts": [{"text": "ping"}]}},
         )
     except http.ApiError as exc:

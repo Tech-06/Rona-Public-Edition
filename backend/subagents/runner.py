@@ -9,6 +9,8 @@ import i18n
 from app.config import get_settings
 from app.llm import chat_completion
 from app.prompt_store import load_worker_prompt
+from app.prompts import current_datetime_message
+from graph.state import drop_leading_orphans
 from subagents import store
 from toolbox.registry import background_tool_names, get_tool, get_tool_schemas, has_tool
 
@@ -60,7 +62,10 @@ def _trim_worker_messages(
         next_boundary = round_starts[1] if len(round_starts) > 1 else len(tail)
         tail = tail[next_boundary:]
         round_starts = [i - next_boundary for i in round_starts[1:]]
-    return head + tail
+    # An assistant message without tool_calls (a plain reply) can also mark a
+    # "round start"; make sure the tail never opens on a tool result or an
+    # assistant call whose results were cut.
+    return head + drop_leading_orphans(tail)
 
 
 async def _execute_tool_call(
@@ -108,7 +113,7 @@ async def _agent_loop(
     while rounds < settings.subagent_max_rounds:
         started = time.monotonic()
         assistant = await chat_completion(
-            messages,
+            [messages[0], current_datetime_message(), *messages[1:]],
             run_id,
             tools=schemas,
             tier=tier,
@@ -133,7 +138,7 @@ async def _agent_loop(
         rounds += 1
     messages.append({"role": "user", "content": WRAP_UP_PROMPT})
     assistant = await chat_completion(
-        messages,
+        [messages[0], current_datetime_message(), *messages[1:]],
         run_id,
         tier=tier,
         timeout=settings.subagent_llm_timeout_seconds,

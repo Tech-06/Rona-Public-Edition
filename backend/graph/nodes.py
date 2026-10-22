@@ -10,7 +10,7 @@ from langgraph.types import StreamWriter, interrupt
 
 from app.config import get_settings
 from app.llm import chat_completion
-from app.prompts import load_prompts
+from app.prompts import current_datetime_message, load_prompts
 from graph.state import RonaState, replace_messages, trim_messages
 from subagents.store import get_unreported_notifications
 from toolbox import get_tool, get_tool_schemas, has_tool, requires_confirmation
@@ -139,7 +139,7 @@ async def agent_node(
 ) -> dict:
     writer({"type": "agent_start", "hint": _round_hint(state)})
     history = trim_messages(state["messages"], settings.max_history_messages)
-    messages = [*load_prompts()]
+    messages = [*load_prompts(), current_datetime_message()]
     try:
         notifications = get_unreported_notifications()
     except Exception:  # noqa: BLE001

@@ -18,7 +18,16 @@ INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_memories_layer ON memories(layer)",
 )
 
-MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
+def _add_embedding_model_column(cursor: sqlite3.Cursor) -> None:
+    # Guarded because mem_tool self-heals this column at runtime on a
+    # database that hasn't been migrated yet; a bare ALTER would then fail.
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(memories)")}
+    if "embedding_model" not in columns:
+        cursor.execute("ALTER TABLE memories ADD COLUMN embedding_model TEXT")
+
+
+# A migration step is either a SQL statement or a callable taking the cursor.
+MIGRATIONS: list[tuple[int, tuple[object, ...]]] = [
     (
         1,
         (
@@ -89,6 +98,13 @@ MIGRATIONS: list[tuple[int, tuple[str, ...]]] = [
         4,
         ("ALTER TABLE task_runs ADD COLUMN action_done_at TEXT",),
     ),
+    (
+        # Which embedding model produced a memory's vector. Nullable: NULL
+        # marks a legacy row (model unknown), which search only compares
+        # when the dimensions match.
+        5,
+        (_add_embedding_model_column,),
+    ),
 ]
 
 
@@ -106,7 +122,10 @@ def _apply_migrations(cursor: sqlite3.Cursor) -> None:
             continue
         print(f"Applying migration to schema version {target_version}...")
         for statement in statements:
-            cursor.execute(statement)
+            if callable(statement):
+                statement(cursor)
+            else:
+                cursor.execute(statement)
         cursor.execute(f"PRAGMA user_version = {target_version}")
         current_version = target_version
 

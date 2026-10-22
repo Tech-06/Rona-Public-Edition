@@ -16,6 +16,24 @@ from typing import Any
 
 from rona_cli import i18n
 
+# Proxy policy. The default opener honors HTTP(S)_PROXY / NO_PROXY from the
+# environment, which is right for *external* hosts (a model provider reached
+# through a corporate proxy) but wrong for the local backend/web client: those
+# requests carry `Authorization: Bearer <AUTH_TOKEN>`, and a proxy configured
+# machine-wide would receive that token (and the traffic). So Client talks
+# through an opener with an empty ProxyHandler unless `use_proxy=True`, which
+# only the provider connectivity checks set, and only for non-loopback hosts.
+_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_ENV_PROXY_OPENER = urllib.request.build_opener()
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def is_loopback_url(url: str) -> bool:
+    """True when ``url`` points at this machine (so no proxy should be used)."""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host in _LOOPBACK_HOSTS or host.endswith(".localhost") or host.startswith("127.")
+
 
 class ApiError(RuntimeError):
     """Raised for any HTTP-level failure: refused connection, timeout, non-2xx."""
@@ -40,6 +58,10 @@ class Client:
     token: str | None = None
     timeout: float = 10.0
     extra_headers: dict[str, str] = field(default_factory=dict)
+    use_proxy: bool = False
+
+    def _opener(self) -> urllib.request.OpenerDirector:
+        return _ENV_PROXY_OPENER if self.use_proxy else _NO_PROXY_OPENER
 
     def _headers(self) -> dict[str, str]:
         # Without an explicit User-Agent, urllib sends "Python-urllib/3.x",
@@ -69,7 +91,7 @@ class Client:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(url, data=data, method=method, headers=self._headers())
         try:
-            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+            with self._opener().open(req, timeout=timeout or self.timeout) as resp:
                 body = resp.read()
                 return json.loads(body) if body else None
         except urllib.error.HTTPError as exc:
@@ -102,7 +124,7 @@ class Client:
         url = f"{self.base_url.rstrip('/')}{path}"
         req = urllib.request.Request(url, method="GET", headers=self._headers())
         try:
-            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+            with self._opener().open(req, timeout=timeout or self.timeout) as resp:
                 for raw_line in resp:
                     yield raw_line.decode("utf-8", errors="replace").rstrip("\n")
         except urllib.error.HTTPError as exc:
