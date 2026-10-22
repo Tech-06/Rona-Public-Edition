@@ -485,7 +485,7 @@ function PlanSummary({ plan }: { plan: HostPackagePlan }) {
   );
 }
 
-function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged: () => void }) {
+export function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged: () => void }) {
   const t = useT();
   const [fields, setFields] = useState<PackageConfigField[] | null>(null);
   const [draft, setDraft] = useState<Record<string, unknown>>({});
@@ -493,6 +493,7 @@ function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged: () =>
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<ProbeResult | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<Record<string, { ok: boolean; message: string }>>({});
 
   const load = useCallback(async () => {
     setError(null);
@@ -525,6 +526,29 @@ function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged: () =>
     }
   }
 
+  async function upload(field: PackageConfigField, file: File) {
+    setUploadStatus((current) => ({ ...current, [field.key]: { ok: true, message: t("common.saving") } }));
+    try {
+      const contentB64 = await readFileAsBase64(file);
+      await dashboardApi.uploadPackageFile(pkg.id, field.key, file.name, contentB64);
+      setUploadStatus((current) => ({
+        ...current,
+        [field.key]: { ok: true, message: t("connections.file_uploaded") },
+      }));
+      setRestartRequired(true);
+      await load();
+      onChanged();
+    } catch (err) {
+      setUploadStatus((current) => ({
+        ...current,
+        [field.key]: {
+          ok: false,
+          message: err instanceof Error ? err.message : t("connections.file_upload_failed"),
+        },
+      }));
+    }
+  }
+
   const dirty = Object.keys(draft).length > 0;
 
   return (
@@ -539,6 +563,8 @@ function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged: () =>
               field={field}
               draft={draft}
               onChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}
+              onUpload={(file) => void upload(field, file)}
+              uploadStatus={uploadStatus[field.key]}
             />
           ))}
           <div className="flex flex-wrap items-center gap-2">
@@ -570,17 +596,40 @@ function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged: () =>
   );
 }
 
-/** One config field. `file` fields hold a path on the machine the backend
- * runs on, not on the viewer's -- there is no meaningful file picker for
- * that, so it stays a text field with its description explaining it. */
+/** Base64 of a file's bytes. Uploads go over JSON (the BFF refuses any other
+ * content type on writes), so the bytes are encoded in chunks to keep
+ * String.fromCharCode's argument count bounded. */
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.onload = () => {
+      const bytes = new Uint8Array(reader.result as ArrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      resolve(btoa(binary));
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/** One config field. `file` fields are uploaded as content from the viewer's
+ * machine (never a server-side path, which would let the dashboard read any
+ * file the backend can) and saved immediately, apart from the draft values. */
 function FieldRow({
   field,
   draft,
   onChange,
+  onUpload,
+  uploadStatus,
 }: {
   field: PackageConfigField;
   draft: Record<string, unknown>;
   onChange: (value: unknown) => void;
+  onUpload?: (file: File) => void;
+  uploadStatus?: { ok: boolean; message: string };
 }) {
   const t = useT();
   const pending = field.key in draft;
@@ -590,6 +639,30 @@ function FieldRow({
     "w-full rounded-lg border border-line bg-app px-2.5 py-1.5 text-sm text-fg focus:border-accent focus:outline-none";
 
   function renderInput() {
+    if (field.target === "file") {
+      return (
+        <>
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onUpload?.(file);
+              event.target.value = "";
+            }}
+            className="text-sm text-fg"
+          />
+          <span className="text-xs text-fg-subtle">
+            {field.set ? t("connections.file_set") : t("connections.file_unset")}
+          </span>
+          {uploadStatus && (
+            <span className={`text-xs ${uploadStatus.ok ? "text-fg-subtle" : "text-danger-text"}`}>
+              {uploadStatus.message}
+            </span>
+          )}
+        </>
+      );
+    }
     if (field.type === "boolean") {
       return (
         <input

@@ -318,7 +318,7 @@ STRINGS: dict[str, str] = {
     "tools.help_actions": "List the operations a package exposes",
     "tools.help_run": "Run one of a package's operations",
     "tools.help_run_set": "supply an operation parameter (repeatable)",
-    "tools.help_purge_flag": "also delete files you created (tokens etc.)",
+    "tools.help_purge_flag": "also delete files you created (tokens etc.), the package's .env keys and its database tables",
     "tools.installed_marker": "installed",
     "tools.update_marker": "installed {installed} → {version} available",
     "tools.update_hint": "To update: rona tools update <package>",

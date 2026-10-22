@@ -9,7 +9,15 @@ export interface ChatResult {
   status: ChatStatus;
   reply: string;
   tool_calls: ToolCallInfo[] | null;
+  /** Fingerprint of the calls awaiting approval; echoed back with Approve/Reject. */
+  pending_hash?: string | null;
   conversation_id: string;
+}
+
+/** Structured Approve/Reject, bound to the pending calls by hash. */
+export interface ConfirmationDecision {
+  approved: boolean;
+  pending_hash: string;
 }
 
 export type ProgressEventType =
@@ -47,6 +55,7 @@ export interface ChatMessage {
   pending?: boolean;
   awaitingConfirmation?: boolean;
   toolCalls?: ToolCallInfo[] | null;
+  pendingHash?: string | null;
   steps?: StepRecord[];
   totalDurationMs?: number;
   error?: string;

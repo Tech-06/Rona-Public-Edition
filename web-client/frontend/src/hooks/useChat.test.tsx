@@ -89,3 +89,64 @@ describe("useChat sending state", () => {
     expect(result.current.messages[1].content).toBe("yo");
   });
 });
+
+describe("useChat structured confirmation", () => {
+  function sse(done: object): Response {
+    const text = `id: 1\nevent: done\ndata: ${JSON.stringify(done)}\n\n`;
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(enc.encode(text));
+          c.close();
+        },
+      }),
+      { status: 200 },
+    );
+  }
+
+  async function setup() {
+    const bodies: Record<string, unknown>[] = [];
+    let turn = 0;
+    stub((url, init) => {
+      if (url === "/chat/stream") {
+        bodies.push(JSON.parse(String(init?.body)));
+        turn += 1;
+        return turn === 1
+          ? sse({
+              conversation_id: "c1",
+              reply: "sure?",
+              status: "confirmation_required",
+              tool_calls: [{ name: "delete_person", args: { person_id: 1 } }],
+              pending_hash: "h-123",
+            })
+          : sse({ conversation_id: "c1", reply: "done", status: "ok", tool_calls: null });
+      }
+      return jsonResponse(200, []);
+    });
+    const hook = renderHook(() => useChat(null), { wrapper });
+    act(() => hook.result.current.send("delete him"));
+    await waitFor(() => expect(hook.result.current.awaitingConfirmation).toBe(true));
+    return { hook, bodies };
+  }
+
+  it("approve and reject send the structured decision with the pending hash", async () => {
+    const { hook, bodies } = await setup();
+    act(() => hook.result.current.approve());
+    await waitFor(() => expect(hook.result.current.sending).toBe(false));
+    expect(bodies[1].confirmation).toEqual({ approved: true, pending_hash: "h-123" });
+    expect(typeof bodies[1].message).toBe("string");
+
+    const second = await setup();
+    act(() => second.hook.result.current.reject());
+    await waitFor(() => expect(second.hook.result.current.sending).toBe(false));
+    expect(second.bodies[1].confirmation).toEqual({ approved: false, pending_hash: "h-123" });
+  });
+
+  it("typed text carries no confirmation field", async () => {
+    const { hook, bodies } = await setup();
+    act(() => hook.result.current.send("yes go ahead"));
+    await waitFor(() => expect(hook.result.current.sending).toBe(false));
+    expect(bodies[1]).not.toHaveProperty("confirmation");
+    expect(bodies[1].message).toBe("yes go ahead");
+  });
+});

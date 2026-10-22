@@ -66,6 +66,11 @@ export interface PackageConfigResponse {
   fields: PackageConfigField[];
 }
 
+export interface PackageFileUploadResponse {
+  ok: boolean;
+  field: string;
+}
+
 export interface PackageConfigUpdateResponse {
   ok: boolean;
   health: ProbeResult;
@@ -299,6 +304,14 @@ export const dashboardApi = {
   packageConfig: (id: string) => api.get<PackageConfigResponse>(`/api/packages/${id}/config`),
   updatePackageConfig: (id: string, values: Record<string, unknown>) =>
     api.put<PackageConfigUpdateResponse>(`/api/packages/${id}/config`, values),
+  /** File fields (target "file") travel as base64 JSON content, never as a
+   * server-side path, and the BFF only forwards application/json bodies. */
+  uploadPackageFile: (id: string, key: string, filename: string, contentB64: string) =>
+    api.post<PackageFileUploadResponse>(`/api/packages/${id}/config/file`, {
+      key,
+      filename,
+      content_b64: contentB64,
+    }),
   runPackageAction: (
     id: string,
     actionId: string,

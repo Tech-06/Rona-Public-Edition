@@ -9,7 +9,7 @@ import {
   type ServerConversation,
 } from "../lib/storage";
 import { agentPhaseLabel, confirmPhaseLabel, toolLabel } from "../lib/toolLabels";
-import type { ChatMessage, ProgressEvent, StepRecord } from "../types";
+import type { ChatMessage, ConfirmationDecision, ProgressEvent, StepRecord } from "../types";
 
 function makeId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -101,7 +101,7 @@ export function useChat(initialConversationId: string | null, onConversationId?:
   }, [conversationId]);
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, confirmation?: ConfirmationDecision) => {
       if (sending || !text.trim()) return;
       const userMessage: ChatMessage = {
         id: makeId(),
@@ -201,6 +201,7 @@ export function useChat(initialConversationId: string | null, onConversationId?:
               totalDurationMs,
               awaitingConfirmation: result.status === "confirmation_required",
               toolCalls: result.tool_calls,
+              pendingHash: result.pending_hash ?? null,
             };
             const next = messagesRef.current.map((message) =>
               message.id === assistantId ? finalized : message,
@@ -263,6 +264,8 @@ export function useChat(initialConversationId: string | null, onConversationId?:
           },
         },
         controller.signal,
+        {},
+        confirmation,
       ).catch((error: unknown) => {
         // streamChat is not expected to reject; never leave the turn stuck.
         updateAssistant({ pending: false, error: (error as Error)?.message || t("sse.unknown_error") });
@@ -272,8 +275,25 @@ export function useChat(initialConversationId: string | null, onConversationId?:
     [conversationId, onConversationId, sending, t],
   );
 
-  const approve = useCallback(() => send(t("chat.approve_text")), [send, t]);
-  const reject = useCallback(() => send(t("chat.reject_text")), [send, t]);
+  // Approve/Reject carry the hash of the calls the user was shown, so the
+  // decision can't be applied to a different pending action. The visible
+  // text is still sent as the message. Without a hash (an older recorded
+  // turn) it degrades to the free-text path.
+  const decide = useCallback(
+    (approved: boolean) => {
+      const text = t(approved ? "chat.approve_text" : "chat.reject_text");
+      // Only the newest assistant message can be the one awaiting; an older
+      // resolved one must never lend its (stale) hash.
+      const lastAssistant = [...messagesRef.current]
+        .reverse()
+        .find((message) => message.role === "assistant");
+      const hash = lastAssistant?.awaitingConfirmation ? lastAssistant.pendingHash : null;
+      send(text, hash ? { approved, pending_hash: hash } : undefined);
+    },
+    [send, t],
+  );
+  const approve = useCallback(() => decide(true), [decide]);
+  const reject = useCallback(() => decide(false), [decide]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();

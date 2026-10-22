@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.dashboard import router as dashboard_router
 from app.logging_config import configure_file_logging
 from app.prompts_api import router as prompts_router
-from app.schemas import ChatRequest, ChatResponse, ToolCallInfo
+from app.schemas import ChatRequest, ChatResponse, ConfirmationDecision, ToolCallInfo
 from app.streaming import (
     StreamRun,
     encode_frame,
@@ -144,6 +144,18 @@ def _tool_call_infos(payload: dict[str, Any]) -> list[ToolCallInfo]:
     return infos
 
 
+class ConfirmationMismatch(Exception):
+    """A structured Approve/Reject carried a pending_hash that does not match
+    the calls currently awaiting approval. Nothing is run and the pending
+    confirmation is left intact: /chat answers 409 with code
+    "confirmation_mismatch", the stream emits an "error" event with the same
+    detail."""
+
+
+def _mismatch_detail() -> str:
+    return i18n.t("main.confirmation_mismatch")
+
+
 def _final_reply(result: dict[str, Any]) -> str:
     for message in reversed(result.get("messages") or []):
         if message.get("role") == "assistant" and message.get("content"):
@@ -180,6 +192,7 @@ async def _run_turn(
     conversation_id: str,
     message: str,
     sink: StreamRun | None = None,
+    confirmation: ConfirmationDecision | None = None,
 ) -> dict[str, Any]:
     config = {
         "configurable": {"thread_id": conversation_id},
@@ -187,20 +200,33 @@ async def _run_turn(
     }
     async with get_lock(conversation_id):
         resume = False
+        pending_payload: dict[str, Any] | None = None
         repaired_messages: list[dict[str, Any]] | None = None
         async with store_lock:
             await purge_expired(settings.conversation_ttl_seconds, graph.checkpointer)
             cleanup_reported(settings.subagent_retention_hours)
             snapshot = await graph.aget_state(config)
             if snapshot.next:
-                resume = any(task.interrupts for task in snapshot.tasks)
+                for task in snapshot.tasks:
+                    if task.interrupts:
+                        resume = True
+                        pending_payload = task.interrupts[0].value
+                        break
                 if not resume:
                     repaired_messages = _repair_dangling_tool_calls(
                         snapshot.values.get("messages") or []
                     )
             touch(conversation_id)
+        decision: dict[str, Any] | None = None
+        if resume and confirmation is not None:
+            expected = (pending_payload or {}).get("pending_hash")
+            if not expected or confirmation.pending_hash != expected:
+                raise ConfirmationMismatch()
+            decision = confirmation.model_dump()
         if resume:
-            graph_input: Any = Command(resume=message)
+            graph_input: Any = Command(
+                resume={"reply": message, "confirmation": decision}
+            )
         elif repaired_messages is not None:
             graph_input = replace_messages(
                 [*repaired_messages, {"role": "user", "content": message}]
@@ -231,6 +257,7 @@ async def _run_turn(
                 "tool_calls": [
                     info.model_dump() for info in _tool_call_infos(interrupt_payload)
                 ],
+                "pending_hash": interrupt_payload.get("pending_hash"),
             }
         return {
             "status": "ok",
@@ -256,7 +283,14 @@ async def chat(chat_request: ChatRequest, http_request: Request):
     if has_active_run(conversation_id):
         return _conversation_busy_response()
     try:
-        result = await _run_turn(graph, conversation_id, chat_request.message)
+        result = await _run_turn(
+            graph, conversation_id, chat_request.message, confirmation=chat_request.confirmation
+        )
+    except ConfirmationMismatch:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": _mismatch_detail(), "code": "confirmation_mismatch"},
+        )
     except Exception:  # noqa: BLE001
         error_id = app_errors.new_error_id()
         app_errors.log_exception("chat", error_id)
@@ -270,6 +304,7 @@ async def chat(chat_request: ChatRequest, http_request: Request):
         conversation_id=conversation_id,
         status=result["status"],
         tool_calls=result["tool_calls"],
+        pending_hash=result.get("pending_hash"),
     )
 
 
@@ -312,6 +347,7 @@ def _record_turn_history(
         "totalDurationMs": total_duration_ms,
         "awaitingConfirmation": result["status"] == "confirmation_required",
         "toolCalls": result["tool_calls"],
+        "pendingHash": result.get("pending_hash"),
     }
     try:
         history.record_turn(conversation_id, user_message, assistant_message)
@@ -322,14 +358,29 @@ def _record_turn_history(
 
 
 async def _stream_worker(
-    graph: Any, conversation_id: str, message: str, run: StreamRun
+    graph: Any,
+    conversation_id: str,
+    message: str,
+    run: StreamRun,
+    confirmation: ConfirmationDecision | None = None,
 ) -> None:
     recorder = history.TurnRecorder(run)
     started_at_ms = int(time.time() * 1000)
     started = time.monotonic()
     try:
         try:
-            result = await _run_turn(graph, conversation_id, message, sink=recorder)
+            result = await _run_turn(
+                graph, conversation_id, message, sink=recorder, confirmation=confirmation
+            )
+        except ConfirmationMismatch:
+            run.publish(
+                "error",
+                {
+                    "detail": _mismatch_detail(),
+                    "code": "confirmation_mismatch",
+                    "conversation_id": conversation_id,
+                },
+            )
         except Exception:  # noqa: BLE001
             error_id = app_errors.new_error_id()
             app_errors.log_exception("chat stream", error_id)
@@ -379,7 +430,17 @@ async def chat_stream(chat_request: ChatRequest, http_request: Request):
             return _conversation_busy_response()
         run, _ = get_or_create_run(conversation_id)
         run.task = asyncio.create_task(
-            _stream_worker(graph, conversation_id, chat_request.message, run)
+            _stream_worker(
+                graph,
+                conversation_id,
+                chat_request.message,
+                run,
+                **(
+                    {"confirmation": chat_request.confirmation}
+                    if chat_request.confirmation is not None
+                    else {}
+                ),
+            )
         )
         last_event_id = 0
     backlog, queue = run.subscribe(last_event_id)

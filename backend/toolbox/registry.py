@@ -29,6 +29,12 @@ class ToolSpec(BaseModel):
     )
     requires_confirmation: bool | dict[str, Any] = False
     background: bool = False
+    # Prompt-injection hints. None = fall back to the default name sets in
+    # toolbox.untrusted; an explicit true/false overrides them. Only the
+    # tool's author knows whether its output carries third-party text
+    # (untrusted_output) or whether a call can leak/persist data (sink).
+    untrusted_output: bool | None = None
+    sink: bool | None = None
 
     @field_validator("parameters")
     @classmethod
@@ -201,6 +207,11 @@ def get_tool(name: str) -> Callable:
 
 def iter_specs() -> list[ToolSpec]:
     return [entry.spec for entry in _registry.values()]
+
+
+def get_spec(name: str) -> ToolSpec | None:
+    entry = _registry.get(name)
+    return entry.spec if entry is not None else None
 
 
 def requires_confirmation(name: str, args: dict[str, Any] | None = None) -> bool:

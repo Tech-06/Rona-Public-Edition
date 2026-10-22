@@ -12,6 +12,7 @@ from app.prompt_store import load_worker_prompt
 from app.prompts import current_datetime_message
 from graph.state import drop_leading_orphans
 from subagents import store
+from toolbox import untrusted
 from toolbox.registry import background_tool_names, get_tool, get_tool_schemas, has_tool
 
 settings = get_settings()
@@ -42,12 +43,8 @@ def _allowed_tool_names() -> set[str]:
     return background_tool_names()
 
 
-def _tool_message(call_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "role": "tool",
-        "tool_call_id": call_id,
-        "content": json.dumps(payload, ensure_ascii=False, default=str),
-    }
+def _tool_message(call_id: str, payload: dict[str, Any], name: str = "") -> dict[str, Any]:
+    return untrusted.tool_message(call_id, name, payload)
 
 
 def _trim_worker_messages(
@@ -69,7 +66,10 @@ def _trim_worker_messages(
 
 
 async def _execute_tool_call(
-    tool_call: dict[str, Any], allowed_names: set[str]
+    tool_call: dict[str, Any],
+    allowed_names: set[str],
+    tainted: bool = False,
+    context: list[str] | None = None,
 ) -> dict[str, Any]:
     call_id = tool_call["id"]
     name = tool_call["function"]["name"]
@@ -90,6 +90,17 @@ async def _execute_tool_call(
                 "error": f"Tool not available to background tasks: {name}",
             },
         )
+    # A sub-agent has no one to ask, and no pre-approved calls: after reading
+    # untrusted content every sink is refused (plain page fetches excepted).
+    if (
+        untrusted.gate(
+            name, args, tainted=tainted, autonomous=True, context=context or ()
+        )
+        == "block"
+    ):
+        logger.warning(i18n.t("subagent.log_tool_blocked"), name)
+        return _tool_message(call_id, untrusted.blocked_error(name), name)
+    token = untrusted.set_taint(tainted)
     try:
         fn = get_tool(name)
         if inspect.iscoroutinefunction(fn):
@@ -97,8 +108,10 @@ async def _execute_tool_call(
         else:
             result = await asyncio.to_thread(fn, **args)
     except Exception as exc:  # noqa: BLE001
-        return _tool_message(call_id, {"status": "error", "error": str(exc)})
-    return _tool_message(call_id, {"status": "ok", "result": result})
+        return _tool_message(call_id, {"status": "error", "error": str(exc)}, name)
+    finally:
+        untrusted.reset_taint(token)
+    return _tool_message(call_id, {"status": "ok", "result": result}, name)
 
 
 async def _agent_loop(
@@ -109,11 +122,18 @@ async def _agent_loop(
         {"role": "system", "content": _load_worker_prompt()},
         {"role": "user", "content": task},
     ]
+    # Set once any tool result of this run is untrusted (web page, email...).
+    tainted = False
     rounds = 0
     while rounds < settings.subagent_max_rounds:
         started = time.monotonic()
         assistant = await chat_completion(
-            [messages[0], current_datetime_message(), *messages[1:]],
+            [
+            messages[0],
+            current_datetime_message(),
+            untrusted.safety_message(),
+            *messages[1:],
+        ],
             run_id,
             tools=schemas,
             tier=tier,
@@ -130,15 +150,29 @@ async def _agent_loop(
         tool_calls = assistant.get("tool_calls") or []
         if not tool_calls:
             return assistant.get("content") or "", False
+        tainted = tainted or any(
+            untrusted.is_untrusted_output(call["function"]["name"])
+            for call in tool_calls
+            if has_tool(call["function"]["name"])
+        )
+        context = untrusted.untrusted_context(task, messages)
         tool_messages = await asyncio.gather(
-            *(_execute_tool_call(tool_call, allowed_names) for tool_call in tool_calls)
+            *(
+                _execute_tool_call(tool_call, allowed_names, tainted, context)
+                for tool_call in tool_calls
+            )
         )
         messages.extend(tool_messages)
         messages = _trim_worker_messages(messages, settings.subagent_max_context_messages)
         rounds += 1
     messages.append({"role": "user", "content": WRAP_UP_PROMPT})
     assistant = await chat_completion(
-        [messages[0], current_datetime_message(), *messages[1:]],
+        [
+            messages[0],
+            current_datetime_message(),
+            untrusted.safety_message(),
+            *messages[1:],
+        ],
         run_id,
         tier=tier,
         timeout=settings.subagent_llm_timeout_seconds,

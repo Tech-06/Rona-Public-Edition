@@ -12,6 +12,7 @@ from app.llm import chat_completion
 from app.prompt_store import load_worker_prompt
 from app.prompts import current_datetime_message
 from graph.state import drop_leading_orphans
+from toolbox import untrusted
 from toolbox.registry import background_tool_names, get_tool, get_tool_schemas, has_tool
 from trigger import store
 
@@ -106,12 +107,8 @@ def _match_pre_approved(
     return None
 
 
-def _tool_message(call_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "role": "tool",
-        "tool_call_id": call_id,
-        "content": json.dumps(payload, ensure_ascii=False, default=str),
-    }
+def _tool_message(call_id: str, payload: dict[str, Any], name: str = "") -> dict[str, Any]:
+    return untrusted.tool_message(call_id, name, payload)
 
 
 def _trim_worker_messages(
@@ -139,6 +136,8 @@ async def _execute_tool_call(
     action_entry: dict[str, Any] | None,
     executed: set[int] | None = None,
     run_id: str | None = None,
+    tainted: bool = False,
+    context: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     call_id = tool_call["id"]
     name = tool_call["function"]["name"]
@@ -168,6 +167,24 @@ async def _execute_tool_call(
                 ),
             },
         ), {"is_action": False, "ok": False}
+    # Nobody can approve anything in an unattended run: once it has read
+    # untrusted content, only the exact pre-approved calls may have effects.
+    if (
+        untrusted.gate(
+            name,
+            args,
+            tainted=tainted,
+            autonomous=True,
+            context=context or (),
+            pre_approved=matched is not None,
+        )
+        == "block"
+    ):
+        logger.warning(i18n.t("trigger.log_tool_blocked"), (run_id or "")[:8], name)
+        return _tool_message(call_id, untrusted.blocked_error(name), name), {
+            "is_action": False,
+            "ok": False,
+        }
     is_action = action_entry is not None and matched is action_entry
     if matched is not None and executed is not None:
         # Check-and-mark with no await in between: identical calls in one
@@ -195,7 +212,7 @@ async def _execute_tool_call(
         if matched is not None and executed is not None:
             # A failed call did not complete the action; let the model retry.
             executed.discard(id(matched))
-        return _tool_message(call_id, {"status": "error", "error": str(exc)}), {
+        return _tool_message(call_id, {"status": "error", "error": str(exc)}, name), {
             "is_action": is_action,
             "ok": False,
         }
@@ -205,7 +222,7 @@ async def _execute_tool_call(
             store.mark_action_done(run_id)
         except Exception as exc:  # noqa: BLE001
             logger.error(i18n.t("trigger.log_action_done_persist_failed"), run_id[:8], exc)
-    return _tool_message(call_id, {"status": "ok", "result": result}), {
+    return _tool_message(call_id, {"status": "ok", "result": result}, name), {
         "is_action": is_action,
         "ok": True,
     }
@@ -316,13 +333,20 @@ async def _agent_loop(
         }
         action_ok = True
     executed: set[int] = set()
+    # Set once any tool result of this run is untrusted (web page, email...).
+    tainted = False
     rounds = 0
     try:
         async with asyncio.timeout(task["timeout_minutes"] * 60):
             while rounds < settings.trigger_max_rounds:
                 started = time.monotonic()
                 assistant = await chat_completion(
-                    [messages[0], current_datetime_message(), *messages[1:]],
+                    [
+                        messages[0],
+                        current_datetime_message(),
+                        untrusted.safety_message(),
+                        *messages[1:],
+                    ],
                     run_id,
                     tools=schemas,
                     tier=task["model"],
@@ -341,10 +365,25 @@ async def _agent_loop(
                 if not tool_calls:
                     content = assistant.get("content") or ""
                     return _parse_verdict(content), content, action_ok, None, False
+                # Calls of one round run together, so a read in this round
+                # already taints the others.
+                tainted = tainted or any(
+                    untrusted.is_untrusted_output(call["function"]["name"])
+                    for call in tool_calls
+                    if has_tool(call["function"]["name"])
+                )
+                context = untrusted.untrusted_context(messages[1]["content"], messages)
                 results = await asyncio.gather(
                     *(
                         _execute_tool_call(
-                            tool_call, free_names, entries, action_entry, executed, run_id
+                            tool_call,
+                            free_names,
+                            entries,
+                            action_entry,
+                            executed,
+                            run_id,
+                            tainted,
+                            context,
                         )
                         for tool_call in tool_calls
                     )
@@ -365,7 +404,12 @@ async def _agent_loop(
                 rounds += 1
             messages.append({"role": "user", "content": WRAP_UP_PROMPT})
             assistant = await chat_completion(
-                [messages[0], current_datetime_message(), *messages[1:]],
+                [
+                    messages[0],
+                    current_datetime_message(),
+                    untrusted.safety_message(),
+                    *messages[1:],
+                ],
                 run_id,
                 tier=task["model"],
                 timeout=settings.trigger_llm_timeout_seconds,

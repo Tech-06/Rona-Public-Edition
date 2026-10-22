@@ -22,6 +22,10 @@ STRINGS: dict[str, str] = {
         "nereden devam etmemi istediğini söyle."
     ),
     "main.auth_invalid_token": "Geçersiz ya da eksik bearer token",
+    "main.confirmation_mismatch": (
+        "Bekleyen işlem sana sorulduğundan beri değişti. Hiçbir şey çalıştırılmadı; "
+        "lütfen yeni isteği gözden geçirip yeniden onayla."
+    ),
     "main.conversation_busy": "Bu konuşmada zaten devam eden bir yanıt var. Bitmesini bekleyin.",
     "main.run_not_found": "Bu konuşma için devam ettirilecek etkin ya da yakın zamanlı bir yanıt bulunamadı.",
     "main.model_call_failed": "Model çağrısı başarısız oldu (hata kimliği: {error_id}). Ayrıntılar backend günlüğünde.",
@@ -37,6 +41,11 @@ STRINGS: dict[str, str] = {
     # -- app/dashboard.py -----------------------------------------------------------
     "dashboard.not_editable": "Düzenlenemez: {names}",
     "dashboard.config_invalid_value": "Yapılandırma değerleri satır sonu veya NUL karakteri içeremez",
+    "dashboard.file_field_upload_only": "Dosya alanları yol ile değil, dosya içeriği olarak yüklenmelidir: {names}",
+    "dashboard.file_field_unknown": "Bu pakette '{field}' adlı bir dosya alanı yok",
+    "dashboard.file_too_large": "Dosya çok büyük (sınır 1 MiB)",
+    "dashboard.file_invalid_base64": "Dosya içeriği geçerli base64 değil",
+    "dashboard.file_not_json": "Dosya geçerli bir UTF-8 JSON olmalıdır",
     "dashboard.task_not_found": "Görev bulunamadı",
     "dashboard.run_not_found": "Kayıt bulunamadı",
     "dashboard.invalid_kind": "geçersiz tür: {kind}",
@@ -74,6 +83,7 @@ STRINGS: dict[str, str] = {
     "trigger.outcome_deactivated": "Görev yürütme sırasında pasife alındı.",
     # -- trigger/executor.py: log lines --------------------------------------------------
     "trigger.log_round": "[trigger] %s deneme %d tur %d llm %.1fsn",
+    "trigger.log_tool_blocked": "[trigger] %s %s engellendi: görev güvenilmeyen içerik okudu",
     "trigger.log_report_ok": "[trigger] %s rapor tamam (özet %d karakter)",
     "trigger.log_report_fallback": "[trigger] %s rapor yedeği, ham raportör içeriği: %r",
     "trigger.log_reporter_failed": "[trigger] %s raportör başarısız: %s",
@@ -99,6 +109,7 @@ STRINGS: dict[str, str] = {
     "subagent.outcome_timeout": "Görev {seconds} saniye sonra zaman aşımına uğradı.",
     # -- subagents/runner.py: log lines -----------------------------------------------------
     "subagent.log_round": "[subagent] %s tur %d llm %.1fsn",
+    "subagent.log_tool_blocked": "[subagent] %s engellendi: görev güvenilmeyen içerik okudu",
     "subagent.log_completed": "[subagent] %s tamamlandı (%s)",
     "subagent.log_timed_out": "[subagent] %s zaman aşımına uğradı (%s)",
     "subagent.log_failed": "[subagent] %s başarısız (%s): %s",

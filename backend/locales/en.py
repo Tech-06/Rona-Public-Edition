@@ -25,6 +25,10 @@ STRINGS: dict[str, str] = {
         "where you'd like me to pick up from?"
     ),
     "main.auth_invalid_token": "Invalid or missing bearer token",
+    "main.confirmation_mismatch": (
+        "The pending action has changed since you were asked. Nothing was run; "
+        "please review the new request and confirm it again."
+    ),
     "main.model_call_failed": "Model call failed (error id: {error_id}). Details are in the backend log.",
     "errors.logged": "[error id: %s] unexpected failure in %s",
     "main.conversation_busy": "This conversation already has a response in progress. Wait for it to finish.",
@@ -40,6 +44,11 @@ STRINGS: dict[str, str] = {
     # -- app/dashboard.py -----------------------------------------------------------
     "dashboard.not_editable": "Not editable: {names}",
     "dashboard.config_invalid_value": "Config values must not contain line breaks or NUL characters",
+    "dashboard.file_field_upload_only": "File fields must be uploaded as file content, not set by path: {names}",
+    "dashboard.file_field_unknown": "No file field named '{field}' on this package",
+    "dashboard.file_too_large": "File is too large (limit 1 MiB)",
+    "dashboard.file_invalid_base64": "File content is not valid base64",
+    "dashboard.file_not_json": "File must be valid UTF-8 JSON",
     "dashboard.task_not_found": "Task not found",
     "dashboard.run_not_found": "Run not found",
     "dashboard.invalid_kind": "invalid kind: {kind}",
@@ -77,6 +86,7 @@ STRINGS: dict[str, str] = {
     "trigger.outcome_deactivated": "The task was deactivated during execution.",
     # -- trigger/executor.py: log lines --------------------------------------------------
     "trigger.log_round": "[trigger] %s attempt %d round %d llm %.1fs",
+    "trigger.log_tool_blocked": "[trigger] %s blocked %s: the run has read untrusted content",
     "trigger.log_report_ok": "[trigger] %s report ok (summary %d chars)",
     "trigger.log_report_fallback": "[trigger] %s report fallback, raw reporter content: %r",
     "trigger.log_reporter_failed": "[trigger] %s reporter failed: %s",
@@ -102,6 +112,7 @@ STRINGS: dict[str, str] = {
     "subagent.outcome_timeout": "Task timed out after {seconds} seconds.",
     # -- subagents/runner.py: log lines -----------------------------------------------------
     "subagent.log_round": "[subagent] %s round %d llm %.1fs",
+    "subagent.log_tool_blocked": "[subagent] blocked %s: the run has read untrusted content",
     "subagent.log_completed": "[subagent] %s completed (%s)",
     "subagent.log_timed_out": "[subagent] %s timed out (%s)",
     "subagent.log_failed": "[subagent] %s failed (%s): %s",

@@ -3,9 +3,18 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class ConfirmationDecision(BaseModel):
+    approved: bool
+    pending_hash: str = Field(..., min_length=1, max_length=128)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: str | None = Field(None, min_length=8, max_length=64)
+    # Structured Approve/Reject bound to the pending calls. When the
+    # conversation is awaiting confirmation it decides (no LLM); `message`
+    # stays the visible user text. Ignored when nothing is pending.
+    confirmation: ConfirmationDecision | None = None
 
 
 class ToolCallInfo(BaseModel):
@@ -19,6 +28,7 @@ class ChatResponse(BaseModel):
     conversation_id: str
     status: Literal["ok", "confirmation_required"] = "ok"
     tool_calls: list[ToolCallInfo] | None = None
+    pending_hash: str | None = None
 
 
 # -- History import ---------------------------------------------------------

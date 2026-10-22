@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import json
 import os
 import threading
@@ -312,11 +314,21 @@ async def update_package_config(package_id: str, payload: dict[str, Any]):
         raise HTTPException(
             400, i18n.t("dashboard.not_editable", names=", ".join(sorted(unknown)))
         )
+    file_keys = {f.key for f in manifest.config if f.target == "file"}
+    sent_files = sorted(file_keys & set(payload))
+    if sent_files:
+        # A path here would be copied from the server's disk; file fields only
+        # arrive as uploaded content (POST .../config/file).
+        raise HTTPException(
+            400, i18n.t("dashboard.file_field_upload_only", names=", ".join(sent_files))
+        )
     try:
         # Writes .env / config.json and re-runs the health check; blocking, so
         # off the event loop the same way the connection probe goes.
         health = await asyncio.to_thread(
-            toolbox_manager.configure_installed, package_id, payload
+            lambda: toolbox_manager.configure_installed(
+                package_id, payload, allow_file_paths=False
+            )
         )
     except (toolbox_manager.ManagerError, toolbox_packages.PackageLoadError) as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -325,6 +337,46 @@ async def update_package_config(package_id: str, payload: dict[str, Any]):
         "health": {"ok": health.ok, "detail": health.detail},
         "restart_required": True,
     }
+
+
+PACKAGE_FILE_MAX_BYTES = 1024 * 1024
+
+
+class PackageFileUpload(BaseModel):
+    key: str
+    # Informational only: the destination name comes from the manifest.
+    filename: str = ""
+    content_b64: str
+
+
+@router.post("/packages/{package_id}/config/file")
+async def upload_package_config_file(package_id: str, payload: PackageFileUpload):
+    manifest = _installed_manifest_or_404(package_id)
+    field = next((f for f in manifest.config if f.key == payload.key), None)
+    if field is None or field.target != "file":
+        raise HTTPException(404, i18n.t("dashboard.file_field_unknown", field=payload.key))
+    # Bound the encoded size first so a huge body is never decoded.
+    if len(payload.content_b64) > (PACKAGE_FILE_MAX_BYTES * 4) // 3 + 8:
+        raise HTTPException(413, i18n.t("dashboard.file_too_large"))
+    try:
+        data = base64.b64decode(payload.content_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, i18n.t("dashboard.file_invalid_base64")) from None
+    if len(data) > PACKAGE_FILE_MAX_BYTES:
+        raise HTTPException(413, i18n.t("dashboard.file_too_large"))
+    # Every current file field is a JSON credential; reject anything else so
+    # the endpoint cannot be used to park arbitrary blobs on the server.
+    try:
+        json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise HTTPException(400, i18n.t("dashboard.file_not_json")) from None
+    try:
+        await asyncio.to_thread(toolbox_manager.store_file_field, package_id, field.key, data)
+    except toolbox_manager.ManagerBusy as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except (toolbox_manager.ManagerError, toolbox_packages.PackageLoadError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "field": field.key}
 
 
 class PackageActionRequest(BaseModel):

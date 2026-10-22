@@ -1,6 +1,6 @@
 import { t } from "../lib/i18n";
 import { notifyAuthRequired } from "./client";
-import type { ChatResult, ProgressEvent } from "../types";
+import type { ChatResult, ConfirmationDecision, ProgressEvent } from "../types";
 
 interface SseFrame {
   id: string | null;
@@ -75,6 +75,7 @@ export async function streamChat(
   handlers: StreamHandlers,
   signal?: AbortSignal,
   options: StreamOptions = {},
+  confirmation?: ConfirmationDecision,
 ): Promise<void> {
   const delays = options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS;
   let lastEventId: string | null = null;
@@ -110,7 +111,11 @@ export async function streamChat(
         method: "POST",
         headers,
         credentials: "same-origin",
-        body: JSON.stringify({ message, conversation_id: knownConversationId }),
+        body: JSON.stringify(
+          confirmation
+            ? { message, conversation_id: knownConversationId, confirmation }
+            : { message, conversation_id: knownConversationId },
+        ),
         signal,
       });
       if (!response.ok || !response.body) {

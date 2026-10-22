@@ -58,7 +58,9 @@ import importlib
 import json
 import logging
 import os
+import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -212,6 +214,10 @@ class UninstallResult:
     dependents: list[str]
     # File names moved aside instead of deleted, restored on a reinstall.
     preserved: list[str]
+    # Only filled when purge=True: .env keys the package's manifest declared
+    # (removed), and the tables its schema.sql created (dropped).
+    removed_env_keys: list[str] = dataclass_field(default_factory=list)
+    dropped_tables: list[str] = dataclass_field(default_factory=list)
 
 
 @dataclass
@@ -420,6 +426,14 @@ def _declared_tool_names(pkg_dir: Path, manifest: PackageManifest) -> set[str]:
 def _pip_install(requirements: list[str]) -> bool:
     """Returns True iff pip actually installed/changed something (used to
     decide whether a restart is worth recommending afterwards)."""
+    # Validated here as well as at manifest load: this is the last stop before
+    # the strings become pip's argv, and callers other than the manifest
+    # path must not be able to smuggle an option or URL through.
+    for requirement in requirements:
+        try:
+            packages.validate_python_requirement(requirement)
+        except ValueError as exc:
+            raise ManagerError(str(exc)) from exc
     try:
         result = subprocess.run(
             [
@@ -428,6 +442,7 @@ def _pip_install(requirements: list[str]) -> bool:
                 "pip",
                 "install",
                 "--disable-pip-version-check",
+                "--",
                 *requirements,
             ],
             check=True,
@@ -764,11 +779,31 @@ def _snapshot_env_keys(keys) -> dict[str, str | None]:
     return {key: current.get(key) for key in keys}
 
 
-def _apply_file_field(staged: StagedPackage, field: ConfigField, source_value: Any) -> None:
+def _apply_file_field(
+    staged: StagedPackage,
+    field: ConfigField,
+    source_value: Any,
+    *,
+    allow_file_paths: bool = True,
+) -> None:
     source = Path(str(source_value)).expanduser()
+    dest = staged.pkg_dir / (field.dest_filename or field.key)
+    if not allow_file_paths:
+        # A path value from the HTTP API would let any dashboard user copy an
+        # arbitrary server-side file (an SSH key, .env) into the package dir.
+        # The only path accepted is the field's own current file, which
+        # configure_installed merges back in; real content goes through
+        # store_file_field instead.
+        try:
+            same = source.resolve() == dest.resolve()
+        except OSError:
+            same = False
+        if not same:
+            raise ManagerError(
+                f"'{staged.manifest.id}.{field.key}': file paths are not accepted here"
+            )
     if not source.is_file():
         raise ManagerError(f"'{staged.manifest.id}.{field.key}': file not found: {source}")
-    dest = staged.pkg_dir / (field.dest_filename or field.key)
     if source.resolve() == dest.resolve():
         # Re-applying config for an already-installed package: the file is
         # already where it belongs, so there is nothing to copy (and copying
@@ -777,8 +812,43 @@ def _apply_file_field(staged: StagedPackage, field: ConfigField, source_value: A
     shutil.copy2(source, dest)
 
 
+def store_file_field(package_id: str, key: str, data: bytes) -> Path:
+    """Write uploaded ``data`` as an installed package's ``file`` config field.
+
+    The destination is derived from the manifest only (never from anything the
+    client sent), written atomically with owner-only permissions, and done
+    under the manager lock so it cannot race an install/update swapping the
+    package directory. Raises ManagerBusy if the lock is held.
+    """
+    with _exclusive_lock():
+        manifest = installed_manifest(package_id)
+        field = next((f for f in manifest.config if f.key == key), None)
+        if field is None or field.target != "file":
+            raise ManagerError(f"'{package_id}' has no file field '{key}'")
+        pkg_dir = packages.package_dir(package_id)
+        # .name keeps a hostile dest_filename from escaping the package dir.
+        dest = pkg_dir / Path(field.dest_filename or field.key).name
+        tmp = dest.with_name(dest.name + ".upload.tmp")
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass  # best effort (Windows ACLs)
+            os.replace(tmp, dest)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return dest
+
+
 def apply_config(
-    staged: StagedPackage, answers: dict[str, Any], *, allow_missing: bool = False
+    staged: StagedPackage,
+    answers: dict[str, Any],
+    *,
+    allow_missing: bool = False,
+    allow_file_paths: bool = True,
 ) -> None:
     """Validate and persist every declared config field for a staged package.
 
@@ -818,7 +888,7 @@ def apply_config(
     # Apply file copies first -- if a source path is bad we want to fail
     # before touching .env or config.json.
     for cfg_field, value in file_updates:
-        _apply_file_field(staged, cfg_field, value)
+        _apply_file_field(staged, cfg_field, value, allow_file_paths=allow_file_paths)
 
     if env_updates:
         staged.env_snapshot.update(_snapshot_env_keys(env_updates.keys()))
@@ -920,7 +990,9 @@ def installed_manifest(package_id: str) -> PackageManifest:
 # ---------------------------------------------------------------------------
 
 
-def configure_installed(package_id: str, answers: dict[str, Any]) -> HealthResult:
+def configure_installed(
+    package_id: str, answers: dict[str, Any], *, allow_file_paths: bool = True
+) -> HealthResult:
     """Change an already-installed package's config, then re-check its health.
 
     Goes through the very same apply_config() the installer uses, so .env
@@ -952,7 +1024,7 @@ def configure_installed(package_id: str, answers: dict[str, Any]) -> HealthResul
             kind=manifest.kind,
         ),
     )
-    apply_config(staged, merged)
+    apply_config(staged, merged, allow_file_paths=allow_file_paths)
     toolbox.reload_registry()
     return run_health_check(manifest)
 
@@ -1529,6 +1601,91 @@ def update(
         return run.staged
 
 
+_CREATE_TABLE_RE = re.compile(
+    r"\bCREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"[\"`\[]?([A-Za-z_][A-Za-z0-9_]*)[\"`\]]?",
+    re.IGNORECASE,
+)
+# Tables the host itself owns, even if create_db.py is reorganised.
+_CORE_TABLES_FALLBACK = frozenset(
+    {
+        "people", "memories", "tasks", "task_runs", "subagent_runs",
+        "conversation_registry", "chat_history", "chat_folders",
+        "memory_archive", "memory_consolidation_runs",
+    }
+)  # fmt: skip
+
+
+def _create_table_names(sql: str) -> list[str]:
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+    sql = re.sub(r"--[^\n]*", " ", sql)
+    names: list[str] = []
+    for name in _CREATE_TABLE_RE.findall(sql):
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _core_table_names() -> frozenset[str]:
+    names = set(_CORE_TABLES_FALLBACK)
+    for module_name in ("create_db", "memory.schema"):
+        try:
+            module = importlib.import_module(module_name)
+            source = Path(module.__file__).read_text(encoding="utf-8")
+        except Exception:  # noqa: BLE001 -- the fallback list still protects us
+            continue
+        names.update(name.lower() for name in _create_table_names(source))
+    return frozenset(names)
+
+
+def _env_var_name(manifest: PackageManifest, cfg_field: ConfigField) -> str:
+    return cfg_field.env_var or f"{manifest.id.upper()}_{cfg_field.key.upper()}"
+
+
+def _purgeable_env_keys(manifest: PackageManifest) -> list[str]:
+    """``.env`` keys this package's manifest declares, minus any another
+    installed package declares too (removing those would break it)."""
+    shared: set[str] = set()
+    for other in packages.load_installed_manifests():
+        if other.id != manifest.id:
+            shared.update(_env_var_name(other, f) for f in other.env_fields())
+    keys = [_env_var_name(manifest, f) for f in manifest.env_fields()]
+    return [k for k in dict.fromkeys(keys) if k not in shared]
+
+
+def _purgeable_tables(pkg_dir: Path, manifest: PackageManifest) -> list[str]:
+    """Tables ``manifest.schema_sql`` creates, never one the host owns."""
+    if not manifest.schema_sql:
+        return []
+    try:
+        names = _create_table_names(
+            (pkg_dir / manifest.schema_sql).read_text(encoding="utf-8")
+        )
+    except OSError:
+        return []
+    core = _core_table_names()
+    return [
+        n for n in names if n.lower() not in core and not n.lower().startswith("sqlite_")
+    ]
+
+
+def _drop_tables(names: list[str]) -> list[str]:
+    connection = db.connect_if_exists()
+    if connection is None:
+        return []
+    try:
+        for name in names:
+            # ``name`` matched [A-Za-z_][A-Za-z0-9_]* above, so the quoting is
+            # belt and braces rather than the only defence.
+            connection.execute(f'DROP TABLE IF EXISTS "{name}"')
+        connection.commit()
+    except sqlite3.Error as exc:
+        raise ManagerError(f"package removed, but dropping its tables failed: {exc}") from exc
+    finally:
+        connection.close()
+    return names
+
+
 def uninstall(
     package_id: str,
     *,
@@ -1545,6 +1702,12 @@ def uninstall(
     default: moved into ``toolbox/custom/.preserved/<id>/`` and put back
     automatically if the package is ever reinstalled. ``purge=True`` deletes
     them outright; ``on_user_data`` lets an interactive caller ask first.
+
+    ``purge=True`` additionally cleans up what the package left outside its
+    directory: the ``.env`` keys its manifest declared and the tables its
+    ``schema_sql`` created. Both are data a later reinstall cannot bring
+    back, hence opt-in. Pip dependencies are always left alone (other
+    packages may share them).
     """
     with _exclusive_lock():
         _recover_interrupted_updates()
@@ -1564,13 +1727,18 @@ def uninstall(
             )
 
         preserved: list[str] = []
+        try:
+            manifest = packages.load_manifest(pkg_dir)
+        except packages.PackageLoadError:
+            # A corrupt package still has to be removable; it just can't
+            # tell us which of its files are user data.
+            manifest = None
+        # Worked out while the package directory (schema.sql) still exists.
+        purge_env_keys = _purgeable_env_keys(manifest) if purge and manifest else []
+        purge_tables = (
+            _purgeable_tables(pkg_dir, manifest) if purge and manifest else []
+        )
         if not purge:
-            try:
-                manifest = packages.load_manifest(pkg_dir)
-            except packages.PackageLoadError:
-                # A corrupt package still has to be removable; it just can't
-                # tell us which of its files are user data.
-                manifest = None
             user_data = packages.user_data_paths(manifest) if manifest else []
             if user_data and (
                 on_user_data is None or on_user_data(package_id, list(user_data))
@@ -1600,7 +1768,22 @@ def uninstall(
         except OSError:
             pass  # other packages' backups (or something else) still in there
 
-        return UninstallResult(dependents=dependents, preserved=preserved)
+        removed_env_keys: list[str] = []
+        dropped_tables: list[str] = []
+        if purge_env_keys:
+            envfile.remove_env_keys(packages.ENV_PATH, purge_env_keys)
+            for key in purge_env_keys:
+                os.environ.pop(key, None)
+            removed_env_keys = purge_env_keys
+        if purge_tables:
+            dropped_tables = _drop_tables(purge_tables)
+
+        return UninstallResult(
+            dependents=dependents,
+            preserved=preserved,
+            removed_env_keys=removed_env_keys,
+            dropped_tables=dropped_tables,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1993,6 +2176,8 @@ def _cli_uninstall(args: argparse.Namespace) -> int:
             "removed": args.package_id,
             "broken_dependents": result.dependents,
             "preserved": result.preserved,
+            "removed_env_keys": result.removed_env_keys,
+            "dropped_tables": result.dropped_tables,
         },
     )
     return 0
@@ -2286,7 +2471,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_uninstall.add_argument(
         "--purge",
         action="store_true",
-        help="also delete files you created (tokens etc.) instead of keeping them",
+        help=(
+            "also delete files you created (tokens etc.), the package's .env keys "
+            "and the database tables its schema created"
+        ),
     )
     p_uninstall.add_argument(
         "--yes", action="store_true", help="never prompt; keeps your files"

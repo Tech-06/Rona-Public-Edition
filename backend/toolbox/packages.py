@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
+from packaging.requirements import InvalidRequirement, Requirement
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import i18n
@@ -56,6 +57,47 @@ UPDATING_DIR = CUSTOM_DIR / ".updating"
 ENV_PATH = BACKEND_DIR / ".env"
 
 _PACKAGE_ID_PATTERN = r"^[a-z][a-z0-9_]*$"
+
+
+def validate_python_requirement(raw: str) -> str:
+    """Return ``raw`` if it is a plain, index-resolved pip requirement
+    ("requests>=2.31"); raise ValueError otherwise.
+
+    The strings go straight into ``pip install``'s argv, so anything pip would
+    read as an option (``--index-url=...``, ``-e``), a URL / VCS reference
+    (``git+https://``, ``name @ https://``) or a filesystem path must never get
+    that far: those turn "install a dependency" into "run arbitrary code from
+    an arbitrary place".
+    """
+    text = raw.strip() if isinstance(raw, str) else ""
+    problem = None
+    if not text:
+        problem = "is empty"
+    elif text.startswith("-"):
+        problem = "looks like a pip option"
+    elif "://" in text or " @ " in text or "@" in text.split(";")[0]:
+        problem = "is a URL / direct reference"
+    elif "/" in text or "\\" in text or text.startswith((".", "~")):
+        problem = "looks like a filesystem path"
+    if problem is None:
+        try:
+            req = Requirement(text)
+        except InvalidRequirement as exc:
+            raise ValueError(f"invalid python requirement {raw!r}: {exc}") from exc
+        if req.url:
+            problem = "is a URL / direct reference"
+    if problem:
+        raise ValueError(f"invalid python requirement {raw!r}: {problem}")
+    return text
+
+
+def _require_relative_module(spec: str, what: str) -> str:
+    """Handlers / health checks in a custom package must live inside it."""
+    if not spec.startswith("."):
+        raise ValueError(
+            f"{what} {spec!r} must be relative to the package (start with '.')"
+        )
+    return spec
 
 
 class ConfigField(BaseModel):
@@ -134,6 +176,11 @@ class PackageAction(BaseModel):
     # backend itself runs on (opening a local browser, for instance).
     cli_only: bool = False
 
+    @field_validator("handler")
+    @classmethod
+    def _validate_handler(cls, value: str) -> str:
+        return _require_relative_module(value, "handler")
+
     def display_label(self) -> str:
         return self.label or self.id
 
@@ -159,6 +206,16 @@ class PackageManifest(BaseModel):
     # token_<account>.json, say). Uninstall offers to preserve these instead
     # of deleting them with the rest of the package -- see manager.uninstall.
     user_data_globs: list[str] = Field(default_factory=list)
+
+    @field_validator("python_requirements")
+    @classmethod
+    def _validate_python_requirements(cls, value: list[str]) -> list[str]:
+        return [validate_python_requirement(item) for item in value]
+
+    @field_validator("health_check")
+    @classmethod
+    def _validate_health_check(cls, value: str | None) -> str | None:
+        return None if value is None else _require_relative_module(value, "health_check")
 
     @field_validator("requires")
     @classmethod
@@ -357,8 +414,17 @@ def load_tools_raw(pkg_dir: Path, manifest: PackageManifest) -> list[dict[str, A
             raise PackageLoadError(f"{pkg_dir}: each tool must be an object")
         item = copy.deepcopy(item)
         module = item.get("module", "")
-        if isinstance(module, str) and module.startswith("."):
-            item["module"] = f"toolbox.custom.{manifest.id}{module}"
+        # Only package-relative modules: an absolute one ("os",
+        # "toolbox.tools.mem_tool") would let a package register any
+        # importable function -- say a confirmation-free copy of a core tool
+        # -- as an LLM tool. (The core tools.json, which legitimately uses
+        # absolute modules, never goes through this function.)
+        if not isinstance(module, str) or not module.startswith("."):
+            raise PackageLoadError(
+                f"{pkg_dir}: tool {item.get('name', '?')!r}: module {module!r} must "
+                "be relative to the package (start with '.')"
+            )
+        item["module"] = f"toolbox.custom.{manifest.id}{module}"
         item = resolve_placeholders(item, config_values)
         resolved.append(item)
     return resolved

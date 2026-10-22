@@ -17,6 +17,7 @@ from memory import access as memory_access
 from memory import clock as memory_clock
 from memory import policy as memory_policy
 from memory import schema as memory_schema
+from toolbox import untrusted
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -72,6 +73,21 @@ def _ensure_embedding_model_column(connection: sqlite3.Connection) -> None:
     if "embedding_model" not in columns:
         connection.execute("ALTER TABLE memories ADD COLUMN embedding_model TEXT")
         connection.commit()
+
+
+def _ensure_source_column(connection: sqlite3.Connection) -> None:
+    """Self-heal for databases that haven't re-run create_db.py since
+    migration 6 (nullable, so a plain ALTER is safe)."""
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(memories)")}
+    if "source" not in columns:
+        connection.execute("ALTER TABLE memories ADD COLUMN source TEXT")
+        connection.commit()
+
+
+def _current_source() -> str:
+    # Set by the graph around tool execution; memories written after the
+    # assistant read outside content are flagged so they can be reviewed.
+    return "untrusted_context" if untrusted.current_taint() else "user"
 
 
 def _try_embedding(text: str, task_type: str) -> tuple[list[float] | None, str | None]:
@@ -205,12 +221,13 @@ def add_memory(
         meta_str = json.dumps(metadata) if metadata else "{}"
 
         _ensure_embedding_model_column(connection)
+        _ensure_source_column(connection)
         cursor.execute(
             """
             INSERT INTO memories
                 (person_id, layer, content, embedding, embedding_model, metadata,
-                 layer_since, layer_hits)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                 layer_since, layer_hits, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
             """,
             (
                 person_id,
@@ -220,6 +237,7 @@ def add_memory(
                 model_name,
                 meta_str,
                 memory_clock.to_db(memory_clock.utc_now()),
+                _current_source(),
             ),
         )
         connection.commit()
@@ -302,6 +320,14 @@ def edit_memory(
         if metadata is not None:
             updates.append("metadata = ?")
             params.append(json.dumps(metadata))
+
+        if layer is not None or content is not None or person_id is not None:
+            # An edit made after reading outside content taints the row's
+            # provenance; a clean edit never launders an earlier flag.
+            if untrusted.current_taint():
+                _ensure_source_column(connection)
+                updates.append("source = ?")
+                params.append("untrusted_context")
 
         params.append(memory_id)
         cursor.execute(f"UPDATE memories SET {', '.join(updates)} WHERE id = ?", params)

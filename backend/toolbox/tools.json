@@ -18,7 +18,8 @@
         ]
       },
       "requires_confirmation": false,
-      "background": true
+      "background": true,
+      "untrusted_output": true
     },
     {
       "name": "add_person",
@@ -218,7 +219,12 @@
           "content"
         ]
       },
-      "requires_confirmation": false,
+      "requires_confirmation": {
+        "param": "layer",
+        "values": [
+          "deep"
+        ]
+      },
       "background": false
     },
     {
@@ -308,7 +314,12 @@
           "memory_id"
         ]
       },
-      "requires_confirmation": false,
+      "requires_confirmation": {
+        "param": "layer",
+        "values": [
+          "deep"
+        ]
+      },
       "background": false
     },
     {

@@ -21,6 +21,9 @@ class RonaState(TypedDict):
     messages: Annotated[list[dict[str, Any]], rona_messages_reducer]
     pending_confirmation: dict[str, Any] | None
     confirmation: dict[str, Any] | None
+    # True once the current user turn has read untrusted content (web pages,
+    # emails...); reset when a new user message starts the next turn.
+    tainted: bool
 
 
 def drop_leading_orphans(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -281,3 +281,127 @@ def test_reload_returns_requirement_warnings(client, fixture_package):
     assert any(
         "dash_rleaf" in w and "dash_rbase" in w for w in body["warnings"]
     )
+
+
+# --- file config fields -----------------------------------------------------
+
+import base64
+import os
+import sys as _sys
+
+FILE_FIELD_MANIFEST = {
+    "config": [
+        {"key": "credentials", "target": "file", "dest_filename": "credentials.json"},
+        {"key": "note", "target": "config", "required": False},
+    ]
+}
+
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode()
+
+
+def _upload(client, package_id, key="credentials", data=b'{"a": 1}', filename="x.json"):
+    return client.post(
+        f"/api/packages/{package_id}/config/file",
+        json={"key": key, "filename": filename, "content_b64": _b64(data)},
+    )
+
+
+def test_config_put_rejects_a_path_for_a_file_field_and_copies_nothing(
+    client, fixture_package, tmp_path
+):
+    pkg_dir = fixture_package("dash_file_path", FILE_FIELD_MANIFEST)
+    secret = tmp_path / "id_rsa"
+    secret.write_text("PRIVATE KEY", encoding="utf-8")
+
+    response = client.put(
+        "/api/packages/dash_file_path/config", json={"credentials": str(secret)}
+    )
+
+    assert response.status_code == 400
+    assert not (pkg_dir / "credentials.json").exists()
+    assert not any(p.read_text(errors="ignore") == "PRIVATE KEY" for p in pkg_dir.iterdir() if p.is_file())
+
+
+def test_config_put_still_works_for_other_fields_after_a_file_was_uploaded(
+    client, fixture_package
+):
+    pkg_dir = fixture_package("dash_file_mix", FILE_FIELD_MANIFEST)
+    assert _upload(client, "dash_file_mix").status_code == 200
+    # The stored file's path is merged back by configure_installed; it must
+    # not trip the no-paths rule.
+    response = client.put("/api/packages/dash_file_mix/config", json={"note": "hi"})
+    assert response.status_code == 200
+    assert (pkg_dir / "credentials.json").is_file()
+
+
+def test_manager_path_for_file_field_still_works(fixture_package, tmp_path):
+    from toolbox import manager
+
+    pkg_dir = fixture_package("dash_file_cli", FILE_FIELD_MANIFEST)
+    source = tmp_path / "creds.json"
+    source.write_text('{"ok": true}', encoding="utf-8")
+
+    manager.configure_installed("dash_file_cli", {"credentials": str(source)})
+
+    assert json.loads((pkg_dir / "credentials.json").read_text()) == {"ok": True}
+
+    other = tmp_path / "other.json"
+    other.write_text("{}", encoding="utf-8")
+    with pytest.raises(manager.ManagerError):
+        manager.configure_installed(
+            "dash_file_cli", {"credentials": str(other)}, allow_file_paths=False
+        )
+
+
+def test_upload_writes_manifest_named_file_ignoring_client_filename(client, fixture_package):
+    pkg_dir = fixture_package("dash_up", FILE_FIELD_MANIFEST)
+
+    response = _upload(client, "dash_up", data=b'{"client_id": "x"}', filename="../../evil.json")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "field": "credentials"}
+    assert json.loads((pkg_dir / "credentials.json").read_text()) == {"client_id": "x"}
+    assert not (CUSTOM_DIR.parent.parent / "evil.json").exists()
+    assert not list(pkg_dir.glob("*.tmp"))
+    if _sys.platform != "win32":
+        assert (pkg_dir / "credentials.json").stat().st_mode & 0o777 == 0o600
+    cfg = {f["key"]: f for f in client.get("/api/packages/dash_up/config").json()["fields"]}
+    assert cfg["credentials"]["set"] is True
+
+
+def test_upload_over_one_mib_is_413(client, fixture_package):
+    pkg_dir = fixture_package("dash_big", FILE_FIELD_MANIFEST)
+    big = json.dumps({"x": "a" * (1024 * 1024)}).encode()
+    assert _upload(client, "dash_big", data=big).status_code == 413
+    assert not (pkg_dir / "credentials.json").exists()
+
+
+def test_upload_rejects_bad_base64_and_non_json(client, fixture_package):
+    fixture_package("dash_bad", FILE_FIELD_MANIFEST)
+    bad = client.post(
+        "/api/packages/dash_bad/config/file",
+        json={"key": "credentials", "filename": "a.json", "content_b64": "!!not base64!!"},
+    )
+    assert bad.status_code == 400
+    assert _upload(client, "dash_bad", data=b"not json at all").status_code == 400
+    assert _upload(client, "dash_bad", data=b"\xff\xfe\x00").status_code == 400
+
+
+def test_upload_unknown_key_non_file_field_or_missing_package(client, fixture_package):
+    fixture_package("dash_keys", FILE_FIELD_MANIFEST)
+    assert _upload(client, "dash_keys", key="nope").status_code == 404
+    assert _upload(client, "dash_keys", key="note").status_code == 404
+    assert _upload(client, "not_installed").status_code == 404
+
+
+def test_upload_is_409_while_the_manager_lock_is_held(client, fixture_package):
+    from toolbox import manager
+
+    fixture_package("dash_busy", FILE_FIELD_MANIFEST)
+    with manager._exclusive_lock():
+        # Same process re-locking: flock on a second fd conflicts on POSIX and
+        # msvcrt locking does on Windows.
+        response = _upload(client, "dash_busy")
+    assert response.status_code == 409

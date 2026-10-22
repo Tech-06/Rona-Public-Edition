@@ -26,6 +26,13 @@ def _add_embedding_model_column(cursor: sqlite3.Cursor) -> None:
         cursor.execute("ALTER TABLE memories ADD COLUMN embedding_model TEXT")
 
 
+def _add_source_column(cursor: sqlite3.Cursor) -> None:
+    # Guarded for the same reason as above: mem_tool self-heals it too.
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(memories)")}
+    if "source" not in columns:
+        cursor.execute("ALTER TABLE memories ADD COLUMN source TEXT")
+
+
 # A migration step is either a SQL statement or a callable taking the cursor.
 MIGRATIONS: list[tuple[int, tuple[object, ...]]] = [
     (
@@ -104,6 +111,13 @@ MIGRATIONS: list[tuple[int, tuple[object, ...]]] = [
         # when the dimensions match.
         5,
         (_add_embedding_model_column,),
+    ),
+    (
+        # Where a model-written memory came from: 'user' or
+        # 'untrusted_context' (written in a turn that had read web pages,
+        # emails...). Nullable: NULL marks a legacy row (provenance unknown).
+        6,
+        (_add_source_column,),
     ),
 ]
 

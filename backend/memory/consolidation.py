@@ -192,8 +192,14 @@ def _record_failure(connection, *, triggered_by: str, started_at: str, error: st
 
 
 def _log_run(triggered_by: str, items: dict, counts: dict) -> None:
+    # Previews are memory text (personal data): DEBUG only. INFO keeps ids
+    # and counts.
+    def log_item(message: str, *args) -> None:
+        logger.info(message, *args[:-1], "-")
+        logger.debug(message, *args)
+
     for item in items["promoted_short"]:
-        logger.info(
+        log_item(
             i18n.t("memory.log_promoted"),
             item["id"],
             "short",
@@ -202,7 +208,7 @@ def _log_run(triggered_by: str, items: dict, counts: dict) -> None:
             item["preview"],
         )
     for item in items["promoted_seasonal"]:
-        logger.info(
+        log_item(
             i18n.t("memory.log_promoted"),
             item["id"],
             "seasonal",
@@ -211,7 +217,7 @@ def _log_run(triggered_by: str, items: dict, counts: dict) -> None:
             item["preview"],
         )
     for item in items["archived"]:
-        logger.info(
+        log_item(
             i18n.t("memory.log_archived"),
             item["id"],
             item["layer"],
@@ -219,7 +225,7 @@ def _log_run(triggered_by: str, items: dict, counts: dict) -> None:
             item["preview"],
         )
     for item in items["deleted"]:
-        logger.info(
+        log_item(
             i18n.t("memory.log_deleted"),
             item["id"],
             item["hits"],

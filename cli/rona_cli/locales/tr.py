@@ -318,7 +318,7 @@ STRINGS: dict[str, str] = {
     "tools.help_actions": "Bir paketin sunduğu işlemleri listele",
     "tools.help_run": "Bir paketin işlemlerinden birini çalıştır",
     "tools.help_run_set": "işlem parametresi ver (tekrarlanabilir)",
-    "tools.help_purge_flag": "senin oluşturduğun dosyaları (token vb.) da sil",
+    "tools.help_purge_flag": "senin oluşturduğun dosyaları (token vb.), paketin .env anahtarlarını ve veritabanı tablolarını da sil",
     "tools.installed_marker": "kurulu",
     "tools.update_marker": "kurulu {installed} → {version} güncellemesi var",
     "tools.update_hint": "Güncellemek için: rona tools update <paket>",

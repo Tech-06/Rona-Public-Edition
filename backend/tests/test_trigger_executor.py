@@ -233,6 +233,6 @@ def test_migration_adds_action_done_at_to_old_db(tmp_path, monkeypatch):
         columns = {row[1] for row in connection.execute("PRAGMA table_info(task_runs)")}
         assert "action_done_at" in columns
         assert connection.execute("SELECT action_done_at FROM task_runs").fetchone()[0] is None
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
     finally:
         connection.close()
