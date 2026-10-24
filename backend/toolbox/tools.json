@@ -467,7 +467,8 @@
         ]
       },
       "requires_confirmation": false,
-      "background": false
+      "background": false,
+      "untrusted_output": true
     },
     {
       "name": "dismiss_subagent_report",
@@ -678,7 +679,8 @@
         ]
       },
       "requires_confirmation": false,
-      "background": false
+      "background": false,
+      "untrusted_output": true
     },
     {
       "name": "update_task",
@@ -864,7 +866,8 @@
         ]
       },
       "requires_confirmation": false,
-      "background": false
+      "background": false,
+      "untrusted_output": true
     },
     {
       "name": "dismiss_task_run",

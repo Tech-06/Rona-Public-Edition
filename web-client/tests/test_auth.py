@@ -286,12 +286,6 @@ def test_credentials_are_reread_when_env_changes(authed_client, env_path):
     assert authed_client.get("/api/x").status_code == 401
 
 
-def test_environment_overrides_env_file(client, monkeypatch):
-    monkeypatch.setenv("WEB_PASSWORD_HASH", auth.hash_password("from the environment"))
-    assert _login(client).status_code == 401
-    assert _login(client, "from the environment").status_code == 200
-
-
 def test_missing_session_secret_uses_ephemeral_key(client, env_path, password_hash, caplog):
     env_path.write_text(f"WEB_PASSWORD_HASH={password_hash}\n", encoding="utf-8")
     with caplog.at_level("WARNING", logger="uvicorn.error"):
@@ -411,3 +405,59 @@ def test_cookie_secure_setting_is_validated():
     assert Settings(_env_file=None, auth_token="t" * 32, web_cookie_secure="TRUE").web_cookie_secure == "true"
     with pytest.raises(ValueError, match="web_cookie_secure"):
         Settings(_env_file=None, auth_token="t" * 32, web_cookie_secure="maybe")
+
+
+# -- .env outranks the process environment ---------------------------------------
+
+
+def test_env_file_credentials_outrank_process_env(client, env_path, monkeypatch, password_hash):
+    # systemd's EnvironmentFile freezes the OLD hash into os.environ; the new
+    # password only ever lands in .env.
+    old_hash = auth.hash_password("old password here")
+    monkeypatch.setenv("WEB_PASSWORD_HASH", old_hash)
+    monkeypatch.setenv("WEB_SESSION_SECRET", "frozen-secret")
+    assert auth.password_hash() == password_hash
+    assert auth.session_secret() == SESSION_SECRET
+    assert _login(client).status_code == 200
+    assert _login(client, "old password here").status_code == 401
+
+
+def test_process_env_is_used_when_env_file_lacks_the_key(client, env_path, monkeypatch):
+    env_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("WEB_PASSWORD_HASH", auth.hash_password("from environment"))
+    assert _login(client, "from environment").status_code == 200
+
+
+def test_password_change_takes_effect_immediately_despite_frozen_env(
+    client, monkeypatch, password_hash
+):
+    monkeypatch.setenv("WEB_PASSWORD_HASH", password_hash)
+    monkeypatch.setenv("WEB_SESSION_SECRET", "frozen-secret")
+    assert _login(client).status_code == 200
+    response = client.post("/auth/password", json={"current": PASSWORD, "new": "brand new pass"})
+    assert response.status_code == 200
+    fresh = TestClient(server_module.create_app(), base_url="http://localhost")
+    assert _login(fresh, "brand new pass").status_code == 200
+    assert _login(fresh, PASSWORD).status_code == 401
+
+
+# -- burst of parallel guesses -----------------------------------------------------
+
+
+def test_parallel_wrong_logins_are_rate_limited():
+    import asyncio
+
+    import httpx
+
+    async def burst():
+        app = server_module.create_app()
+        transport = httpx.ASGITransport(app=app, client=("203.0.113.9", 1234))
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as http:
+            responses = await asyncio.gather(
+                *(http.post("/auth/login", json={"password": f"wrong guess {i}"}) for i in range(10))
+            )
+        return [r.status_code for r in responses]
+
+    codes = asyncio.run(burst())
+    assert codes.count(401) == auth.MAX_FAILURES
+    assert codes.count(429) == 10 - auth.MAX_FAILURES

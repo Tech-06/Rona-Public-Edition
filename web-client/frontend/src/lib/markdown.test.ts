@@ -28,7 +28,9 @@ describe("renderMarkdown images", () => {
 
   it("keeps data:image sources", () => {
     const root = dom("![x](data:image/png;base64,AAAA)");
-    expect(root.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(root.querySelector("img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
   });
 
   it("keeps same-origin relative paths", () => {
@@ -37,7 +39,11 @@ describe("renderMarkdown images", () => {
   });
 
   it("blocks same-origin images outside the static folders", () => {
-    for (const src of ["/api/data/memories?person=all", "/host/server", "/icons/../api/x"]) {
+    for (const src of [
+      "/api/data/memories?person=all",
+      "/host/server",
+      "/icons/../api/x",
+    ]) {
       const root = dom(`![x](${src})`);
       expect(root.querySelector("img")).toBeNull();
       expect(root.querySelector(".image-blocked")).not.toBeNull();
@@ -58,7 +64,9 @@ describe("renderMarkdown links and tags", () => {
   });
 
   it("strips data: hrefs", () => {
-    const a = dom('<a href="data:text/html,<script>alert(1)</script>">x</a>').querySelector("a");
+    const a = dom(
+      '<a href="data:text/html,<script>alert(1)</script>">x</a>',
+    ).querySelector("a");
     expect(a?.getAttribute("href") ?? "").not.toMatch(/^data:/i);
   });
 
@@ -76,5 +84,53 @@ describe("renderMarkdown links and tags", () => {
   it("strips style attributes", () => {
     const root = dom('<p style="position:fixed;inset:0">x</p>');
     expect(root.querySelector("p")?.hasAttribute("style")).toBe(false);
+  });
+});
+
+describe("renderMarkdown remote media and path tricks", () => {
+  it.each([
+    '<video src="https://evil.example/v.mp4" poster="https://evil.example/p.png"></video>',
+    '<audio src="https://evil.example/a.mp3"></audio>',
+    '<video><source src="https://evil.example/v.mp4"><track src="https://evil.example/t.vtt"></video>',
+    '<picture><source srcset="https://evil.example/a.png"><img src="https://evil.example/a.png"></picture>',
+    '<svg><image href="https://evil.example/x.png"></image></svg>',
+    '<svg><use href="https://evil.example/s.svg#a"></use></svg>',
+    '<svg><image xlink:href="https://evil.example/x.png"></image></svg>',
+  ])("strips remote media from %s", (payload) => {
+    const html = renderMarkdown(payload);
+    expect(html).not.toContain("evil.example");
+    const root = dom(payload);
+    for (const selector of [
+      "video",
+      "audio",
+      "source",
+      "track",
+      "picture",
+      "svg",
+      "image",
+      "use",
+    ]) {
+      expect(root.querySelector(selector)).toBeNull();
+    }
+  });
+
+  it.each([
+    "/assets/%2e%2e/api/conversations",
+    "/assets/%2E%2E/api/conversations",
+    "/icons/%2e%2e/host/server",
+    "/assets/..%2fapi/x",
+    "/assets/.%2e/api/x",
+    "/assets/..\api/x",
+    "/assets/%5c..%5capi/x",
+    "/assets/%zz",
+  ])("blocks traversal payload %s", (src) => {
+    const root = dom(`<img src="${src}" alt="x">`);
+    expect(root.querySelector("img")).toBeNull();
+    expect(root.querySelector(".image-blocked")).not.toBeNull();
+  });
+
+  it("still allows normal static images", () => {
+    expect(dom("![x](/assets/logo-1.png)").querySelector("img")).not.toBeNull();
+    expect(dom("![x](/icons/a%20b.png)").querySelector("img")).not.toBeNull();
   });
 });

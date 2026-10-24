@@ -62,4 +62,47 @@ describe("PackagePanel file fields", () => {
     expect(sent.filename).toBe("client.json");
     expect(atob(sent.content_b64)).toBe(body);
   });
+
+  it("keeps unsaved edits to other fields when a file upload refreshes the config", async () => {
+    const mixed = [
+      { ...fields[0] },
+      {
+        key: "calendar_name",
+        label: "Calendar name",
+        description: "",
+        type: "string",
+        target: "env",
+        secret: false,
+        required: false,
+        set: false,
+      },
+    ];
+    mockFetch((url) => {
+      if (url.endsWith("/config/file")) return jsonResponse(200, { ok: true, field: "credentials" });
+      return jsonResponse(200, { id: "gcal", fields: mixed });
+    });
+
+    const { container } = render(
+      <LanguageProvider>
+        <PackagePanel pkg={pkg} onChanged={() => {}} />
+      </LanguageProvider>,
+    );
+    await screen.findByText("Calendar name");
+    const text = container.querySelector('input[type="text"]') as HTMLInputElement;
+    fireEvent.change(text, { target: { value: "Work" } });
+    expect(text.value).toBe("Work");
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["{}"], "client.json", { type: "application/json" })] },
+    });
+    // The restart notice appears right after the upload (and before the refresh
+    // finishes), so wait for the refresh request to have landed too.
+    await waitFor(() => expect(container.querySelector("p.text-warn-text")).not.toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      const refreshed = container.querySelector('input[type="text"]') as HTMLInputElement;
+      expect(refreshed.value).toBe("Work");
+    });
+  });
 });

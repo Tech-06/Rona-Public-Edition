@@ -1,3 +1,4 @@
+import io
 from types import SimpleNamespace
 
 from rona_cli import envio, i18n
@@ -154,4 +155,16 @@ def test_set_stdin_short_token_rejected(tmp_path, monkeypatch):
     _envs(root)
     monkeypatch.setattr(edit_auth.sys, "stdin", io.StringIO("short\n"))
     assert edit_auth._cmd_set(_args(root, stdin=True)) == 1
+    assert "AUTH_TOKEN" not in envio.read_env_file(root / "backend" / ".env")
+
+
+def test_set_positional_and_stdin_conflict(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _envs(root)
+    monkeypatch.setattr(edit_auth.sys, "stdin", io.StringIO(_TOKEN + "\n"))
+    assert edit_auth._cmd_set(_args(root, token=_TOKEN, stdin=True)) == 1
+    captured = capsys.readouterr()
+    assert i18n.t("auth.token_conflict") in captured.err
+    # no write, and no argv warning for a rejected invocation
+    assert i18n.t("secret.argv_warning", alternative="--stdin") not in captured.err
     assert "AUTH_TOKEN" not in envio.read_env_file(root / "backend" / ".env")

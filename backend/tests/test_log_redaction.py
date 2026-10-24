@@ -59,3 +59,29 @@ def test_info_tool_log_has_no_full_body(caplog, monkeypatch):
         asyncio.run(_run_tool_call(call, confirmation={}))
     assert "a@b.c" in caplog.text
     assert "SECRET-BODY" not in caplog.text
+
+
+def test_traceback_text_is_redacted():
+    secret = "AIza" + "b" * 35
+    try:
+        raise RuntimeError(f"upstream rejected key {secret}")
+    except RuntimeError:
+        import sys
+
+        exc_info = sys.exc_info()
+    record = logging.LogRecord("t", logging.ERROR, __file__, 1, "failed", None, exc_info)
+    assert RedactingFilter().filter(record) is True
+    out = logging.Formatter("%(message)s").format(record)
+    assert secret not in out
+    assert REDACTED in out
+    assert "RuntimeError" in out  # the traceback itself is still there
+
+
+def test_preformatted_exc_text_and_stack_info_are_redacted():
+    secret = "sk-" + "c" * 24
+    record = logging.LogRecord("t", logging.ERROR, __file__, 1, "failed", None, None)
+    record.exc_text = f"Traceback ... {secret}"
+    record.stack_info = f"stack {secret}"
+    RedactingFilter().filter(record)
+    assert secret not in record.exc_text
+    assert secret not in record.stack_info

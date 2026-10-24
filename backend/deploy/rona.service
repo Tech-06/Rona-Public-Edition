@@ -13,10 +13,15 @@ Environment=PYTHONUNBUFFERED=1
 Environment=RELOAD=false
 UMask=0077
 NoNewPrivileges=yes
+# On hosts that restrict unprivileged user namespaces (e.g. some Ubuntu 24.04
+# AppArmor setups), user units using PrivateTmp/ProtectSystem/ProtectHome can
+# fail with status 226/NAMESPACE. In that case remove those three lines.
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/rona/backend
+# run.py can spawn the dashboard (WEB_AUTOSTART=true), which then writes
+# web-client/webui.pid, webui.lock and webui.log, so web-client must be writable.
+ReadWritePaths=%h/rona/backend %h/rona/web-client
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 LockPersonality=yes
 

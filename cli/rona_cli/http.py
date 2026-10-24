@@ -7,6 +7,7 @@ right after a fresh install, before anything beyond the stdlib is available.
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,6 +36,15 @@ def is_loopback_url(url: str) -> bool:
     return host in _LOOPBACK_HOSTS or host.endswith(".localhost") or host.startswith("127.")
 
 
+def unverified_context() -> ssl.SSLContext:
+    """TLS context without certificate checks, for the local backend only
+    (its certificate is typically self-signed)."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 class ApiError(RuntimeError):
     """Raised for any HTTP-level failure: refused connection, timeout, non-2xx."""
 
@@ -59,8 +69,18 @@ class Client:
     timeout: float = 10.0
     extra_headers: dict[str, str] = field(default_factory=dict)
     use_proxy: bool = False
+    ssl_context: ssl.SSLContext | None = None
 
     def _opener(self) -> urllib.request.OpenerDirector:
+        if self.ssl_context is not None:
+            # Same no-proxy policy as the shared opener, plus the custom TLS
+            # context; proxies are only ever wanted for external hosts.
+            handlers: list[urllib.request.BaseHandler] = [
+                urllib.request.HTTPSHandler(context=self.ssl_context)
+            ]
+            if not self.use_proxy:
+                handlers.insert(0, urllib.request.ProxyHandler({}))
+            return urllib.request.build_opener(*handlers)
         return _ENV_PROXY_OPENER if self.use_proxy else _NO_PROXY_OPENER
 
     def _headers(self) -> dict[str, str]:

@@ -52,6 +52,23 @@ def _systemd_unit_available() -> bool:
     return result.returncode == 0 and result.stdout.strip() == "loaded"
 
 
+_UNIT_CACHE_SECONDS = 10.0
+# (monotonic timestamp, result); the dashboard polls /host/server, and every
+# probe is a blocking subprocess that can take up to its 10 s timeout.
+_unit_cache: tuple[float, bool] | None = None
+
+
+async def _unit_available() -> bool:
+    """``_systemd_unit_available`` off the event loop, cached for a few seconds."""
+    global _unit_cache
+    now = time.monotonic()
+    if _unit_cache is not None and now - _unit_cache[0] < _UNIT_CACHE_SECONDS:
+        return _unit_cache[1]
+    result = await asyncio.to_thread(_systemd_unit_available)
+    _unit_cache = (time.monotonic(), result)
+    return result
+
+
 def _run_systemctl(action: str) -> dict[str, Any]:
     result = subprocess.run(
         ["systemctl", "--user", action, "rona"],
@@ -173,7 +190,7 @@ async def server_status():
         "backend_detail": health["detail"],
         "tracked_process_alive": tracked_alive,
         "tracked_pid": _backend_process.pid if tracked_alive else None,
-        "systemctl_available": _systemd_unit_available(),
+        "systemctl_available": await _unit_available(),
         "recent_log_lines": _tail_lines(LOG_PATH, 50),
     }
 
@@ -190,7 +207,7 @@ def _check_restart_rate_limit() -> None:
 async def server_start(request: Request):
     _check_restart_rate_limit()
     logger.info("[host] start requested by %s", request.client.host if request.client else "?")
-    if _systemd_unit_available():
+    if await _unit_available():
         return _run_systemctl("start")
     return await _spawn_backend()
 
@@ -199,7 +216,7 @@ async def server_start(request: Request):
 async def server_stop(request: Request):
     _check_restart_rate_limit()
     logger.info("[host] stop requested by %s", request.client.host if request.client else "?")
-    if _systemd_unit_available():
+    if await _unit_available():
         return _run_systemctl("stop")
     return _kill_backend()
 
@@ -208,7 +225,7 @@ async def server_stop(request: Request):
 async def server_restart(request: Request):
     _check_restart_rate_limit()
     logger.info("[host] restart requested by %s", request.client.host if request.client else "?")
-    if _systemd_unit_available():
+    if await _unit_available():
         return _run_systemctl("restart")
     _kill_backend()
     await asyncio.sleep(1.0)

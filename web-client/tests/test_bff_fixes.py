@@ -5,6 +5,7 @@ import asyncio
 import json
 import sqlite3
 import subprocess
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -221,3 +222,52 @@ def test_host_spawn_closes_log_handle(tmp_path, monkeypatch):
     host._backend_process = None
     assert result["ok"] is True
     assert spy.stdout is not None and spy.stdout.closed
+
+
+def test_probe_host_header_uses_first_allowed_host(monkeypatch):
+    monkeypatch.setattr(supervisor.settings, "web_allowed_hosts", "*.example.com, panel.local ,x")
+    assert supervisor._probe_host_header() == "panel.local"
+    monkeypatch.setattr(supervisor.settings, "web_allowed_hosts", "")
+    assert supervisor._probe_host_header() == "localhost"
+
+
+def test_is_running_sends_allowed_host_header(monkeypatch):
+    monkeypatch.setattr(supervisor.settings, "web_host", "127.0.0.1")
+    monkeypatch.setattr(supervisor.settings, "web_allowed_hosts", "panel.local,localhost")
+    seen = {}
+
+    class FakeResponse:
+        def json(self):
+            return {"service": "rona-web", "pid": 1}
+
+    monkeypatch.setattr(supervisor, "_port_open", lambda *a, **k: True)
+    monkeypatch.setattr(
+        httpx, "get", lambda url, **kw: seen.update(headers=kw["headers"]) or FakeResponse()
+    )
+    assert supervisor.is_running() is not None
+    assert seen["headers"] == {"Host": "panel.local"}
+
+
+# ---- proxy transport errors -----------------------------------------------
+
+
+@pytest.mark.parametrize("error", [httpx.ReadError, httpx.RemoteProtocolError, httpx.WriteError])
+def test_proxy_maps_transport_errors_to_502(monkeypatch, error):
+    def handler(request):
+        raise error("boom", request=request)
+
+    monkeypatch.setattr(
+        proxy,
+        "_client",
+        httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://backend"),
+    )
+    request = SimpleNamespace(
+        method="GET", headers={}, query_params={}, body=lambda: _empty_body()
+    )
+    response = asyncio.run(proxy.proxy_request(request, "/api/x"))
+    assert response.status_code == 502
+    assert json.loads(response.body)["detail"]
+
+
+async def _empty_body():
+    return b""

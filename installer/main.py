@@ -162,6 +162,23 @@ def main(argv: list[str] | None = None) -> int:
             if not prereq.ensure_prerequisite("Node.js", "node", False, os_name, pkg_manager, args.yes):
                 ui.error(i18n.t("main.node_required"))
                 return 1
+            # ensure_prerequisite only proves a `node` binary exists; a
+            # distro package can be far too old (Ubuntu 22.04 ships v12) and
+            # the Vite build would then fail cryptically, so re-read it.
+            node = detect.node_version()
+            if node is None:
+                ui.error(i18n.t("main.node_unreadable"))
+                return 1
+            if node[0] < MIN_NODE_MAJOR:
+                ui.error(
+                    i18n.t(
+                        "main.node_too_old",
+                        found=f"{node[0]}.{node[1]}.{node[2]}",
+                        min=MIN_NODE_MAJOR,
+                    )
+                )
+                return 1
+            ui.ok(f"Node.js {node[0]}.{node[1]}.{node[2]}")
         else:
             ui.ok(f"Node.js {node[0]}.{node[1]}.{node[2]}")
 

@@ -30,7 +30,7 @@ import json
 import logging
 import os
 from collections.abc import Iterable, Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -125,6 +125,28 @@ class ConfigField(BaseModel):
     secret: bool = False
     required: bool = True
     default: Any = None
+
+    @field_validator("dest_filename")
+    @classmethod
+    def _validate_dest_filename(cls, value: str | None) -> str | None:
+        # It is joined onto the package directory, so it must be a bare file
+        # name: anything with a separator, drive or ``..`` would write
+        # outside the package.
+        if value is None:
+            return value
+        if (
+            not value
+            or value in (".", "..")
+            or "/" in value
+            or "\\" in value
+            or ":" in value
+            or "\0" in value
+            or PurePosixPath(value).is_absolute()
+            or PureWindowsPath(value).is_absolute()
+            or PureWindowsPath(value).drive
+        ):
+            raise ValueError(f"dest_filename {value!r} must be a bare file name")
+        return value
 
     def display_label(self) -> str:
         return self.label or self.key

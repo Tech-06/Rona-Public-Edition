@@ -84,6 +84,25 @@ def _ensure_source_column(connection: sqlite3.Connection) -> None:
         connection.commit()
 
 
+def memory_layer(memory_id: int) -> str | None:
+    """Current layer of a memory, or None when it does not exist or the
+    database cannot be read. Read-only: the confirmation decision uses it to
+    see what an edit would touch (edit_memory(memory_id=1, content=...) on a
+    deep memory names no layer in its arguments)."""
+    connection = None
+    try:
+        connection = _get_connection()
+        row = connection.execute(
+            "SELECT layer FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+        return row["layer"] if row is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def _current_source() -> str:
     # Set by the graph around tool execution; memories written after the
     # assistant read outside content are flagged so they can be reviewed.

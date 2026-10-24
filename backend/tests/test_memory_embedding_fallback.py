@@ -77,7 +77,7 @@ def test_migration_5_adds_embedding_model_to_a_version_4_db(tmp_path, monkeypatc
     try:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(memories)")}
         assert "embedding_model" in columns
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
     finally:
         connection.close()
 

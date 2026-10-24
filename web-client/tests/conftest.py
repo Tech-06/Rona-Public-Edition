@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import webui.server as server_module  # noqa: E402
 from webui import auth  # noqa: E402
+from webui import host as host_module  # noqa: E402
 from webui.config import Settings  # noqa: E402
 
 PASSWORD = "correct horse battery staple"
@@ -46,6 +47,8 @@ def isolated_auth_state(monkeypatch, tmp_path, password_hash):
     monkeypatch.setattr(
         auth, "get_settings", lambda: Settings(_env_file=None, auth_token=TEST_AUTH_TOKEN)
     )
+    # host.py caches the systemd probe for a few seconds; don't leak it.
+    monkeypatch.setattr(host_module, "_unit_cache", None)
     return env_path
 
 

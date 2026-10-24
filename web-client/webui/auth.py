@@ -9,8 +9,9 @@ There is deliberately no web endpoint that sets the *first* password: behind
 a tunnel or reverse proxy every client looks like loopback, so "first visitor
 wins" would hand the panel to a stranger. The first password comes from
 ``rona web password`` or the installer, which write WEB_PASSWORD_HASH to
-web-client/.env; this module re-reads that file when it changes, so a new
-password takes effect without restarting the dashboard.
+web-client/.env; this module re-reads that file when it changes (and it
+outranks the process environment for these two values), so a new password
+takes effect without restarting the dashboard.
 """
 
 from __future__ import annotations
@@ -113,7 +114,7 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-# -- credentials (env > web-client/.env > Settings) ----------------------------
+# -- credentials (web-client/.env > env > Settings) ----------------------------
 
 # (path, mtime_ns, parsed values): re-parsed only when the file changes.
 _env_cache: tuple[Path, int, dict[str, str]] | None = None
@@ -136,11 +137,18 @@ def _env_file_values() -> dict[str, str]:
 
 
 def _credential(name: str, fallback: str) -> str:
-    value = os.environ.get(name)
-    if value:
-        return value.strip()
+    # The .env file wins over the process environment on purpose: under the
+    # shipped systemd unit (EnvironmentFile=.env) these two values are frozen
+    # in os.environ at start, while `rona web password` and POST /auth/password
+    # only rewrite the file. Preferring the environment would keep the old
+    # password working and reject the new one until a restart.
     value = _env_file_values().get(name, "").strip()
-    return value or fallback
+    if value:
+        return value
+    value = os.environ.get(name)
+    if value and value.strip():
+        return value.strip()
+    return fallback
 
 
 def password_hash() -> str:
@@ -269,6 +277,27 @@ def _record_failure(key: str, now: float) -> None:
     _prune(now)
 
 
+def _reserve_attempt(key: str, now: float) -> int:
+    """Check the lockout and, if free, count this attempt as a failure *before*
+    hashing. Otherwise a burst of parallel guesses all pass the check while the
+    scrypt semaphore queues them, and none gets rate limited. Returns the
+    retry-after seconds (0 = go ahead); a successful login clears the entry."""
+    wait = _retry_after(key, now)
+    if wait:
+        return wait
+    _record_failure(key, now)
+    return 0
+
+
+def _release_attempt(key: str, now: float) -> None:
+    """Un-count a reservation whose password turned out to be correct."""
+    recent = _failures.get(key)
+    if recent and now in recent:
+        recent.remove(now)
+        if not recent:
+            del _failures[key]
+
+
 def _too_many(seconds: int) -> JSONResponse:
     return JSONResponse(
         {
@@ -319,12 +348,11 @@ async def login(body: LoginBody, request: Request):
         return _error(409, "password_not_set", "webui.password_not_set")
     key = _client_key(request)
     now = time.time()
-    wait = _retry_after(key, now)
+    wait = _reserve_attempt(key, now)
     if wait:
         return _too_many(wait)
     ok = await _verify_limited(body.password, stored)
     if not ok:
-        _record_failure(key, now)
         return _error(401, "invalid_password", "webui.invalid_password")
     _failures.pop(key, None)
     response = JSONResponse({"authenticated": True})
@@ -345,13 +373,14 @@ async def change_password(body: PasswordBody, request: Request):
         return _error(401, "login_required", "webui.login_required")
     key = _client_key(request)
     now = time.time()
-    wait = _retry_after(key, now)
+    wait = _reserve_attempt(key, now)
     if wait:
         return _too_many(wait)
     ok = await _verify_limited(body.current, password_hash())
     if not ok:
-        _record_failure(key, now)
         return _error(401, "invalid_password", "webui.password_wrong_current")
+    # The current password was right; a bad new one isn't a guessing attempt.
+    _release_attempt(key, now)
     if not MIN_PASSWORD_LENGTH <= len(body.new) <= MAX_PASSWORD_LENGTH:
         return _error(
             400, "password_too_short", "webui.password_too_short", min=MIN_PASSWORD_LENGTH

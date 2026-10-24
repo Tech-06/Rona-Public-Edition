@@ -36,15 +36,26 @@ def _probe_host(host: str) -> str:
     return host
 
 
+def _probe_host_header() -> str:
+    """A Host value TrustedHostMiddleware accepts: the first allowed host
+    (skipping wildcard patterns), else localhost."""
+    for entry in settings.web_allowed_hosts.split(","):
+        entry = entry.strip()
+        if entry and "*" not in entry:
+            return entry
+    return "localhost"
+
+
 def is_running() -> dict[str, Any] | None:
     probe_host = _probe_host(settings.web_host)
     if not _port_open(probe_host, settings.web_port):
         return None
     try:
-        # TrustedHostMiddleware rejects "Host: 0.0.0.0", so always say localhost.
+        # TrustedHostMiddleware rejects "Host: 0.0.0.0", so send an allowed host
+        # instead (localhost may not be in WEB_ALLOWED_HOSTS).
         response = httpx.get(
             f"http://{probe_host}:{settings.web_port}/host/healthz",
-            headers={"Host": "localhost"},
+            headers={"Host": _probe_host_header()},
             timeout=1.0,
         )
         data = response.json()

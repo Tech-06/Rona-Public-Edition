@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-tests:
+    name: ${{ matrix.component }} tests (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12"]
+        component: [backend, cli, installer, web-client]
+        include:
+          # web-client has no requirements-dev.txt: its runtime requirements
+          # plus pytest are all its tests need (they call the ASGI app through
+          # fastapi's TestClient / httpx and use asyncio.run, no pytest-asyncio).
+          - component: backend
+            requirements: "-r requirements-dev.txt"
+          - component: cli
+            requirements: "-r requirements-dev.txt"
+          - component: installer
+            requirements: "-r requirements-dev.txt"
+          - component: web-client
+            requirements: "-r requirements.txt pytest>=8.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ matrix.component }}/requirements*.txt
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.component }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ${{ matrix.requirements }}
+
+      # `python -m pytest` puts the component directory on sys.path, which is
+      # how the tests import their package (app/, rona_cli/, installer/, webui/).
+      - name: Run tests
+        working-directory: ${{ matrix.component }}
+        run: python -m pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: python -m pip install ruff==0.16.8
+
+      # Only syntax errors and pyflakes-class mistakes (undefined names,
+      # unused imports, ...) gate the build; the stylistic rules are not
+      # enforced yet. Tests are checked for everything except unused imports
+      # and redefinitions, which the suites still contain.
+      - name: Ruff (source)
+        run: >
+          ruff check backend cli installer web-client
+          --select E9,F
+          --exclude tests
+
+      - name: Ruff (tests)
+        run: >
+          ruff check backend/tests cli/tests installer/tests web-client/tests
+          --select E9,F
+          --ignore F401,F811
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web-client/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web-client/frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Type-check and build
+        run: npm run build

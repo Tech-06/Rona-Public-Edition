@@ -1724,3 +1724,86 @@ def test_apply_config_rejects_newline_value_and_leaves_env_untouched(catalog, ma
         manager.configure_installed("pkg_inj", {"api_key": "x\nPIP_INDEX_URL=https://evil.example"})
 
     assert packages.ENV_PATH.read_text(encoding="utf-8") == before
+
+
+# ---------------------------------------------------------------------------
+# reinstall-deps (repair recreates the venv; package requirements must return)
+# ---------------------------------------------------------------------------
+
+
+def _install_manifest_only(package_id: str, requirements: list[str]) -> None:
+    pkg_dir = packages.CUSTOM_DIR / package_id
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": package_id,
+                "version": "0.1.0",
+                "kind": "tool",
+                "name": package_id,
+                "description": "fixture",
+                "python_requirements": requirements,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (pkg_dir / "tools.json").write_text(json.dumps({"tools": []}), encoding="utf-8")
+
+
+@pytest.fixture
+def custom_dir(tmp_path, monkeypatch):
+    directory = tmp_path / "custom"
+    directory.mkdir()
+    monkeypatch.setattr(packages, "CUSTOM_DIR", directory)
+    return directory
+
+
+def test_reinstall_deps_collects_and_dedupes_requirements(custom_dir, monkeypatch, capsys):
+    _install_manifest_only("dep_a", ["requests>=2.31", "httpx"])
+    _install_manifest_only("dep_b", ["httpx", "beautifulsoup4"])
+    _install_manifest_only("dep_none", [])
+    calls = []
+    monkeypatch.setattr(manager, "_pip_install", lambda reqs: calls.append(list(reqs)) or True)
+
+    assert manager.main(["--json", "reinstall-deps"]) == 0
+
+    assert calls == [["requests>=2.31", "httpx", "beautifulsoup4"]]
+    assert _json_output(capsys) == {"ok": True, "packages": ["dep_a", "dep_b"]}
+
+
+def test_reinstall_deps_without_requirements_skips_pip(custom_dir, monkeypatch, capsys):
+    _install_manifest_only("dep_none", [])
+    monkeypatch.setattr(
+        manager, "_pip_install", lambda reqs: pytest.fail("pip must not run")
+    )
+
+    assert manager.main(["--json", "reinstall-deps"]) == 0
+    assert _json_output(capsys) == {"ok": True, "packages": []}
+
+
+def test_reinstall_deps_reports_pip_failure(custom_dir, monkeypatch, capsys):
+    _install_manifest_only("dep_a", ["requests"])
+
+    def boom(reqs):
+        raise ManagerError("pip install failed for requests")
+
+    monkeypatch.setattr(manager, "_pip_install", boom)
+
+    assert manager.main(["reinstall-deps"]) == 1
+    assert "pip install failed" in capsys.readouterr().err
+
+
+def test_reinstall_deps_rejects_invalid_requirement(custom_dir, monkeypatch, capsys):
+    """A tampered manifest must not reach pip's argv even though the
+    manifest loader normally rejects it first (here: bypass the loader's
+    check by patching _pip_install's inputs through list_installed)."""
+    _install_manifest_only("dep_a", ["requests"])
+    bad = packages.load_manifest(custom_dir / "dep_a")
+    object.__setattr__(bad, "python_requirements", ["--index-url=https://evil.example"])
+    monkeypatch.setattr(manager, "list_installed", lambda: [bad])
+    ran = []
+    monkeypatch.setattr(manager.subprocess, "run", lambda *a, **k: ran.append(a))
+
+    assert manager.main(["reinstall-deps"]) == 1
+    assert not ran
+    assert "error:" in capsys.readouterr().err

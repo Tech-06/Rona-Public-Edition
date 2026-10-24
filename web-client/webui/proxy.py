@@ -99,6 +99,10 @@ async def proxy_request(request: Request, backend_path: str) -> Response:
         return _error_response(502, i18n.t("webui.backend_unreachable"))
     except httpx.TimeoutException:
         return _error_response(504, i18n.t("webui.backend_timeout"))
+    except httpx.TransportError:
+        # ReadError / RemoteProtocolError / WriteError, e.g. the backend
+        # restarting mid-request: report a gateway error, not a plain-text 500.
+        return _error_response(502, i18n.t("webui.backend_unreachable"))
 
     media_type = response.headers.get("content-type", "")
     response_headers = _response_headers(response)

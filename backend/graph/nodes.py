@@ -151,6 +151,28 @@ def _call_tainted(
     )
 
 
+def _edits_deep_memory(name: str, args: Any) -> bool:
+    """edit_memory(memory_id=1, content="x") names no layer, so the manifest
+    rule (layer == "deep") cannot see that the target is a deep memory; look
+    the row's current layer up. Read-only, and unreadable/missing -> False
+    (the edit itself then fails or targets a non-deep row)."""
+    if name != "edit_memory" or not isinstance(args, dict):
+        return False
+    memory_id = args.get("memory_id")
+    if isinstance(memory_id, bool) or not isinstance(memory_id, int):
+        return False
+    from toolbox.tools import mem_tool
+
+    return mem_tool.memory_layer(memory_id) == "deep"
+
+
+def needs_approval(name: str, args: dict[str, Any] | None) -> bool:
+    """The manifest's confirmation rule plus the target-dependent one. Used
+    both to route to the approval dialog and to refuse a rejected call, so
+    the two can never disagree."""
+    return requires_confirmation(name, args) or _edits_deep_memory(name, args)
+
+
 def call_needs_confirmation(tool_call: dict[str, Any], state: RonaState) -> bool:
     name = tool_call["function"]["name"]
     if not has_tool(name):
@@ -159,7 +181,7 @@ def call_needs_confirmation(tool_call: dict[str, Any], state: RonaState) -> bool
         args = json.loads(tool_call["function"].get("arguments") or "{}")
     except json.JSONDecodeError:
         args = None
-    if requires_confirmation(name, args):
+    if needs_approval(name, args):
         return True
     if not isinstance(args, dict):
         return False
@@ -208,15 +230,49 @@ def pending_hash(tool_calls: list[dict[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _previous_turn_read_untrusted(messages: list[dict[str, Any]]) -> bool:
+    """Whether the user turn before the one that just started read untrusted
+    content. Its fenced tool results stay in the history, so injected text
+    from them can still steer a sink in this turn; starting tainted costs one
+    approval instead of letting that through.
+
+    Bounded on purpose: only the immediately preceding turn counts, so a
+    payload that was read two or more turns ago (or one the model restated in
+    its own reply, which is not fenced) is no longer tracked. Closing that
+    fully would mean tainting a whole conversation after one web read.
+    """
+    user_indexes = [i for i, m in enumerate(messages) if m.get("role") == "user"]
+    if len(user_indexes) < 2:
+        return False
+    previous, current = user_indexes[-2], user_indexes[-1]
+    return any(untrusted.is_untrusted_message(m) for m in messages[previous + 1 : current])
+
+
+def _wrap_free_text(items: list[dict[str, Any]], source: str, *fields: str) -> list[dict[str, Any]]:
+    """Copies of notification rows whose free-text fields (run errors, task
+    text, which can echo web/mail content) are fenced as untrusted data, so
+    they never reach the model as raw system-role text."""
+    wrapped = []
+    for item in items:
+        copy = dict(item)
+        for field in fields:
+            if isinstance(copy.get(field), str) and copy[field]:
+                copy[field] = untrusted.wrap_untrusted(source, copy[field])
+        wrapped.append(copy)
+    return wrapped
+
+
 async def agent_node(
     state: RonaState, config: RunnableConfig, writer: StreamWriter = lambda _: None
 ) -> dict:
     writer({"type": "agent_start", "hint": _round_hint(state)})
     history = trim_messages(state["messages"], settings.max_history_messages)
     messages = [*load_prompts(), current_datetime_message(), untrusted.safety_message()]
-    # A user message as the last entry means a new turn just started.
+    # A user message as the last entry means a new turn just started: it is
+    # clean, unless the previous turn read untrusted content (see
+    # _previous_turn_read_untrusted for the residual risk).
     tainted = (
-        False
+        _previous_turn_read_untrusted(state["messages"])
         if _last_message(state).get("role") == "user"
         else bool(state.get("tainted"))
     )
@@ -229,7 +285,10 @@ async def agent_node(
             {
                 "role": "system",
                 "content": NOTIFICATION_SYSTEM_PROMPT.format(
-                    updates=json.dumps(notifications, ensure_ascii=False)
+                    updates=json.dumps(
+                        _wrap_free_text(notifications, "subagent_run", "task", "error"),
+                        ensure_ascii=False,
+                    )
                 ),
             }
         )
@@ -242,7 +301,10 @@ async def agent_node(
             {
                 "role": "system",
                 "content": TRIGGER_NOTIFICATION_SYSTEM_PROMPT.format(
-                    updates=json.dumps(trigger_notifications, ensure_ascii=False)
+                    updates=json.dumps(
+                        _wrap_free_text(trigger_notifications, "task_run", "error"),
+                        ensure_ascii=False,
+                    )
                 ),
             }
         )
@@ -414,7 +476,7 @@ async def _run_tool_call(
         args is not None
         and has_tool(name)
         and (
-            requires_confirmation(name, args)
+            needs_approval(name, args)
             or untrusted.gate(
                 name,
                 args,

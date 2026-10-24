@@ -31,12 +31,30 @@ _CHUNK = 500
 # (`memory_id` vs `id`), so a copy needs both lists rather than one.
 _ARCHIVE_COLUMNS = (
     "memory_id, person_id, layer, content, embedding, access_count, "
-    "created_at, last_accessed, metadata"
+    "created_at, last_accessed, metadata, embedding_model, source"
 )
 _MEMORIES_COLUMNS = (
     "id, person_id, layer, content, embedding, access_count, "
-    "created_at, last_accessed, metadata"
+    "created_at, last_accessed, metadata, embedding_model, source"
 )
+
+# Nullable columns added to `memories` after the archive table was designed
+# (migrations 5 and 6). Archiving without them would restore a memory with
+# its embedding model and provenance silently reset to NULL ("legacy").
+_CARRIED_COLUMNS = (("embedding_model", "TEXT"), ("source", "TEXT"))
+
+
+def _ensure_carried_columns(cursor: sqlite3.Cursor) -> None:
+    """Make sure `memories` and `memory_archive` both have the carried
+    columns. The archive table predates them, and `memories` only gets them
+    from create_db.py or a later mem_tool call, so a database that skipped
+    both would otherwise fail the copy. Nullable, so a plain ALTER is safe;
+    it runs inside the caller's transaction."""
+    for table in ("memories", "memory_archive"):
+        existing = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
+        for name, declaration in _CARRIED_COLUMNS:
+            if name not in existing:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
 
 
 class NotFound(LookupError):
@@ -56,6 +74,7 @@ def archive_ids(cursor: sqlite3.Cursor, ids: Sequence[int], *, reason: str, now:
     if reason not in REASONS:
         raise ValueError(f"invalid archive reason: {reason!r}")
 
+    _ensure_carried_columns(cursor)
     ids = list(ids)
     archived = 0
     for chunk in _chunks(ids):
@@ -82,6 +101,7 @@ def archive_person_memories(
     Does not commit and does not log -- called from inside a person-delete
     transaction whose caller logs the outcome once, after commit."""
     now = now or memory_clock.to_db(memory_clock.utc_now())
+    _ensure_carried_columns(cursor)
     cursor.execute(
         f"""
         INSERT INTO memory_archive (
@@ -107,6 +127,7 @@ def archive_memory(memory_id: int, *, reason: str = "manual") -> int:
     try:
         with memory_schema.immediate_transaction(connection):
             cursor = connection.cursor()
+            _ensure_carried_columns(cursor)
             exists = cursor.execute(
                 "SELECT 1 FROM memories WHERE id = ?", (memory_id,)
             ).fetchone()
@@ -174,8 +195,8 @@ def restore(archive_id: int) -> int:
     with a fresh layer clock (`layer_hits=0`, `layer_since=now`) and
     delete the archive row, all in one transaction.
 
-    Content, embedding, created_at, metadata and access_count are carried
-    over unchanged. The original memory id is reused when it is still free
+    Content, embedding (with its embedding_model), created_at, metadata,
+    source and access_count are carried over unchanged. The original memory id is reused when it is still free
     (AUTOINCREMENT never hands it out again, so it normally is); if it is
     taken anyway, a new id is assigned. `person_id` is kept only if
     it's NULL/0 (no link) or still points at an existing person; otherwise
@@ -186,6 +207,7 @@ def restore(archive_id: int) -> int:
     try:
         with memory_schema.immediate_transaction(connection):
             cursor = connection.cursor()
+            _ensure_carried_columns(cursor)
             row = cursor.execute(
                 "SELECT * FROM memory_archive WHERE id = ?", (archive_id,)
             ).fetchone()
@@ -213,8 +235,9 @@ def restore(archive_id: int) -> int:
                     """
                     INSERT INTO memories (
                         person_id, layer, content, embedding, access_count,
-                        created_at, last_accessed, metadata, layer_since, layer_hits
-                    ) VALUES (?, 'deep', ?, ?, ?, ?, ?, ?, ?, 0)
+                        created_at, last_accessed, metadata, embedding_model,
+                        source, layer_since, layer_hits
+                    ) VALUES (?, 'deep', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                     """,
                     (
                         person_id,
@@ -224,6 +247,8 @@ def restore(archive_id: int) -> int:
                         row["created_at"],
                         row["last_accessed"],
                         row["metadata"],
+                        row["embedding_model"],
+                        row["source"],
                         now,
                     ),
                 )
@@ -233,8 +258,9 @@ def restore(archive_id: int) -> int:
                     """
                     INSERT INTO memories (
                         id, person_id, layer, content, embedding, access_count,
-                        created_at, last_accessed, metadata, layer_since, layer_hits
-                    ) VALUES (?, ?, 'deep', ?, ?, ?, ?, ?, ?, ?, 0)
+                        created_at, last_accessed, metadata, embedding_model,
+                        source, layer_since, layer_hits
+                    ) VALUES (?, ?, 'deep', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                     """,
                     (
                         row["memory_id"],
@@ -245,6 +271,8 @@ def restore(archive_id: int) -> int:
                         row["created_at"],
                         row["last_accessed"],
                         row["metadata"],
+                        row["embedding_model"],
+                        row["source"],
                         now,
                     ),
                 )

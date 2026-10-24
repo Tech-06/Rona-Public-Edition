@@ -32,6 +32,26 @@ UPDATABLE_TASK_FIELDS = (
 )
 
 
+# task_runs columns added after the first release. Like mem_tool does for the
+# memories columns, they are added on first use when create_db.py was not
+# re-run after an update; otherwise every scheduled run would fail with
+# "no such column". Nullable, so a plain ALTER is safe.
+_RUN_COLUMNS = (("action_done_at", "TEXT"), ("executed_calls", "TEXT"))
+_healed_paths: set[str] = set()
+
+
+def _ensure_run_columns(connection: sqlite3.Connection) -> None:
+    key = str(db.DB_PATH)
+    if key in _healed_paths:
+        return
+    existing = {row[1] for row in connection.execute("PRAGMA table_info(task_runs)")}
+    for column, column_type in _RUN_COLUMNS:
+        if column not in existing:
+            connection.execute(f"ALTER TABLE task_runs ADD COLUMN {column} {column_type}")
+    connection.commit()
+    _healed_paths.add(key)
+
+
 def _get_connection() -> sqlite3.Connection:
     return db.connect()
 
@@ -247,23 +267,72 @@ def fail_run(
 
 def mark_action_done(run_id: str) -> None:
     connection = _get_connection()
-    cursor = connection.cursor()
-    cursor.execute(
-        "UPDATE task_runs SET action_done_at = ? "
-        "WHERE id = ? AND action_done_at IS NULL",
-        (_now_utc(), run_id),
-    )
-    connection.commit()
-    connection.close()
+    try:
+        _ensure_run_columns(connection)
+        connection.execute(
+            "UPDATE task_runs SET action_done_at = ? "
+            "WHERE id = ? AND action_done_at IS NULL",
+            (_now_utc(), run_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def action_done(run_id: str) -> bool:
     connection = _get_connection()
-    cursor = connection.cursor()
-    cursor.execute("SELECT action_done_at FROM task_runs WHERE id = ?", (run_id,))
-    row = cursor.fetchone()
-    connection.close()
+    try:
+        _ensure_run_columns(connection)
+        row = connection.execute(
+            "SELECT action_done_at FROM task_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+    finally:
+        connection.close()
     return row is not None and row["action_done_at"] is not None
+
+
+def _decode_indexes(text: str | None) -> set[int]:
+    loaded = _json_load(text)
+    if not isinstance(loaded, list):
+        return set()
+    return {i for i in loaded if isinstance(i, int) and not isinstance(i, bool)}
+
+
+def executed_calls(run_id: str) -> set[int]:
+    """Indexes (into the task's pre-approved entry list) of the calls this
+    run already executed successfully."""
+    connection = _get_connection()
+    try:
+        _ensure_run_columns(connection)
+        row = connection.execute(
+            "SELECT executed_calls FROM task_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    return _decode_indexes(row["executed_calls"]) if row is not None else set()
+
+
+def mark_call_executed(run_id: str, index: int) -> None:
+    """Record one executed pre-approved call so a retry attempt (or a
+    restarted one) never repeats its side effect."""
+    connection = _get_connection()
+    try:
+        _ensure_run_columns(connection)
+        # Read-modify-write under one write lock, so two calls finishing
+        # together cannot overwrite each other's index.
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT executed_calls FROM task_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if row is not None:
+            indexes = _decode_indexes(row["executed_calls"]) | {index}
+            connection.execute(
+                "UPDATE task_runs SET executed_calls = ? WHERE id = ?",
+                (json.dumps(sorted(indexes)), run_id),
+            )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def get_run(run_id: str) -> dict[str, Any] | None:

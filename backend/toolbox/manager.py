@@ -779,6 +779,13 @@ def _snapshot_env_keys(keys) -> dict[str, str | None]:
     return {key: current.get(key) for key in keys}
 
 
+def _file_field_dest(pkg_dir: Path, field: ConfigField) -> Path:
+    """Where a "file" field lives inside ``pkg_dir``. ``dest_filename`` is
+    validated as a bare name by the manifest model; ``key`` is not, hence
+    ``.name`` on the fallback. Install and upload share this so they agree."""
+    return pkg_dir / (field.dest_filename or Path(field.key).name)
+
+
 def _apply_file_field(
     staged: StagedPackage,
     field: ConfigField,
@@ -787,7 +794,7 @@ def _apply_file_field(
     allow_file_paths: bool = True,
 ) -> None:
     source = Path(str(source_value)).expanduser()
-    dest = staged.pkg_dir / (field.dest_filename or field.key)
+    dest = _file_field_dest(staged.pkg_dir, field)
     if not allow_file_paths:
         # A path value from the HTTP API would let any dashboard user copy an
         # arbitrary server-side file (an SSH key, .env) into the package dir.
@@ -826,8 +833,7 @@ def store_file_field(package_id: str, key: str, data: bytes) -> Path:
         if field is None or field.target != "file":
             raise ManagerError(f"'{package_id}' has no file field '{key}'")
         pkg_dir = packages.package_dir(package_id)
-        # .name keeps a hostile dest_filename from escaping the package dir.
-        dest = pkg_dir / Path(field.dest_filename or field.key).name
+        dest = _file_field_dest(pkg_dir, field)
         tmp = dest.with_name(dest.name + ".upload.tmp")
         try:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -1642,15 +1648,31 @@ def _env_var_name(manifest: PackageManifest, cfg_field: ConfigField) -> str:
     return cfg_field.env_var or f"{manifest.id.upper()}_{cfg_field.key.upper()}"
 
 
+def _host_env_keys() -> frozenset[str]:
+    """Env var names the host itself reads: every ``Settings`` field plus the
+    few variables core code reads straight from ``os.environ``. A package
+    declaring one of these as its ``env_var`` must not take the host's own
+    setting with it on ``uninstall --purge``."""
+    names = {"GOOGLE_API_KEY", "EMBEDDING_MODEL_NAME"}
+    try:
+        from app.config import Settings  # lazy: avoids an import cycle at load
+
+        names.update(name.upper() for name in Settings.model_fields)
+    except Exception:  # noqa: BLE001 -- the fixed names above still protect us
+        logger.warning("could not enumerate Settings fields for purge protection")
+    return frozenset(names)
+
+
 def _purgeable_env_keys(manifest: PackageManifest) -> list[str]:
     """``.env`` keys this package's manifest declares, minus any another
-    installed package declares too (removing those would break it)."""
-    shared: set[str] = set()
+    installed package declares too (removing those would break it) and any
+    the host itself owns."""
+    protected = set(_host_env_keys())
     for other in packages.load_installed_manifests():
         if other.id != manifest.id:
-            shared.update(_env_var_name(other, f) for f in other.env_fields())
+            protected.update(_env_var_name(other, f) for f in other.env_fields())
     keys = [_env_var_name(manifest, f) for f in manifest.env_fields()]
-    return [k for k in dict.fromkeys(keys) if k not in shared]
+    return [k for k in dict.fromkeys(keys) if k not in protected]
 
 
 def _purgeable_tables(pkg_dir: Path, manifest: PackageManifest) -> list[str]:
@@ -1771,6 +1793,17 @@ def uninstall(
         removed_env_keys: list[str] = []
         dropped_tables: list[str] = []
         if purge_env_keys:
+            # The package dir is already gone: a legacy manifest's invalid
+            # env_var must not turn a finished uninstall into an error.
+            valid_keys = []
+            for key in purge_env_keys:
+                try:
+                    envfile.validate_env_updates({key: ""})
+                except envfile.EnvValueError:
+                    logger.warning("skipping invalid .env key %r during purge", key)
+                else:
+                    valid_keys.append(key)
+            purge_env_keys = valid_keys
             envfile.remove_env_keys(packages.ENV_PATH, purge_env_keys)
             for key in purge_env_keys:
                 os.environ.pop(key, None)
@@ -2250,6 +2283,37 @@ def _cli_verify(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def reinstall_python_requirements() -> list[str]:
+    """pip-install every installed package's ``python_requirements`` in one
+    go and return the package ids that declared any. Installing a package
+    pip-installs these into the backend venv only once; recreating that venv
+    (``install --repair``) would otherwise leave every package importing
+    nothing. Deduped, and each string is re-validated by ``_pip_install``."""
+    requirements: list[str] = []
+    owners: list[str] = []
+    for manifest in list_installed():
+        if not manifest.python_requirements:
+            continue
+        owners.append(manifest.id)
+        for requirement in manifest.python_requirements:
+            if requirement not in requirements:
+                requirements.append(requirement)
+    if requirements:
+        _progress(f"reinstalling python requirements for {len(owners)} package(s)...")
+        _pip_install(requirements)
+    return owners
+
+
+def _cli_reinstall_deps(args: argparse.Namespace) -> int:
+    try:
+        owners = reinstall_python_requirements()
+    except ManagerError as exc:
+        _emit(args, {"ok": False, "error": str(exc)})
+        return 1
+    _emit(args, {"ok": True, "packages": owners})
+    return 0
+
+
 def _cli_config(args: argparse.Namespace) -> int:
     try:
         manifest = installed_manifest(args.package_id)
@@ -2491,6 +2555,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_verify = sub.add_parser("verify", help="re-run an installed package's health check")
     p_verify.add_argument("package_id")
     p_verify.set_defaults(func=_cli_verify)
+
+    p_reinstall = sub.add_parser(
+        "reinstall-deps",
+        help="pip-install the python requirements of every installed package "
+        "(after the backend venv was recreated)",
+    )
+    p_reinstall.set_defaults(func=_cli_reinstall_deps)
 
     p_config = sub.add_parser(
         "config", help="show or change an installed package's configuration"

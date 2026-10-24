@@ -33,6 +33,22 @@ def _add_source_column(cursor: sqlite3.Cursor) -> None:
         cursor.execute("ALTER TABLE memories ADD COLUMN source TEXT")
 
 
+def _add_task_run_column(cursor: sqlite3.Cursor, column: str, column_type: str) -> None:
+    # Guarded because trigger.store self-heals these columns at runtime on a
+    # database that hasn't been migrated yet; a bare ALTER would then fail.
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(task_runs)")}
+    if column not in columns:
+        cursor.execute(f"ALTER TABLE task_runs ADD COLUMN {column} {column_type}")
+
+
+def _add_action_done_at_column(cursor: sqlite3.Cursor) -> None:
+    _add_task_run_column(cursor, "action_done_at", "TEXT")
+
+
+def _add_executed_calls_column(cursor: sqlite3.Cursor) -> None:
+    _add_task_run_column(cursor, "executed_calls", "TEXT")
+
+
 # A migration step is either a SQL statement or a callable taking the cursor.
 MIGRATIONS: list[tuple[int, tuple[object, ...]]] = [
     (
@@ -103,7 +119,7 @@ MIGRATIONS: list[tuple[int, tuple[object, ...]]] = [
         # such as sending an e-mail. Fresh databases also get it here since
         # CREATE TABLE task_runs above predates the column.
         4,
-        ("ALTER TABLE task_runs ADD COLUMN action_done_at TEXT",),
+        (_add_action_done_at_column,),
     ),
     (
         # Which embedding model produced a memory's vector. Nullable: NULL
@@ -118,6 +134,13 @@ MIGRATIONS: list[tuple[int, tuple[object, ...]]] = [
         # emails...). Nullable: NULL marks a legacy row (provenance unknown).
         6,
         (_add_source_column,),
+    ),
+    (
+        # JSON list of the indexes of pre-approved calls a run has executed,
+        # so a retry never repeats any of them (action_done_at only covers
+        # the primary action). Nullable: NULL = nothing recorded.
+        7,
+        (_add_executed_calls_column,),
     ),
 ]
 

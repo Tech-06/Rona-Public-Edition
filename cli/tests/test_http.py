@@ -33,3 +33,45 @@ def test_is_loopback_url():
     assert http.is_loopback_url("http://[::1]:8000")
     assert not http.is_loopback_url("https://api.openai.com/v1")
     assert not http.is_loopback_url("http://10.0.0.5:8000")
+
+
+def test_backend_base_url_scheme_wildcard_and_ipv6():
+    from rona_cli import backend_client as bc
+
+    assert bc.backend_base_url({}) == "http://127.0.0.1:8000"
+    assert bc.backend_base_url({"HOST": "0.0.0.0", "PORT": "9"}) == "http://127.0.0.1:9"
+    assert bc.backend_base_url({"HOST": "::"}) == "http://127.0.0.1:8000"
+    assert bc.backend_base_url({"HOST": "::1"}) == "http://[::1]:8000"
+    tls = {"SSL_CERTFILE": "c.pem", "SSL_KEYFILE": "k.pem"}
+    assert bc.backend_base_url({**tls, "HOST": "::1"}) == "https://[::1]:8000"
+    assert bc.backend_base_url({**tls, "HOST": "10.0.0.5", "PORT": "443"}) == "https://10.0.0.5:443"
+    # both keys are required, as in the backend
+    assert bc.backend_base_url({"SSL_CERTFILE": "c.pem", "SSL_KEYFILE": " "}).startswith("http://")
+
+
+def _https_handler(client):
+    return [h for h in client._opener().handlers if isinstance(h, urllib.request.HTTPSHandler)]
+
+
+def test_loopback_https_uses_unverified_context_and_no_proxy():
+    import ssl
+
+    from rona_cli import backend_client as bc
+
+    env = {"SSL_CERTFILE": "c", "SSL_KEYFILE": "k", "HOST": "0.0.0.0"}
+    client = bc.make_client(env, token="t", timeout=1)
+    assert client.base_url == "https://127.0.0.1:8000"
+    (handler,) = _https_handler(client)
+    assert handler._context.verify_mode == ssl.CERT_NONE
+    assert not handler._context.check_hostname
+    proxies = [h for h in client._opener().handlers if isinstance(h, urllib.request.ProxyHandler)]
+    assert all(h.proxies == {} for h in proxies)
+
+
+def test_remote_https_keeps_verification_and_http_has_no_context():
+    from rona_cli import backend_client as bc
+
+    remote = bc.make_client({"SSL_CERTFILE": "c", "SSL_KEYFILE": "k", "HOST": "10.0.0.5"}, token="t", timeout=1)
+    assert remote.ssl_context is None
+    plain = bc.make_client({}, token="t", timeout=1)
+    assert plain.ssl_context is None

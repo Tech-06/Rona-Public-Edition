@@ -51,6 +51,21 @@ class RedactingFilter(logging.Filter):
                 record.args = None
         except Exception:  # noqa: BLE001
             pass
+        # Tracebacks are formatted later by the handler's Formatter from
+        # exc_info, bypassing the message rewrite above -- an exception whose
+        # text embeds a key would be logged verbatim. Render and mask it here
+        # and hand the Formatter the finished text via exc_text.
+        try:
+            if record.exc_info and record.exc_info[0] is not None:
+                rendered = logging.Formatter().formatException(record.exc_info)
+                record.exc_text = redact(rendered)
+                record.exc_info = None
+            elif record.exc_text:
+                record.exc_text = redact(record.exc_text)
+            if record.stack_info:
+                record.stack_info = redact(record.stack_info)
+        except Exception:  # noqa: BLE001
+            pass
         return True
 
 

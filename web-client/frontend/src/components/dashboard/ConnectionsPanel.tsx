@@ -495,11 +495,13 @@ export function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged
   const [restartRequired, setRestartRequired] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<Record<string, { ok: boolean; message: string }>>({});
 
-  const load = useCallback(async () => {
+  // `keepDraft`: a file upload refreshes the field metadata but must not throw
+  // away what the user has typed into the other, still unsaved, fields.
+  const load = useCallback(async (keepDraft = false) => {
     setError(null);
     try {
       setFields((await dashboardApi.packageConfig(pkg.id)).fields);
-      setDraft({});
+      if (!keepDraft) setDraft({});
     } catch (err) {
       setError(err instanceof Error ? err.message : t("connections.config_load_failed"));
     }
@@ -536,7 +538,7 @@ export function PackagePanel({ pkg, onChanged }: { pkg: PackageStatus; onChanged
         [field.key]: { ok: true, message: t("connections.file_uploaded") },
       }));
       setRestartRequired(true);
-      await load();
+      await load(true);
       onChanged();
     } catch (err) {
       setUploadStatus((current) => ({

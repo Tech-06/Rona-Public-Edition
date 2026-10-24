@@ -86,6 +86,10 @@ def _cmd_set(args: argparse.Namespace) -> int:
     paths = _resolve(args)
     if paths is None:
         return 1
+    if args.token is not None and getattr(args, "stdin", False):
+        # Silently preferring one source would hide which token got written.
+        _emit_error(args, i18n.t("auth.token_conflict"))
+        return 1
     if args.token is not None:
         # stderr so `--json` stdout stays machine-readable.
         print(f"[!] {i18n.t('secret.argv_warning', alternative='--stdin')}", file=sys.stderr, flush=True)

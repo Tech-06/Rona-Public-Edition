@@ -13,7 +13,18 @@ _USER_AGENT = (
 
 _MAX_REDIRECTS = 5
 _MAX_BODY_BYTES = 2_000_000
-_ALLOWED_CONTENT_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
+_HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+# Returned as decoded text, not run through BeautifulSoup.
+_TEXT_CONTENT_TYPES = (
+    "text/plain",
+    "application/json",
+    "application/ld+json",
+    "text/xml",
+    "application/xml",
+    "application/rss+xml",
+    "application/atom+xml",
+)
+_ALLOWED_CONTENT_TYPES = _HTML_CONTENT_TYPES + _TEXT_CONTENT_TYPES
 _BLOCKED_NETWORKS = (ipaddress.ip_network("100.64.0.0/10"),)
 
 
@@ -34,31 +45,35 @@ def _is_blocked_address(address: str) -> bool:
     return any(parsed in network for network in _BLOCKED_NETWORKS)
 
 
-def _resolve_checked(url: str) -> tuple[str | None, str | None]:
+def _resolve_checked(url: str) -> tuple[str | None, list[str]]:
     """Validate the URL and resolve its host exactly once.
 
-    Returns (error, pinned_ip). Every address the resolver returned must be
+    Returns (error, addresses). Every address the resolver returned must be
     public, otherwise a mixed answer could be used to smuggle in an internal
-    one; the first address is then the one the request is pinned to.
+    one; the caller then pins each request to one of those validated
+    addresses (IPv4 first, so a host with broken IPv6 still connects).
     """
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
-        return f"Unsupported URL scheme: {parts.scheme!r}", None
+        return f"Unsupported URL scheme: {parts.scheme!r}", []
     if not parts.hostname:
-        return "URL has no hostname", None
+        return "URL has no hostname", []
     if parts.username is not None or parts.password is not None:
-        return "URLs with embedded credentials are not allowed", None
+        return "URLs with embedded credentials are not allowed", []
     try:
         resolved = socket.getaddrinfo(parts.hostname, None)
     except OSError as exc:
-        return f"Could not resolve host {parts.hostname!r}: {exc}", None
+        return f"Could not resolve host {parts.hostname!r}: {exc}", []
     addresses = [info[4][0] for info in resolved]
     if not addresses:
-        return f"Could not resolve host {parts.hostname!r}", None
+        return f"Could not resolve host {parts.hostname!r}", []
     for address in addresses:
         if _is_blocked_address(address):
-            return f"Blocked address for host {parts.hostname!r}", None
-    return None, addresses[0]
+            return f"Blocked address for host {parts.hostname!r}", []
+    # Stable de-dup, IPv4 before IPv6 (resolver order otherwise).
+    unique = list(dict.fromkeys(addresses))
+    unique.sort(key=lambda a: ":" in a)
+    return None, unique
 
 
 def _blocked_reason(url: str) -> str | None:
@@ -113,14 +128,19 @@ def _looks_like_html(head: bytes) -> bool:
     )
 
 
+def _media_type(value: str | None) -> str:
+    return (value or "").split(";", 1)[0].strip().lower()
+
+
 def _content_type_allowed(value: str | None, head: bytes) -> bool:
     if not value:
         return _looks_like_html(head)
-    return value.split(";", 1)[0].strip().lower() in _ALLOWED_CONTENT_TYPES
+    return _media_type(value) in _ALLOWED_CONTENT_TYPES
 
 
-def _fetch(client: httpx.Client, url: str) -> tuple[bytes, str, bool] | dict:
-    """Stream one response; returns (body, encoding, truncated) or an error dict."""
+def _fetch(client: httpx.Client, url: str) -> tuple[bytes, str, bool, str] | dict:
+    """Stream one response; returns (body, encoding, truncated, media_type) or an
+    error dict."""
     with client.stream("GET", url, timeout=10.0) as response:
         if response.is_redirect:
             return {"redirect": response.headers.get("location") or ""}
@@ -144,7 +164,12 @@ def _fetch(client: httpx.Client, url: str) -> tuple[bytes, str, bool] | dict:
                 break
         if not checked and not _content_type_allowed(response.headers.get("content-type"), b""):
             return {"success": False, "error": "Unsupported content type"}
-        return bytes(body), response.charset_encoding or "utf-8", truncated
+        return (
+            bytes(body),
+            response.charset_encoding or "utf-8",
+            truncated,
+            _media_type(response.headers.get("content-type")),
+        )
 
 
 def web_scraper(url: str) -> dict:
@@ -152,17 +177,32 @@ def web_scraper(url: str) -> dict:
         current_url = url
         fetched = None
         for _ in range(_MAX_REDIRECTS + 1):
-            reason, pinned_ip = _resolve_checked(current_url)
+            reason, addresses = _resolve_checked(current_url)
             if reason:
                 return {"success": False, "error": reason}
             headers = {"User-Agent": _USER_AGENT}
-            with httpx.Client(
-                headers=headers,
-                follow_redirects=False,
-                trust_env=False,
-                transport=_transport_factory(pinned_ip),
-            ) as client:
-                fetched = _fetch(client, current_url)
+            fetched = None
+            connect_error: Exception | None = None
+            # All addresses are validated; try them in order until one
+            # connects (a dual-stack host may have a dead IPv6 route).
+            for pinned_ip in addresses:
+                # trust_env=False: never route through env proxies (a proxy
+                # would resolve the name itself and defeat the pinning).
+                # Users behind a mandatory corporate proxy need a direct route.
+                with httpx.Client(
+                    headers=headers,
+                    follow_redirects=False,
+                    trust_env=False,
+                    transport=_transport_factory(pinned_ip),
+                ) as client:
+                    try:
+                        fetched = _fetch(client, current_url)
+                    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                        connect_error = exc
+                        continue
+                break
+            if fetched is None:
+                raise connect_error or httpx.ConnectError("no address reachable")
             if isinstance(fetched, tuple):
                 break
             if "redirect" not in fetched:
@@ -173,11 +213,19 @@ def web_scraper(url: str) -> dict:
         else:
             return {"success": False, "error": "Too many redirects"}
 
-        body, encoding, truncated = fetched
+        body, encoding, truncated, media_type = fetched
         try:
             html = body.decode(encoding, errors="replace")
         except LookupError:
             html = body.decode("utf-8", errors="replace")
+
+        if media_type in _TEXT_CONTENT_TYPES and media_type != "text/plain":
+            # JSON / XML / feeds: the markup is the content, so hand back the
+            # decoded text rather than flattening it through an HTML parser.
+            result = {"success": True, "title": "", "content": html[:5000]}
+            if truncated:
+                result["truncated"] = True
+            return result
 
         soup = BeautifulSoup(html, "html.parser")
         for script_or_style in soup(["script", "style"]):

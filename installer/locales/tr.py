@@ -20,6 +20,8 @@ STRINGS: dict[str, str] = {
     "main.git_not_found": "git bulunamadı (bu kurulum için gerekli değil, sadece bilgi amaçlı).",
     "main.no_components_selected": "Hiçbir bileşen seçilmedi, çıkılıyor.",
     "main.node_required": "Node.js olmadan web paneli kurulamaz (--components ile çıkarabilirsin).",
+    "main.node_too_old": 'Node.js {found} kuruldu ama web paneli Node.js {min}+ ister (dağıtım paketleri çoğu zaman eskidir). Güncel bir sürüm kur -- NodeSource (https://github.com/nodesource/distributions), nvm (https://github.com/nvm-sh/nvm) ya da fnm (https://github.com/Schniz/fnm) -- sonra kurucuyu tekrar çalıştır.',
+    "main.node_unreadable": "Node.js kuruldu ama PATH'ten okunamıyor. Yeni bir terminal açıp kurucuyu tekrar çalıştır.",
     "main.auth_token_set": "AUTH_TOKEN ayarlandı (backend ve web .env dosyaları eşleşiyor).",
     "envgen.short_token_replaced": (
         "Mevcut AUTH_TOKEN {min} karakterden kısa; yeni bir tane üretildi."
@@ -65,6 +67,10 @@ STRINGS: dict[str, str] = {
     "steps.backend.installing_deps": "Bağımlılıklar kuruluyor (bu biraz sürebilir)...",
     "steps.backend.preparing_db": "Veritabanı hazırlanıyor...",
     "steps.backend.db_failed": "Veritabanı hazırlığı başarısız oldu.",
+    "steps.backend.restoring_package_deps": 'Kurulu araç paketlerinin bağımlılıkları geri yükleniyor...',
+    "steps.backend.package_deps_failed": 'Araç paketi bağımlılıkları yeniden kurulamadı ({detail}). Çekirdek çalışır; yeniden denemek için backend/ içinde `python -m toolbox.manager reinstall-deps` çalıştır.',
+    "steps.backend.packages_unhealthy": 'Bu araç paketleri sağlık kontrolünden geçemedi: {names} (backend/ içinde `python -m toolbox.manager verify <id>` ile kontrol et).',
+    "steps.backend.package_deps_restored": 'Araç paketi bağımlılıkları geri yüklendi ({count} paket).',
     "steps.backend.done": "Backend kuruldu.",
     # -- steps/web.py -----------------------------------------------------------------
     "steps.web.title": "Web paneli",
@@ -155,7 +161,7 @@ STRINGS: dict[str, str] = {
     "uninstall.item_environments": "Ortamlar (sanal ortamlar, node_modules, derlenen panel)",
     "uninstall.item_path": "PATH entegrasyonu (rona komutu)",
     "uninstall.item_state": "Kurulum durumu (~/.rona/config.json)",
-    "uninstall.item_user_data": "Kullanıcı verisi (.env dosyaları, veritabanı, log)",
+    "uninstall.item_user_data": "Kullanıcı verisi (.env dosyaları, veritabanı, log, prompt özelleştirmeleri, saklanan tokenlar)",
     "uninstall.item_tool_packages": "Kurulu araç paketleri",
     "uninstall.item_runtime": "Çalışma artıkları (pid, lock, log dosyaları)",
     "uninstall.title": "Rona kaldırma",

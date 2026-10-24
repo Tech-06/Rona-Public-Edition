@@ -58,6 +58,21 @@ ACTION_ALREADY_DONE_NOTE = (
     "task and produce your verdict."
 )
 
+def _executed_calls_note(done_entries: list[dict[str, Any]]) -> str:
+    calls = json.dumps(
+        [
+            {"tool_name": entry["tool_name"], "tool_params": entry["tool_params"]}
+            for entry in done_entries
+        ],
+        ensure_ascii=False,
+    )
+    return (
+        "\n\nNote: these pre-approved calls have already been executed "
+        f"successfully earlier in this run and are no longer available: {calls}. "
+        "Do not call them again; do the rest of the task and produce your verdict."
+    )
+
+
 _semaphore: asyncio.Semaphore | None = None
 _tasks: dict[str, asyncio.Task] = {}
 _active_task_ids: set[str] = set()
@@ -79,10 +94,14 @@ def _free_tool_names() -> set[str]:
 
 
 def _pre_approved_entries(task: dict[str, Any]) -> list[dict[str, Any]]:
+    # `index` is the entry's position in this full list; it is what gets
+    # persisted per executed call (task_runs.executed_calls), so it must stay
+    # stable while entries are later filtered out.
     entries: list[dict[str, Any]] = []
     if task.get("tool_name"):
         entries.append(
             {
+                "index": len(entries),
                 "tool_name": task["tool_name"],
                 "tool_params": task.get("tool_params") or {},
             }
@@ -91,6 +110,7 @@ def _pre_approved_entries(task: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(call, dict) and call.get("tool_name"):
             entries.append(
                 {
+                    "index": len(entries),
                     "tool_name": call["tool_name"],
                     "tool_params": call.get("tool_params") or {},
                 }
@@ -105,6 +125,34 @@ def _match_pre_approved(
         if entry["tool_name"] == name and entry["tool_params"] == args:
             return entry
     return None
+
+
+def _result_failed(result: Any) -> dict[str, Any] | None:
+    """The result when a tool reports failure by returning it. Catalog tools
+    do not raise on e.g. a transient send error; they return
+    {"success": False, "error": ...} or {"status": "error", ...}."""
+    if isinstance(result, dict) and (
+        result.get("success") is False or result.get("status") == "error"
+    ):
+        return result
+    return None
+
+
+def _reads_untrusted(tool_call: dict[str, Any]) -> bool:
+    name = tool_call["function"]["name"]
+    return has_tool(name) and untrusted.is_untrusted_output(name)
+
+
+def _call_tainted(
+    prior: bool, tool_calls: list[dict[str, Any]], tool_call: dict[str, Any]
+) -> bool:
+    """Taint one call runs under: earlier rounds, or another call of the same
+    round that reads untrusted content (they run together). A call is never
+    tainted by its own output, so a lone web_scraper fetch stays a plain
+    fetch."""
+    return prior or any(
+        _reads_untrusted(other) for other in tool_calls if other is not tool_call
+    )
 
 
 def _tool_message(call_id: str, payload: dict[str, Any], name: str = "") -> dict[str, Any]:
@@ -216,10 +264,30 @@ async def _execute_tool_call(
             "is_action": is_action,
             "ok": False,
         }
-    if is_action and run_id is not None:
+    failure = _result_failed(result) if matched is not None else None
+    if failure is not None:
+        # The tool answered but reported failure (e.g. a transient send
+        # error): the side effect did not happen, so it is not "done" and the
+        # model (or the next attempt) may try again.
+        if executed is not None:
+            executed.discard(id(matched))
+        return _tool_message(
+            call_id,
+            {
+                "status": "error",
+                "error": str(failure.get("error") or "The tool reported a failure."),
+                "result": failure,
+            },
+            name,
+        ), {"is_action": is_action, "ok": False}
+    if matched is not None and run_id is not None:
         try:
-            # Persisted so a later attempt never repeats the side effect.
-            store.mark_action_done(run_id)
+            # Persisted so a later attempt never repeats the side effect --
+            # for every pre-approved call, not just the primary action.
+            if matched.get("index") is not None:
+                store.mark_call_executed(run_id, matched["index"])
+            if is_action:
+                store.mark_action_done(run_id)
         except Exception as exc:  # noqa: BLE001
             logger.error(i18n.t("trigger.log_action_done_persist_failed"), run_id[:8], exc)
     return _tool_message(call_id, {"status": "ok", "result": result}, name), {
@@ -312,6 +380,7 @@ async def _agent_loop(
     entries: list[dict[str, Any]],
     action_entry: dict[str, Any] | None,
     action_already_done: bool = False,
+    done_entries: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any] | None, str, bool, str | None, bool]:
     free_names = _free_tool_names()
     allowed_names = free_names | {entry["tool_name"] for entry in entries}
@@ -332,6 +401,14 @@ async def _agent_loop(
             "content": messages[0]["content"] + ACTION_ALREADY_DONE_NOTE,
         }
         action_ok = True
+    if done_entries:
+        # Extra pre-approved calls an earlier attempt already executed (their
+        # entries were removed from `entries`); say so, so the model does not
+        # look for them or report them as missing.
+        messages[0] = {
+            **messages[0],
+            "content": messages[0]["content"] + _executed_calls_note(done_entries),
+        }
     executed: set[int] = set()
     # Set once any tool result of this run is untrusted (web page, email...).
     tainted = False
@@ -366,12 +443,10 @@ async def _agent_loop(
                     content = assistant.get("content") or ""
                     return _parse_verdict(content), content, action_ok, None, False
                 # Calls of one round run together, so a read in this round
-                # already taints the others.
-                tainted = tainted or any(
-                    untrusted.is_untrusted_output(call["function"]["name"])
-                    for call in tool_calls
-                    if has_tool(call["function"]["name"])
-                )
+                # taints the OTHER calls of it (not the reading call itself).
+                call_taints = [
+                    _call_tainted(tainted, tool_calls, call) for call in tool_calls
+                ]
                 context = untrusted.untrusted_context(messages[1]["content"], messages)
                 results = await asyncio.gather(
                     *(
@@ -382,12 +457,13 @@ async def _agent_loop(
                             action_entry,
                             executed,
                             run_id,
-                            tainted,
+                            call_taint,
                             context,
                         )
-                        for tool_call in tool_calls
+                        for tool_call, call_taint in zip(tool_calls, call_taints)
                     )
                 )
+                tainted = tainted or any(_reads_untrusted(c) for c in tool_calls)
                 for message, meta in results:
                     messages.append(message)
                     if meta["is_action"] and meta["ok"]:
@@ -484,9 +560,17 @@ async def _run_attempt(
     entries: list[dict[str, Any]],
     action_entry: dict[str, Any] | None,
     action_already_done: bool = False,
+    done_entries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     verdict, raw_content, action_ok, loop_error, capped = await _agent_loop(
-        run_id, task, attempt, max_attempts, entries, action_entry, action_already_done
+        run_id,
+        task,
+        attempt,
+        max_attempts,
+        entries,
+        action_entry,
+        action_already_done,
+        done_entries,
     )
     if verdict is not None:
         message = verdict["message"]
@@ -563,11 +647,20 @@ async def _execute_occurrence(run_id: str, task_id: str) -> None:
             entries = _pre_approved_entries(task)
             action_entry = entries[0] if task.get("tool_name") else None
             action_already_done = store.action_done(run_id)
-            if action_already_done:
-                # Persisted by an earlier attempt: take the action away so the
-                # model cannot run it a second time.
-                entries = [e for e in entries if e is not action_entry]
+            # Persisted by earlier attempts: take every executed call away so
+            # the model cannot run it a second time.
+            executed_indexes = store.executed_calls(run_id)
+            if action_already_done and action_entry is not None:
+                executed_indexes.add(action_entry["index"])
+            if action_entry is not None and action_entry["index"] in executed_indexes:
+                action_already_done = True
                 action_entry = None
+            done_entries = [e for e in entries if e["index"] in executed_indexes]
+            entries = [e for e in entries if e["index"] not in executed_indexes]
+            # The primary action has its own note; only the extras are listed.
+            extra_done = [
+                e for e in done_entries if not (task.get("tool_name") and e["index"] == 0)
+            ]
             async with _execution_semaphore():
                 result = await _run_attempt(
                     run_id,
@@ -577,6 +670,7 @@ async def _execute_occurrence(run_id: str, task_id: str) -> None:
                     entries,
                     action_entry,
                     action_already_done,
+                    extra_done,
                 )
             if result["kind"] == "done":
                 store.complete_run(run_id, result["summary"], result["report"])

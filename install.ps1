@@ -11,21 +11,39 @@ generation, and the web dashboard's npm build.
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+function Test-PythonVersion($exe, $exeArgs) {
+    try {
+        $versionOutput = & $exe @exeArgs --version 2>&1
+    } catch {
+        return $false
+    }
+    if ("$versionOutput" -match "Python (\d+)\.(\d+)") {
+        $major = [int]$Matches[1]
+        $minor = [int]$Matches[2]
+        return ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11))
+    }
+    return $false
+}
+
+# Returns the path of an acceptable (3.11+) interpreter, or $null.
+# The `py` launcher is probed per version (-3.13/-3.12/-3.11) because a bare
+# `python`/`py` may resolve to an older install (or the Store stub) even when
+# a newer one is installed alongside.
 function Find-Python {
-    foreach ($cmd in @("python", "python3", "py")) {
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if ($py) {
+        foreach ($v in @("-3.13", "-3.12", "-3.11")) {
+            if (Test-PythonVersion $py.Source @($v)) {
+                $resolved = & $py.Source $v -c "import sys; print(sys.executable)" 2>$null
+                if ($resolved) { return "$resolved".Trim() }
+            }
+        }
+    }
+    foreach ($cmd in @("python3", "python")) {
         $found = Get-Command $cmd -ErrorAction SilentlyContinue
         if (-not $found) { continue }
-        try {
-            $versionOutput = & $found.Source --version 2>&1
-        } catch {
-            continue
-        }
-        if ($versionOutput -match "Python (\d+)\.(\d+)") {
-            $major = [int]$Matches[1]
-            $minor = [int]$Matches[2]
-            if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) {
-                return $found.Source
-            }
+        if (Test-PythonVersion $found.Source @()) {
+            return $found.Source
         }
     }
     return $null

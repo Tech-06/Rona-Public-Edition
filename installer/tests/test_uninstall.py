@@ -323,3 +323,47 @@ def test_main_never_touches_the_repo_root_itself(tmp_path, monkeypatch):
     uninstall.main(["--yes", "--items", ",".join(fs_items)])
 
     assert root.is_dir()  # the checkout itself always survives
+
+
+def _no_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(uninstall.state, "state_file", lambda: tmp_path / "no-state.json")
+    monkeypatch.setattr(uninstall, "_path_shim_exists", lambda: False)
+
+
+def test_manager_lock_alone_is_not_a_tool_package(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    custom_dir = root / "backend" / "toolbox" / "custom"
+    (custom_dir / ".preserved").mkdir(parents=True)
+    (custom_dir / ".manager.lock").write_text("", encoding="utf-8")
+    _no_state(tmp_path, monkeypatch)
+    assert uninstall._detect(root)["tool-packages"] is False
+
+
+def test_user_data_includes_prompt_overrides_and_preserved_tokens(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    backend_dir = root / "backend"
+    prompts = backend_dir / "prompts" / "custom"
+    preserved = backend_dir / "toolbox" / "custom" / ".preserved" / "google_calendar"
+    prompts.mkdir(parents=True)
+    preserved.mkdir(parents=True)
+    (prompts / ".gitkeep").write_text("", encoding="utf-8")
+    (prompts / "user.md").write_text("me", encoding="utf-8")
+    (preserved / "token.json").write_text("{}", encoding="utf-8")
+    _no_state(tmp_path, monkeypatch)
+
+    assert uninstall._detect(root)["user-data"] is True
+    uninstall._remove_user_data(root)
+
+    assert not (prompts / "user.md").exists()
+    assert (prompts / ".gitkeep").exists()  # tracked by git, never ours to delete
+    assert not (backend_dir / "toolbox" / "custom" / ".preserved").exists()
+    assert uninstall._detect(root)["user-data"] is False
+
+
+def test_gitkeep_only_prompts_dir_is_not_user_data(tmp_path, monkeypatch):
+    root = _make_root(tmp_path)
+    prompts = root / "backend" / "prompts" / "custom"
+    prompts.mkdir(parents=True)
+    (prompts / ".gitkeep").write_text("", encoding="utf-8")
+    _no_state(tmp_path, monkeypatch)
+    assert uninstall._detect(root)["user-data"] is False

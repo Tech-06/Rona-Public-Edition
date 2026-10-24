@@ -199,3 +199,22 @@ def test_kill_tree_ignores_vanished_process(monkeypatch):
 
     _posix_signals(monkeypatch, _gone)
     procutil.kill_tree(50)
+
+
+def test_netstat_listener_is_found_in_localized_output():
+    # State names are localized; only the "no peer" foreign address is stable.
+    turkish = (
+        "  TCP    0.0.0.0:8000           0.0.0.0:0              DİNLENİYOR      901\n"
+        "  TCP    127.0.0.1:8000         127.0.0.1:50000        KURULDU         902\n"
+    ).replace("\n", "\n")
+    german = "  TCP    [::]:8000              [::]:0                 ABHÖREN         903\n"
+    english = "  TCP    0.0.0.0:8000           0.0.0.0:0              LISTENING       904\n"
+    assert procutil._netstat_listener_pid(turkish, 8000) == 901
+    assert procutil._netstat_listener_pid(german, 8000) == 903
+    assert procutil._netstat_listener_pid(english, 8000) == 904
+    assert procutil._netstat_listener_pid(turkish, 800) is None
+
+
+def test_netstat_established_row_ignored_in_any_language():
+    row = "  TCP    127.0.0.1:8000         127.0.0.1:50000        KURULDU         902\n"
+    assert procutil._netstat_listener_pid(row, 8000) is None

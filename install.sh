@@ -20,7 +20,10 @@ version_ge_3_11() {
 }
 
 find_python() {
-    for cmd in python3 python; do
+    # Versioned names first: after `apt install python3.12` on Ubuntu 22.04,
+    # plain `python3` still points at 3.10, so probing only that would
+    # reject the interpreter we just installed.
+    for cmd in python3.13 python3.12 python3.11 python3 python; do
         if command -v "$cmd" >/dev/null 2>&1; then
             local ver
             ver="$("$cmd" --version 2>&1 | awk '{print $2}')"
@@ -39,6 +42,7 @@ PYTHON="$(find_python || true)"
 # one yet (that question, and everything after it, is Python's job).
 if [ -z "$PYTHON" ]; then
     echo "Python 3.11+ not found. / Python 3.11 ya da üstü bulunamadı."
+    echo "Alternative / Alternatif: uv python install 3.12  (https://docs.astral.sh/uv/)"
     OS_NAME="$(uname -s)"
     INSTALL_CMD=""
     if [ "$OS_NAME" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
@@ -58,7 +62,15 @@ if [ -z "$PYTHON" ]; then
     echo "Şu komut çalıştırılacak: $INSTALL_CMD"
     read -r -p "Continue? / Onaylıyor musun? [y/e, N/H] " answer
     case "$answer" in
-        [yYeE]*) eval "$INSTALL_CMD" ;;
+        [yYeE]*)
+            if ! eval "$INSTALL_CMD"; then
+                echo "Installing Python failed. On Ubuntu 22.04 python3.12 is not in the default repositories:"
+                echo "add the deadsnakes PPA (sudo add-apt-repository ppa:deadsnakes/ppa) and retry, or use: uv python install 3.12"
+                echo "Python kurulumu başarısız oldu. Ubuntu 22.04'te python3.12 varsayılan depolarda yoktur:"
+                echo "deadsnakes PPA'sını ekleyip (sudo add-apt-repository ppa:deadsnakes/ppa) tekrar dene ya da şunu kullan: uv python install 3.12"
+                exit 1
+            fi
+            ;;
         *) echo "Cancelled. / Vazgeçildi."; exit 1 ;;
     esac
     PYTHON="$(find_python || true)"

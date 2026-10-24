@@ -70,7 +70,7 @@ rona tools uninstall <id>
 
 A package's settings can be changed after install too: `rona tools config <id>` (or, in the dashboard, **Settings → Connections → Tool packages → Configure**) goes through the very same `.env`/`config.json` write paths. Some packages also expose **actions** -- unlike tools, you call these, not the model (authorizing a Google account, say) -- runnable both from `rona tools run` and from that same panel.
 
-Installing, updating, and removing a package no longer requires a terminal either: in the dashboard, **Settings → Connections → Catalog** tab lets you pick a package and hit **Install** or **Update** -- it first shows the dependency plan (what will be installed/upgraded) and asks for confirmation; once you agree, the job runs in the background with its log streaming live. An install from the dashboard doesn't ask for required settings right away -- the package installs first, then the configuration panel that opens afterwards is where you fill them in. Removing a package from the **Installed** tab keeps its user data (tokens, sessions, etc.) by default -- check "also delete user data" if you want it gone -- and removing something another package still depends on is blocked here too. Once the job finishes, the backend reloads its packages on its own; if pip actually upgraded something, a restart is suggested. `rona tools available` marks an installed package with a newer catalog version as `installed X -> Y available` and prints a hint to run `rona tools update <package>` at the end of the list.
+Installing, updating, and removing a package no longer requires a terminal either: in the dashboard, **Settings → Connections → Catalog** tab lets you pick a package and hit **Install** or **Update** -- it first shows the dependency plan (what will be installed/upgraded) and asks for confirmation; once you agree, the job runs in the background with its log streaming live. An install from the dashboard doesn't ask for required settings right away -- the package installs first, then the configuration panel that opens afterwards is where you fill them in. Removing a package from the **Installed** tab keeps its user data (tokens, sessions, etc.) by default -- check "also delete user data" if you want it gone -- and removing something another package still depends on is blocked here too. Once the job finishes, the backend reloads its packages on its own; if pip actually upgraded something, a restart is suggested. `rona tools available` marks an installed package with a newer catalog version as `installed X -> Y available` and prints a hint to run `rona tools update <package>` at the end of the list. File-type fields (e.g. the Google `credentials.json`) are uploaded from the browser in the dashboard; you don't have to type a path on the server.
 
 **Dependencies.** A package declares what it needs in its own manifest, and the catalog mirrors that into `index.json`, so an install can tell you what is about to happen before anything is downloaded. `rona tools install google_calendar` warns that it will also install `google_auth` and asks first; if you agree, `google_auth` is installed and fully configured *before* the package you asked for is touched. Removing something another package still requires is refused without `--force`. A dependency can also carry a version constraint (`google_auth>=2.0`, `x~=2.1`, and so on); if an installed package no longer satisfies one, the registry flags it as a warning (the package still loads) and surfaces it in the dashboard -- fix it by running `rona tools update` on the outdated dependency.
 
@@ -129,7 +129,7 @@ Personality, output formatting, user profile, tool-usage rules, subagent rules, 
 A stdlib-only Python package with no third-party dependencies, installed with `pip install -e .`. It starts/stops/reports the status of the backend and the web dashboard from your terminal, edits model/auth/`.env` settings, lists scheduled tasks and run history, and tails the live log. See [`rona` command reference](#rona-command-reference) and [cli/README.md](cli/README.md).
 
 ### Web dashboard
-A single-page application written in React + Vite + TypeScript: a streaming, markdown-aware chat interface plus a full admin dashboard (server status, external-connection health checks, live log tailing, scheduled-task and subagent lists, a data browser for notes/people/memories, a tool catalog, and a `.env` editor). The dashboard runs on top of an independent FastAPI "backend-for-frontend" layer that talks to the backend purely over HTTP and never imports any of its Python code.
+A single-page application written in React + Vite + TypeScript: a streaming, markdown-aware chat interface plus a full admin dashboard (server status, external-connection health checks, live log tailing, scheduled-task and subagent lists, a data browser for notes/people/memories, a tool catalog, and a `.env` editor). The dashboard runs on top of an independent FastAPI "backend-for-frontend" layer that talks to the backend purely over HTTP and never imports any of its Python code. The dashboard is protected by a password; without logging in, neither the backend nor the `/host/*` endpoints are reachable (see [Security Notes](#security-notes)).
 
 Chat history lives in the backend's `rona.db`, so you see the same list no matter which device (desktop, phone) you connect from. The dashboard is also a PWA: opened over HTTPS (see [Installing as an app on your phone](#installing-as-an-app-on-your-phone-pwa)) it can be added to a phone's home screen and run as its own app, and shows its own offline page when the server can't be reached.
 
@@ -147,7 +147,7 @@ You talk to Rona in the same natural language whether you're using the chat scre
 - "Every weekday at 9 AM, summarize today's calendar for me." → creates a recurring scheduled task.
 - "Research and compare the 5 best coffee shops in Istanbul." → starts a background subagent that keeps working while you talk about something else.
 - "Do you remember the project idea we discussed last month?" → runs a semantic search over its memories.
-- "Translate the error in this screenshot into English." → uses the `translate_text` tool.
+- "Search the web for the best coffee shops in Istanbul." → uses the `web_search` package if installed (the chat API is text-only; screenshots/files cannot be sent).
 
 ## Project Structure
 
@@ -182,8 +182,8 @@ Rona Public Edition/
 
 ## Requirements
 
-- **Python 3.11 or newer** (the codebase uses union-type syntax like `str | None`, so 3.10 is the hard minimum) -- the [Quick install](#quick-install-recommended) script offers to install it if it's missing
-- **Node.js 18 or newer** with npm (only needed to build the web dashboard's frontend — not required for the backend or the CLI tool) -- the installer also offers to install it if the web dashboard is selected and it's missing
+- **Python 3.11 or newer** (`install.sh` probes `python3.13`, `python3.12`, `python3.11`, `python3`, `python` in order; `install.ps1` tries `py -3.13/-3.12/-3.11`, then `python3`, `python`; on Ubuntu 22.04 `python3.12` is not in the default repositories: use the deadsnakes PPA or `uv python install 3.12`) -- the [Quick install](#quick-install-recommended) script offers to install it if it's missing
+- **Node.js 18 or newer** with npm (only needed to build the web dashboard's frontend — not required for the backend or the CLI tool) -- the installer also offers to install it if the web dashboard is selected and it's missing After installing Node, the installer rechecks the version and points to NodeSource/nvm/fnm if it is still older than 18.
 - **Git**
 - An OpenAI-API-compatible LLM endpoint and API key (required for chat to work at all; the installer's wizard asks for it)
 - Optional: a Google Gemini API key (embeddings for memory search). Tavily/DeepL/OpenWeatherMap keys and a Google Cloud OAuth client are only needed if you install the corresponding [Rona Tools](https://github.com/Tech-06/Rona-Tools) package (`web_search`/`deepl_translate`/`weather`/`google_*`) -- `toolbox.manager` asks for them at install time
@@ -215,7 +215,7 @@ Both scripts do the same thing: first they make sure a Python 3.11+ interpreter 
 0. **Asks for a language** (Türkçe / English) — before anything else, a single question shown in both languages. Your choice sets the installer's own output as well as the default for all three installed environments (the backend's conversation language, the web dashboard's UI language, and `rona`'s own messages); each can be changed later independently with `rona edit lang` (see [`rona` command reference](#rona-command-reference)). Skipped when run with `--yes`/`--json` (defaults to `tr`); can be set upfront with `--lang tr|en`.
 1. Asks which components to install (**CLI**, **Backend**, **Web dashboard** — all selected by default). If the web dashboard is selected, it also checks for Node.js and offers to install it the same way if missing.
 2. Creates an independent virtual environment and installs dependencies for each selected component; if the backend is selected it prepares the database, and if the web dashboard is selected it builds the frontend (`npm ci && npm run build`).
-3. Generates `AUTH_TOKEN` once and writes it to both `backend/.env` and `web-client/.env`, so the two always match exactly.
+3. Generates `AUTH_TOKEN` once and writes it to both `backend/.env` and `web-client/.env`, so the two always match exactly. If the web dashboard is being installed, it also asks for the dashboard password (leave empty to skip; set it later with `rona web password`).
 4. If the backend was installed, walks through an interactive wizard for Flash (required), Pro (optional), and embedding (optional) model settings. Any step can be skipped by typing `s`; entered values are verified with a real API call before being saved, and a failed test offers to try again / save anyway / skip. API keys are never printed to the screen.
 5. Then, still only if the backend was installed, offers a numbered list of the optional tool packages in the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog (web search, weather, Google integrations, etc.) — nothing is checked by default, pick as many or as few as you want, or skip entirely. You can keep adding more later with `rona tools install <id>`.
 6. Puts `rona` on PATH (adding a shim to the user's PATH on Windows, or to `~/.local/bin` on macOS/Linux — left untouched if it's already there).
@@ -234,7 +234,7 @@ To repair or update an existing Rona install, just run the script again; already
 ./install.sh --repair      # on Windows: .\install.ps1 --repair
 ```
 
-Other script options: `--components cli,backend,web` (pick specific components without showing the menu), `--yes` (never prompt, skip the wizard), `--json` (a single machine-readable summary line).
+Other script options: `--components cli,backend,web` (pick specific components without showing the menu), `--yes` (never prompt, skip the wizard), `--json` (a single machine-readable summary line). Repair also reinstalls the installed tool packages' Python dependencies (the backend venv is recreated): it runs `python -m toolbox.manager reinstall-deps`, then `verify <id>` for each such package; failures are shown as warnings. Manually: `cd backend && .venv/bin/python -m toolbox.manager reinstall-deps` (`.venv\Scripts\python` on Windows).
 
 ### `rona` command reference
 
@@ -246,6 +246,7 @@ Once the installer is done, you manage Rona from your terminal with `rona`:
 | `rona server start\|stop\|restart\|status` | Manage the backend process |
 | `rona web start\|stop\|restart\|status` | Manage the web dashboard |
 | `rona web build` | Build the web dashboard's frontend (npm ci/install + npm run build); needed after an update, see [Updating](#updating) |
+| `rona web password [--stdin]` | Set/change the web dashboard's login password (hidden, confirmed prompt; `--stdin` for piping); signs out existing sessions, no dashboard restart needed |
 | `rona edit model flash\|pro\|embedding [--name --url --key --headers --test]` | Edit model settings; `--test` verifies with a real API call before saving |
 | `rona edit auth get\|reset\|set` | View/regenerate/set the shared `AUTH_TOKEN` (always writes both `.env` files) |
 | `rona edit env [--web]` | Open `.env` in `$EDITOR` (defaults to the backend's) |
@@ -253,7 +254,7 @@ Once the installer is done, you manage Rona from your terminal with `rona`:
 | `rona edit memory consolidate run [--dry-run]\|status\|config` | Run consolidation (automatic promote/archive/delete), show its status, or edit its thresholds |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Show/set the language of all three components; changes all three if no target is given |
 | `rona edit prompt list\|show\|edit\|reset` | View/edit/reset the identity and behavior prompts (9 `.md` files) (needs a running backend) |
-| `rona tools list\|available\|install\|update\|uninstall\|verify` | Manage the optional tool packages from the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog (delegates to the backend's `toolbox.manager`) |
+| `rona tools list\|available\|install\|update\|uninstall [--force] [--purge]\|verify` | Manage the optional tool packages from the [Rona Tools](https://github.com/Tech-06/Rona-Tools) catalog (delegates to the backend's `toolbox.manager`) |
 | `rona tools config <id> [--set k=v] [--edit]` | Show or change an installed package's settings (secrets are masked) |
 | `rona tools actions <id>` / `rona tools run <id> <action>` | List/run a package's operator-facing operations (e.g. `google_auth add_account`) |
 | `rona task list\|del\|toggle` | List/delete/toggle scheduled tasks |
@@ -285,7 +286,7 @@ If you'd rather reinstall everything from scratch, [Quick install](#quick-instal
 
 The web dashboard is a PWA (Progressive Web App): on Android, Chrome's "Install app" option adds it to the home screen, where it opens as its own app with no address bar. Since chat history now lives on the backend (`rona.db`), you see the same list no matter which device you connect from.
 
-Chrome only offers that option over **HTTPS**. If you currently use the dashboard over a plain address like `http://<machine>:8016`, you'll first need to make it reachable over HTTPS. How you do that depends on how you run your server -- a reverse proxy (nginx, Caddy, ...) with your own domain and a TLS certificate, a tunneling service, or a VPN/mesh network connecting your devices -- whichever you're already using works fine; this repository doesn't require any particular one.
+Chrome only offers that option over **HTTPS**. If you currently use the dashboard over a plain address like `http://<machine>:8016`, you'll first need to make it reachable over HTTPS. Open remote access only through an authenticated channel: preferably a VPN/mesh network such as Tailscale or WireGuard, or a reverse proxy with TLS plus a separate authentication layer (Caddy `forward_auth` + Authelia/Authentik, Cloudflare Access). A plain tunnel service is acceptable only together with the dashboard password **and** HTTPS; this repository doesn't require any particular method.
 
 Once you have an HTTPS address for it:
 
@@ -295,7 +296,7 @@ Once you have an HTTPS address for it:
    ```bash
    rona web restart
    ```
-   Without this addition, `TrustedHostMiddleware` rejects the request with a 400.
+   Without this addition, `TrustedHostMiddleware` rejects the request with a 400. The name must be in `WEB_ALLOWED_HOSTS`; the session cookie is automatically `Secure` over HTTPS (or behind a proxy that sets `X-Forwarded-Proto`), and `WEB_COOKIE_SECURE=true` forces it.
 4. On your phone, open your HTTPS address in Chrome. Use **"Install app"** from Chrome's menu, or **Settings → Appearance → "Install as app"** inside the dashboard itself.
 5. Optional: to close off plain-HTTP access, set `WEB_HOST=127.0.0.1` and remove the old address from `WEB_ALLOWED_HOSTS` -- the dashboard then stays reachable only over your HTTPS address.
 
@@ -317,7 +318,7 @@ Same bootstrap pattern as `install.ps1`/`install.sh` (find a Python 3.11+ interp
 - **Environments** — virtual environments (`cli/.venv`, `backend/.venv`, `web-client/.venv`), `node_modules`, the built dashboard
 - **PATH integration** — the `rona` shim and its PATH entry
 - **Install state** — `~/.rona/config.json`
-- **User data** — `.env` files, `rona.db`, logs; if selected, asks a **separate second confirmation** first, naming exactly what's about to be permanently lost: your API keys, memories, people, and tasks
+- **User data** — `.env` files, `rona.db`, logs; if selected, asks a **separate second confirmation** first, naming exactly what's about to be permanently lost: your API keys, memories, people, and tasks. This option also removes `backend/prompts/custom/*` (prompt overrides, including `user.md`) and `backend/toolbox/custom/.preserved/` (preserved OAuth tokens)
 - **Installed tool packages** — optional packages installed under `backend/toolbox/custom/`
 - **Runtime artifacts** — pid/lock/log files
 
@@ -626,7 +627,10 @@ The Google Calendar/Contacts/Gmail packages also require a file, not an environm
 | `AUTH_TOKEN` | Yes | — | Must exactly match `AUTH_TOKEN` in `backend/.env` (`rona edit auth reset` writes both at once) |
 | `WEB_HOST` / `WEB_PORT` | No | `127.0.0.1` / `8016` | Address and port the dashboard listens on |
 | `BACKEND_URL` | No | `http://127.0.0.1:8000` | The backend's address |
-| `WEB_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | `TrustedHostMiddleware` allow-list |
+| `WEB_PASSWORD_HASH` / `WEB_SESSION_SECRET` | No | empty | The scrypt hash of the dashboard login password and the secret that signs the session cookie; don't edit by hand -- `rona web password` (or the installer) writes both together. Without a password the dashboard stays locked, and it refuses to start if `WEB_HOST` is not loopback |
+| `WEB_SESSION_DAYS` | No | `30` | Session cookie lifetime (days) |
+| `WEB_COOKIE_SECURE` | No | `auto` | `auto` (`Secure` over HTTPS or behind a proxy that sets `X-Forwarded-Proto`), `true` or `false` |
+| `WEB_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | `TrustedHostMiddleware` allow-list; add your public hostname if you reach the dashboard by name |
 | `UI_LANGUAGE` | No | `tr` | The dashboard's default language (`tr`/`en`) -- each browser can override this from Settings → Appearance without touching `.env`; changed with `rona edit lang`, needs a restart |
 | `LOG_LEVEL` | No | `INFO` | Log level |
 | `BACKEND_DIR` | No | `../backend` | Only used for local development conveniences (start/stop the backend, tail its log, a read-only database view); when the path doesn't resolve, those features silently report "unavailable" and the dashboard keeps working |
@@ -704,9 +708,10 @@ The backend's core endpoints are `/health`, `/chat`, and `/chat/stream`; a broad
 `web-client/` is a **FastAPI BFF (backend-for-frontend)** layer, completely independent from the backend and reading its own `.env`:
 
 - **`webui/server.py`** — proxies `/api/*`, `/chat`, `/chat/stream`, and `/health` requests to the backend (`proxy.py`); serves the built React frontend (produced from `frontend/` via `npm run build` into `webui/dist/`) as static files; serves the PWA files (`manifest.webmanifest`, `sw.js`, `offline.html`, icons) and `index.html` with `Cache-Control: no-cache` always set, so an `npm run build` reaches browsers without restarting the dashboard; applies a CSRF-guard middleware (checking `Content-Type`/`Sec-Fetch-Site` on unsafe methods) and `TrustedHostMiddleware`.
+- **`webui/auth.py`** — password login and a signed session cookie (`rona_session`, HttpOnly, SameSite=Strict): `/api/*`, `/chat*`, `/health` and `/host/*` (except `/host/healthz`) require a valid session; only the SPA shell and static files are public. The first password can't be set from the web (it needs `rona web password` or the installer), repeated failed attempts are rate-limited, and the dashboard refuses to start on a non-loopback `WEB_HOST` without a password. `server.py` also adds a CSP and other security headers.
 - **`webui/frontend_build.py`** — detects whether the compiled frontend (`webui/dist/`) is older than its source (`frontend/src`, `frontend/public`, ...) by comparing modification times, and reports it in `/host/healthz`'s `frontend_stale` field. `rona web status`/`start`/`restart` read this and warn about a forgotten build after a `git pull` (see [Updating](#updating)).
-- **`webui/host.py`** — local-development convenience only: starting/stopping the backend process under `BACKEND_DIR`, tailing its log, and managing it through `systemctl` when available (the `/host/*` endpoints). If the backend runs on a different machine, these endpoints simply become unavailable while the dashboard keeps proxying to it normally.
-- **`webui/db.py`** — opens the `rona.db` under `BACKEND_DIR` read-only and serves a couple of "degraded" admin views (`/host/db/tasks`, `/host/db/subagents`) straight from the file rather than through the backend API; it returns an empty result if the file can't be found.
+- **`webui/host.py`** — local-development convenience only: starting/stopping the backend process under `BACKEND_DIR`, tailing its log, and managing it through `systemctl` when available (the `/host/*` endpoints). If the backend runs on a different machine, these endpoints simply become unavailable while the dashboard keeps proxying to it normally. All `/host/*` endpoints (except `/host/healthz`) require a logged-in session.
+- **`webui/db.py`** — opens the `rona.db` under `BACKEND_DIR` read-only (via a `mode=ro` URI, so SQLite rejects writes) and serves a couple of "degraded" admin views (`/host/db/tasks`, `/host/db/subagents`) straight from the file rather than through the backend API; it returns an empty result if the file can't be found.
 - **`webui/supervisor.py`** — a small supervisor implementing `python -m webui start|stop|restart|status`, managing the dashboard's own `uvicorn` process.
 - **`webui/i18n.py`** + **`webui/locales/{tr,en}.py`** — the language catalog for the dashboard's own (proxy/host) error messages; read from the `.env`'s `UI_LANGUAGE`. The SPA fallback substitutes this into `frontend/dist/index.html` before serving it, as `<html lang>` and `window.__RONA_LANG__`, so React opens in the right language before its first paint (a browser's `localStorage["rona:lang"]` choice can override this without ever touching `.env`).
 - **`frontend/`** — the React + Vite + TypeScript source: the streaming chat interface (`components/chat/`) and the admin dashboard made up of status/connections/config/tools/tasks/subagents/logs/data panels (`components/dashboard/`); `lib/i18n.ts` + `locales/{tr,en}.ts` + `components/LanguageProvider.tsx` are the frontend's own language catalog and Context. `lib/storage.ts` now keeps the conversation list, folders, and messages in the backend's `/api/history*` endpoints instead of the browser's `localStorage` (optimistic writes + background sync); a browser's pre-upgrade `localStorage` history is automatically merged into the server on first load, without being deleted. `manifest.webmanifest`, `sw.js`, and `offline.html` under `public/` let the dashboard be installed as a PWA and show its own offline page when the server can't be reached (see [Installing as an app on your phone](#installing-as-an-app-on-your-phone-pwa)).
@@ -784,8 +789,9 @@ If you want to rename the assistant, note that `APP_NAME` in `backend/.env` only
 
 ## Security Notes
 
-- Every backend endpoint is protected by `AUTH_TOKEN`; generate it unguessably at random (`rona edit auth reset`) and never share it.
-- The web dashboard uses the same `AUTH_TOKEN` as the backend and proxies your requests to it with that token; if you expose the dashboard beyond `127.0.0.1` (e.g. `WEB_HOST=0.0.0.0`), put it behind a reverse proxy with TLS and restrict `WEB_ALLOWED_HOSTS` to your real domain.
-- The dashboard's `/host/*` endpoints (starting/stopping the backend, tailing its log, and now installing/updating/removing packages) have no authentication of their own -- `/host/packages/*` included, at the same access level as the "restart" button. Keep the dashboard reachable only from a network you actually trust (your own VPN, say).
+- Every backend endpoint is protected by `AUTH_TOKEN` (at least 32 characters); generate it unguessably at random (`rona edit auth reset`) and never share it. The backend listens only on `127.0.0.1` by default; if you bind another address, use TLS (`SSL_CERTFILE`/`SSL_KEYFILE`) or a TLS-terminating reverse proxy.
+- The web dashboard is protected by a password (`rona web password`; a signed HttpOnly SameSite=Strict session cookie, rate-limited failed attempts, CSP and security headers). It shares the backend's `AUTH_TOKEN` and proxies your requests with it, so whoever logs in controls the whole backend. Without a password the dashboard stays locked and won't start on a non-loopback `WEB_HOST`. If you expose it beyond `127.0.0.1`, serve it behind a TLS reverse proxy or VPN, restrict `WEB_ALLOWED_HOSTS` to your real domain and set `WEB_COOKIE_SECURE=true` if needed.
+- The dashboard's `/host/*` endpoints (starting/stopping the backend, tailing its log, installing/updating/removing packages) as well as `/api/*`, `/chat*` and `/health` require a valid dashboard session (only `/host/healthz` is open); still, `/host/packages/*` amounts to code execution on the server (packages run with the backend's full privileges) -- use only a catalog you trust and pin it with `--source ...@<sha>` where possible. The trusted-host assumption remains: anyone with shell access as the same OS user can read the `.env` files (tokens, password hash, session secret); they are written with `0600` permissions where the OS supports it.
 - Sensitive tool calls (sending email, deleting a person/task/memory, etc.) always go through user confirmation; calls pre-approved via `create_task` can only ever run with the exact parameters they were defined with — the executor cannot change them. Adding or editing a memory (including the `deep` layer) never asks for confirmation -- layers are already managed automatically by consolidation; deleting a person is still confirmed and moves their memories to the archive instead of deleting them outright.
 - If you suspect any key or token has leaked, revoke and regenerate it with the relevant provider immediately, and rotate `AUTH_TOKEN` (`rona edit auth reset`).
+- Prompt injection: tool output (web pages, emails, calendar, contacts) is fenced in `<untrusted_data>` and the model is told to treat it as data; once a turn/run has read untrusted content, tool calls that could leak data or persist content need approval (they are refused in unattended task/sub-agent runs). This is a mitigation, not a guarantee. See [SECURITY.md](SECURITY.md) for details and a hardening checklist.

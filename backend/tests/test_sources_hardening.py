@@ -372,3 +372,24 @@ def test_data_filter_path_still_used_when_available(tmp_path):
     dest.mkdir()
     with tarfile.open(archive) as tar, pytest.raises(tarfile.TarError):
         _safe_extract(tar, dest)
+
+
+def test_entry_path_starting_with_dash_is_rejected():
+    for bad in ("-rf", "--no-cone/pkg"):
+        with pytest.raises(SourceError, match="'-'"):
+            sources._validate_entry_path(bad, origin="o", pkg_id="p")
+    assert sources._validate_entry_path("packages/-ok", origin="o", pkg_id="p")
+
+
+def test_sparse_checkout_set_separates_paths_with_double_dash(git_repo, tmp_path, monkeypatch):  # noqa: F811
+    calls = []
+    real = GitSource._run
+
+    def spy(self, args, cwd=None):
+        calls.append(list(args))
+        return real(self, args, cwd=cwd)
+
+    monkeypatch.setattr(GitSource, "_run", spy)
+    GitSource(url=str(git_repo), ref="main")._sparse_clone(tmp_path / "clone", ["packages"])
+    setcall = next(c for c in calls if c[:3] == ["git", "sparse-checkout", "set"])
+    assert setcall[3] == "--"

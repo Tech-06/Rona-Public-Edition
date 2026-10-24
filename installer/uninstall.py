@@ -19,6 +19,7 @@ explicit ask.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import io
 import json as jsonlib
 import shutil
@@ -55,11 +56,29 @@ def _custom_package_paths(root: Path) -> list[Path]:
     custom_dir = root / "backend" / "toolbox" / "custom"
     if not custom_dir.is_dir():
         return []
+    # Dotfiles are bookkeeping (.manager.lock, .gitkeep, and .preserved --
+    # the user's preserved OAuth tokens, which the user-data item owns).
     return [
         p
         for p in custom_dir.iterdir()
-        if p.name not in ("__init__.py", ".gitkeep", "__pycache__", "installed.json")
+        if not p.name.startswith(".")
+        and p.name not in ("__init__.py", "__pycache__", "installed.json")
     ]
+
+
+def _user_owned_files(root: Path) -> list[Path]:
+    """Prompt overrides (incl. the user's personal user.md) and preserved
+    OAuth tokens. The directories themselves stay: prompts/custom/.gitkeep
+    is tracked by git."""
+    backend_dir = root / "backend"
+    found: list[Path] = []
+    for directory in (
+        backend_dir / "prompts" / "custom",
+        backend_dir / "toolbox" / "custom" / ".preserved",
+    ):
+        if directory.is_dir():
+            found.extend(p for p in directory.iterdir() if p.name != ".gitkeep")
+    return found
 
 
 def _path_shim_exists() -> bool:
@@ -92,7 +111,8 @@ def _detect(root: Path) -> dict[str, bool]:
                 backend_dir / "rona.db",
                 backend_dir / "rona_checkpoints.db",
             )
-        ),
+        )
+        or bool(_user_owned_files(root)),
         "tool-packages": bool(_custom_package_paths(root)),
         "runtime": any(p.exists() for p in (backend_dir / "rona.pid", web_dir / "webui.pid")),
     }
@@ -166,6 +186,15 @@ def _remove_user_data(root: Path) -> None:
         path.unlink(missing_ok=True)
     for log_file in backend_dir.glob("rona.log.*"):
         log_file.unlink(missing_ok=True)
+    for path in _user_owned_files(root):
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
+    # .preserved is empty now and only ever created by the manager; drop it
+    # so a later "tool packages" check never sees leftovers.
+    with contextlib.suppress(OSError):
+        (root / "backend" / "toolbox" / "custom" / ".preserved").rmdir()
 
 
 def _remove_tool_packages(root: Path) -> None:

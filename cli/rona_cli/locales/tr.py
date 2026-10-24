@@ -358,4 +358,5 @@ STRINGS: dict[str, str] = {
     "auth.help_stdin": "token'ı stdin'den tek satır olarak oku",
     "auth.token_prompt": "Yeni AUTH_TOKEN (giriş gizli): ",
     "auth.no_token_source": "token verilmedi: --stdin kullanın ya da bir terminalde çalıştırıp istemi doldurun",
+    "auth.token_conflict": "token argümanı ve --stdin birlikte kullanılamaz",
 }

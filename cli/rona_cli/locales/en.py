@@ -358,4 +358,5 @@ STRINGS: dict[str, str] = {
     "auth.help_stdin": "read the token from one line of stdin",
     "auth.token_prompt": "New AUTH_TOKEN (input hidden): ",
     "auth.no_token_source": "no token given: pass --stdin, or run in a terminal to be prompted",
+    "auth.token_conflict": "a token argument and --stdin cannot be used together",
 }

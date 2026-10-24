@@ -18,6 +18,8 @@ STRINGS: dict[str, str] = {
     "main.git_not_found": "git not found (not required for this install, informational only).",
     "main.no_components_selected": "No components selected, exiting.",
     "main.node_required": "The web dashboard can't be installed without Node.js (or drop it with --components).",
+    "main.node_too_old": 'Node.js {found} was installed, but the dashboard needs Node.js {min}+ (a distro package is often older). Install a current one -- NodeSource (https://github.com/nodesource/distributions), nvm (https://github.com/nvm-sh/nvm) or fnm (https://github.com/Schniz/fnm) -- then run the installer again.',
+    "main.node_unreadable": "Node.js was installed but can't be read from PATH yet. Open a new terminal and run the installer again.",
     "main.auth_token_set": "AUTH_TOKEN set (the backend and web .env files match).",
     "envgen.short_token_replaced": (
         "The existing AUTH_TOKEN is shorter than {min} characters; generated a new one."
@@ -63,6 +65,10 @@ STRINGS: dict[str, str] = {
     "steps.backend.installing_deps": "Installing dependencies (this can take a while)...",
     "steps.backend.preparing_db": "Preparing the database...",
     "steps.backend.db_failed": "Database preparation failed.",
+    "steps.backend.restoring_package_deps": "Restoring installed tool packages' dependencies...",
+    "steps.backend.package_deps_failed": 'Could not reinstall tool package dependencies ({detail}). The core works; run `python -m toolbox.manager reinstall-deps` in backend/ to retry.',
+    "steps.backend.packages_unhealthy": "These tool packages failed their health check: {names} (check with `python -m toolbox.manager verify <id>` in backend/).",
+    "steps.backend.package_deps_restored": 'Tool package dependencies restored ({count} package(s)).',
     "steps.backend.done": "Backend installed.",
     # -- steps/web.py -----------------------------------------------------------------
     "steps.web.title": "Web dashboard",
@@ -153,7 +159,7 @@ STRINGS: dict[str, str] = {
     "uninstall.item_environments": "Environments (virtual envs, node_modules, built dashboard)",
     "uninstall.item_path": "PATH integration (the rona command)",
     "uninstall.item_state": "Install state (~/.rona/config.json)",
-    "uninstall.item_user_data": "User data (.env files, database, log)",
+    "uninstall.item_user_data": "User data (.env files, database, log, prompt overrides, preserved tokens)",
     "uninstall.item_tool_packages": "Installed tool packages",
     "uninstall.item_runtime": "Runtime artifacts (pid, lock, log files)",
     "uninstall.title": "Rona uninstall",

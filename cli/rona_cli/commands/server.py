@@ -18,7 +18,7 @@ import sys
 import time
 from typing import Any
 
-from rona_cli import envio, http, i18n, procutil, ui
+from rona_cli import backend_client, envio, http, i18n, procutil, ui
 from rona_cli.paths import RonaNotFoundError, RonaPaths, find_root
 
 START_TIMEOUT_SECONDS = 25
@@ -27,23 +27,12 @@ POLL_INTERVAL_SECONDS = 0.5
 EARLY_EXIT_CHECK_SECONDS = 1.5
 
 
-def _env_host_port(env: dict[str, str]) -> tuple[str, int]:
-    host = env.get("HOST", "0.0.0.0") or "0.0.0.0"
-    if host in ("0.0.0.0", ""):
-        host = "127.0.0.1"
-    try:
-        port = int(env.get("PORT", "8000") or "8000")
-    except ValueError:
-        port = 8000
-    return host, port
-
-
 def _client(paths: RonaPaths) -> tuple[http.Client, str, int, bool]:
     env = envio.read_env_file(paths.backend_env)
-    host, port = _env_host_port(env)
+    host, port = backend_client.env_host_port(env)
     token = env.get("AUTH_TOKEN", "")
     return (
-        http.Client(base_url=f"http://{host}:{port}", token=token, timeout=2.0),
+        backend_client.make_client(env, token=token, timeout=2.0),
         host,
         port,
         bool(token),

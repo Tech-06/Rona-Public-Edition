@@ -70,7 +70,7 @@ rona tools uninstall <id>
 
 Bir paketin ayarları kurulumdan sonra da değişebilir: `rona tools config <id>` (ya da web panelinde **Ayarlar → Bağlantılar → Araç paketleri → Yapılandır**) aynı `.env`/`config.json` yollarını kullanır. Bazı paketler ayrıca **işlem** sunar -- araçlardan farklı olarak bunları model değil siz çağırırsınız (bir Google hesabını yetkilendirmek gibi); hem `rona tools run` ile hem de aynı panelden çalıştırılabilirler.
 
-Kurulum, güncelleme ve kaldırma da artık terminale mecbur değil: web panelinde **Ayarlar → Bağlantılar → Katalog** sekmesinden bir paket seçip **Kur** ya da **Güncelle**'ye basarsanız önce bağımlılık planı (kurulacak/güncellenecek paketler) gösterilir ve onay istenir; onaylarsanız işlem arka planda çalışır ve logu canlı akar. Web'den kurulum zorunlu ayarları hemen sormaz -- paket önce kurulur, ardından açılan yapılandırma panelinden girilir. **Kurulu** sekmesinden kaldırırken kullanıcı verileri (token'lar, oturumlar vb.) varsayılan olarak saklanır; silmek isterseniz "kullanıcı verilerini de sil" kutusunu işaretleyin, ve başka bir paketin hâlâ ihtiyaç duyduğu bir paketi kaldırmak burada da engellenir. İşlem bitince backend paketleri kendiliğinden yeniden yükler; pip bir paketi güncellediyse bir yeniden başlatma önerisi gösterilir. `rona tools available`, kurulu bir paketin yeni bir sürümü varsa bunu `kurulu X → Y güncellemesi var` diye işaretler ve listenin sonunda `rona tools update <paket>` ipucu verir.
+Kurulum, güncelleme ve kaldırma da artık terminale mecbur değil: web panelinde **Ayarlar → Bağlantılar → Katalog** sekmesinden bir paket seçip **Kur** ya da **Güncelle**'ye basarsanız önce bağımlılık planı (kurulacak/güncellenecek paketler) gösterilir ve onay istenir; onaylarsanız işlem arka planda çalışır ve logu canlı akar. Web'den kurulum zorunlu ayarları hemen sormaz -- paket önce kurulur, ardından açılan yapılandırma panelinden girilir. **Kurulu** sekmesinden kaldırırken kullanıcı verileri (token'lar, oturumlar vb.) varsayılan olarak saklanır; silmek isterseniz "kullanıcı verilerini de sil" kutusunu işaretleyin, ve başka bir paketin hâlâ ihtiyaç duyduğu bir paketi kaldırmak burada da engellenir. İşlem bitince backend paketleri kendiliğinden yeniden yükler; pip bir paketi güncellediyse bir yeniden başlatma önerisi gösterilir. `rona tools available`, kurulu bir paketin yeni bir sürümü varsa bunu `kurulu X → Y güncellemesi var` diye işaretler ve listenin sonunda `rona tools update <paket>` ipucu verir. Dosya türündeki alanlar (ör. Google `credentials.json`) panelde tarayıcıdan yüklenir; sunucudaki bir yolu elle yazmanız gerekmez.
 
 **Bağımlılıklar.** Bir paket, ihtiyaç duyduğu diğer paketleri kendi manifest'inde bildirir ve katalog bunu `index.json`'a da yazar; böylece kurulum, hiçbir şey indirmeden önce size ne olacağını söyleyebilir. `rona tools install google_calendar` önce "bu `google_auth`'u da kuracak" diye uyarır ve onay ister; kabul ederseniz `google_auth` tam olarak kurulup yapılandırıldıktan *sonra* asıl pakete geçilir. Başka bir paketin hâlâ ihtiyaç duyduğu bir paketi kaldırmak `--force` olmadan reddedilir. Bir bağımlılık ayrıca bir sürüm kısıtı taşıyabilir (`google_auth>=2.0`, `x~=2.1` gibi); kurulu bir paket bu kısıtı karşılamıyorsa registry bunu bir uyarı olarak işaretler (paket yine yüklenir) ve panelde gösterilir -- düzeltmek için ilgili paketi `rona tools update` ile güncelleyin.
 
@@ -129,7 +129,7 @@ Kişilik, çıktı biçimi, kullanıcı profili, araç kullanım kuralları, alt
 Üçüncü parti bağımlılığı olmayan, `pip install -e .` ile kurulan stdlib-only bir Python paketi. Backend'i ve web panelini terminalden başlatır/durdurur/durumunu gösterir, model/auth/`.env` ayarlarını düzenler, zamanlanmış görevleri ve çalışma geçmişini listeler, canlı log akışını izler. Bkz. [`rona` komut referansı](#rona-komut-referansı) ve [cli/README.md](cli/README.md).
 
 ### Web paneli
-React + Vite + TypeScript ile yazılmış bir tek sayfa uygulaması: canlı akışlı, markdown destekli bir sohbet arayüzü ve tam bir yönetim paneli (sunucu durumu, dış bağlantı sağlık kontrolü, canlı log takibi, zamanlanmış görev ve alt ajan listeleri, notlar/kişiler/anılar için veri tarayıcısı, araç kataloğu, `.env` düzenleyici). Panel, backend'e yalnızca HTTP üzerinden bağlanan bağımsız bir FastAPI "backend-for-frontend" katmanı üzerinde çalışır ve backend'in Python koduna hiçbir şekilde bağımlı değildir.
+React + Vite + TypeScript ile yazılmış bir tek sayfa uygulaması: canlı akışlı, markdown destekli bir sohbet arayüzü ve tam bir yönetim paneli (sunucu durumu, dış bağlantı sağlık kontrolü, canlı log takibi, zamanlanmış görev ve alt ajan listeleri, notlar/kişiler/anılar için veri tarayıcısı, araç kataloğu, `.env` düzenleyici). Panel, backend'e yalnızca HTTP üzerinden bağlanan bağımsız bir FastAPI "backend-for-frontend" katmanı üzerinde çalışır ve backend'in Python koduna hiçbir şekilde bağımlı değildir. Panel bir parolayla korunur; giriş yapılmadan backend'e ya da `/host/*` uç noktalarına erişilemez (bkz. [Güvenlik Notları](#güvenlik-notları)).
 
 Sohbet geçmişi backend'in `rona.db`'sinde tutulur, böylece hangi cihazdan (bilgisayar, telefon) bağlanırsanız bağlanın aynı listeyi görürsünüz. Panel aynı zamanda bir PWA'dır: HTTPS üzerinden açıldığında (bkz. [Telefona uygulama olarak kurma](#telefona-uygulama-olarak-kurma-pwa)) telefonun ana ekranına eklenip ayrı bir uygulama gibi çalıştırılabilir, sunucuya ulaşılamadığında kendi çevrimdışı sayfasını gösterir.
 
@@ -147,7 +147,7 @@ Rona ile web panelindeki sohbet ekranından ya da CLI aracıyla aynı doğal dil
 - "Her hafta içi sabah 09:00'da bugünkü takvimimi özetle." → tekrarlayan bir zamanlanmış görev oluşturur.
 - "İstanbul'daki en iyi 5 kahve dükkanını araştır ve karşılaştır." → arka planda bir alt ajan başlatır, siz başka bir şey konuşurken çalışmaya devam eder.
 - "Geçen ay konuştuğumuz proje fikrini hatırlıyor musun?" → anılarında anlamsal arama yapar.
-- "Bu ekran görüntüsündeki hatayı İngilizceye çevir." → `translate_text` aracını kullanır.
+- "İstanbul'daki en iyi kahve dükkanlarını web'de araştır." → `web_search` paketi kuruluysa kullanılır (sohbet API'si yalnızca metin alır; ekran görüntüsü/dosya gönderilemez).
 
 ## Proje Yapısı
 
@@ -182,8 +182,8 @@ Rona Public Edition/
 
 ## Gereksinimler
 
-- **Python 3.11 veya üzeri** (kod tabanı `str | None` gibi birleşim tip söz dizimini kullandığından minimum 3.10 gerekir) -- [Hızlı kurulum](#hızlı-kurulum-önerilen) scripti eksikse kurulmasını önerir
-- **Node.js 18 veya üzeri** ve npm (yalnızca web panelinin arayüzünü derlemek için gerekir; backend'i veya CLI'yi kullanmak için gerekmez) -- yine kurulum scripti web paneli seçildiğinde eksikse kurulmasını önerir
+- **Python 3.11 veya üzeri** (`install.sh` sırayla `python3.13`, `python3.12`, `python3.11`, `python3`, `python`'ı dener; `install.ps1` `py -3.13/-3.12/-3.11`, ardından `python3`, `python`'ı dener; Ubuntu 22.04'te `python3.12` varsayılan depolarda yoktur: deadsnakes PPA ya da `uv python install 3.12`) -- [Hızlı kurulum](#hızlı-kurulum-önerilen) scripti eksikse kurulmasını önerir
+- **Node.js 18 veya üzeri** ve npm (yalnızca web panelinin arayüzünü derlemek için gerekir; backend'i veya CLI'yi kullanmak için gerekmez) -- yine kurulum scripti web paneli seçildiğinde eksikse kurulmasını önerir Kurulum aracı Node'u kurduktan sonra sürümü yeniden kontrol eder; hâlâ 18'den eskiyse NodeSource/nvm/fnm önerir.
 - **Git**
 - OpenAI API uyumlu bir LLM uç noktası ve API anahtarı (sohbetin çalışması için zorunlu; kurulum scripti bunu bir sihirbazla sorar)
 - İsteğe bağlı: bir Google Gemini API anahtarı (bellek aramasının embedding modeli için). Tavily/DeepL/OpenWeatherMap anahtarları ve bir Google Cloud OAuth istemci kimliği yalnızca ilgili [Rona Tools](https://github.com/Tech-06/Rona-Tools) paketini (`web_search`/`deepl_translate`/`weather`/`google_*`) kurmak isterseniz gerekir -- kurulum sırasında `toolbox.manager` sorar
@@ -215,7 +215,7 @@ cd Rona-Public-Edition
 0. **Dil sorar** (Türkçe / English) — her şeyden önce, iki dilde birden gösterilen tek bir soru. Seçtiğiniz dil kurulumun kendi çıktısını belirlediği gibi, kurulan üç ortamın da (backend'in konuşma dili, web panelinin arayüz dili, `rona`'nın kendi mesajları) varsayılanı olur; sonradan `rona edit lang` ile değiştirilebilir (bkz. [`rona` komut referansı](#rona-komut-referansı)). `--yes`/`--json` ile çalıştırılırsa sorulmaz, `tr` varsayılır; `--lang tr|en` ile baştan belirtilebilir.
 1. Hangi bileşenlerin kurulacağını sorar (**CLI**, **Backend**, **Web paneli** — varsayılan: hepsi seçili). Web paneli seçiliyse Node.js'in kurulu olup olmadığını da kontrol eder, gerekirse aynı şekilde onaylı kurar.
 2. Her seçilen bileşen için bağımsız bir sanal ortam oluşturup bağımlılıklarını kurar; backend seçiliyse veritabanını hazırlar, web paneli seçiliyse arayüzü derler (`npm ci && npm run build`).
-3. `AUTH_TOKEN`'ı bir kez rastgele üretip hem `backend/.env` hem `web-client/.env` dosyasına yazar; ikisi böylece otomatik olarak birebir eşleşir.
+3. `AUTH_TOKEN`'ı bir kez rastgele üretip hem `backend/.env` hem `web-client/.env` dosyasına yazar; ikisi böylece otomatik olarak birebir eşleşir. Web paneli kuruluyorsa panel parolası da sorulur (boş bırakırsanız atlanır; sonradan `rona web password`).
 4. Backend kurulduysa, etkileşimli bir sihirbazla Flash (zorunlu), Pro (isteğe bağlı) ve embedding (isteğe bağlı) model bilgilerinizi sorar. Her adım `s` yazılarak atlanabilir; girilen değerler kaydedilmeden önce gerçek bir API çağrısıyla test edilir, test başarısız olursa "tekrar gir / yine de kaydet / atla" seçenekleri sunulur. API anahtarları ekrana asla yazılmaz.
 5. Ardından, yine backend kurulduysa, [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini (web arama, hava durumu, Google entegrasyonları vb.) numaralı bir listeden seçmenizi ister — hiçbiri varsayılan olarak işaretli gelmez, istediğiniz kadarını seçebilir ya da tamamen atlayabilirsiniz. Sonradan `rona tools install <id>` ile eklemeye devam edebilirsiniz.
 6. `rona` komutunu terminalinizde kullanılabilir hale getirir (Windows'ta kullanıcı PATH'ine, macOS/Linux'ta `~/.local/bin`'e bir shim ekleyerek — zaten PATH'teyse dokunmaz).
@@ -234,7 +234,7 @@ Zaten kurulu bir Rona'yı onarmak veya güncellemek için scripti tekrar çalı�
 ./install.sh --repair      # Windows'ta: .\install.ps1 --repair
 ```
 
-Scriptin diğer seçenekleri: `--components cli,backend,web` (seçim menüsünü göstermeden belirli bileşenleri seç), `--yes` (hiç sormadan devam et, sihirbazı atla), `--json` (makine tarafından okunabilir tek satır özet).
+Scriptin diğer seçenekleri: `--components cli,backend,web` (seçim menüsünü göstermeden belirli bileşenleri seç), `--yes` (hiç sormadan devam et, sihirbazı atla), `--json` (makine tarafından okunabilir tek satır özet). Onarım ayrıca kurulu araç paketlerinin Python bağımlılıklarını yeniden kurar (backend'in sanal ortamı sıfırlandığı için): `python -m toolbox.manager reinstall-deps` çalışır, ardından her paket için `verify <id>`; hatalar uyarı olarak gösterilir. Elle: `cd backend && .venv/bin/python -m toolbox.manager reinstall-deps` (Windows'ta `.venv\Scripts\python`).
 
 ### `rona` komut referansı
 
@@ -246,6 +246,7 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona server start\|stop\|restart\|status` | Backend sürecini yönet |
 | `rona web start\|stop\|restart\|status` | Web panelini yönet |
 | `rona web build` | Web panelinin arayüzünü derle (npm ci/install + npm run build); güncellemeden sonra gerekir, bkz. [Güncelleme](#güncelleme) |
+| `rona web password [--stdin]` | Web panelinin giriş parolasını belirle/değiştir (gizli, onaylı istem; `--stdin` ile boruyla); mevcut oturumları kapatır, panelin yeniden başlatılması gerekmez |
 | `rona edit model flash\|pro\|embedding [--name --url --key --headers --test]` | Model ayarlarını düzenle; `--test` kaydetmeden önce gerçek bir API çağrısıyla doğrular |
 | `rona edit auth get\|reset\|set` | Paylaşılan `AUTH_TOKEN`'ı görüntüle/yeniden üret/ayarla (her zaman iki `.env` dosyasına birden yazar) |
 | `rona edit env [--web]` | `.env` dosyasını `$EDITOR`'da aç (varsayılan: backend) |
@@ -253,7 +254,7 @@ Kurulum scripti bittikten sonra Rona'yı terminalden yönetmek için `rona` komu
 | `rona edit memory consolidate run [--dry-run]\|status\|config` | Konsolidasyonu (otomatik terfi/arşiv/silme) çalıştır, durumunu göster ya da eşiklerini düzenle |
 | `rona edit lang [tr\|en] [--backend --web --cli]` | Üç bileşenin de dilini göster/ayarla; hedef belirtilmezse üçünü birden değiştirir |
 | `rona edit prompt list\|show\|edit\|reset` | Kimlik/davranış promptlarını (9 `.md` dosyası) görüntüle/düzenle/varsayılana döndür (çalışan bir backend gerekir) |
-| `rona tools list\|available\|install\|update\|uninstall\|verify` | [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini yönet (backend'in `toolbox.manager`'ına devreder) |
+| `rona tools list\|available\|install\|update\|uninstall [--force] [--purge]\|verify` | [Rona Tools](https://github.com/Tech-06/Rona-Tools) kataloğundaki isteğe bağlı araç paketlerini yönet (backend'in `toolbox.manager`'ına devreder) |
 | `rona tools config <id> [--set k=v] [--edit]` | Kurulu bir paketin ayarlarını göster ya da değiştir (sırlar maskelenir) |
 | `rona tools actions <id>` / `rona tools run <id> <işlem>` | Paketin operatöre dönük işlemlerini listele/çalıştır (ör. `google_auth add_account`) |
 | `rona task list\|del\|toggle` | Zamanlanmış görevleri listele/sil/aktif-pasif değiştir |
@@ -285,7 +286,7 @@ Tüm bileşenleri sıfırdan kurmak isterseniz [Hızlı kurulum](#hızlı-kurulu
 
 Web paneli bir PWA'dır (Progressive Web App): Android'de Chrome'un "Uygulamayı yükle" seçeneğiyle ana ekrana eklenebilir ve adres çubuğu olmadan, ayrı bir uygulama gibi açılır. Sohbet geçmişi backend'de (`rona.db`) tutulduğu için hangi cihazdan bağlanırsanız bağlanın aynı listeyi görürsünüz.
 
-Chrome bu seçeneği **yalnızca HTTPS üzerinden** sunar. Paneli şu an `http://<makine>:8016` gibi düz bir adresten kullanıyorsanız, önce onu HTTPS üzerinden erişilebilir hale getirmeniz gerekir. Bunu nasıl yapacağınız sunucunuzu nasıl işlettiğinize bağlıdır -- kendi alan adınız ve bir TLS sertifikasıyla bir ters proxy (nginx/Caddy gibi), bir tünel servisi, ya da cihazlarınızı birbirine bağlayan bir VPN/mesh ağı, hangisini zaten kullanıyorsanız onunla devam edebilirsiniz; bu depo belirli bir yöntemi zorunlu kılmaz.
+Chrome bu seçeneği **yalnızca HTTPS üzerinden** sunar. Paneli şu an `http://<makine>:8016` gibi düz bir adresten kullanıyorsanız, önce onu HTTPS üzerinden erişilebilir hale getirmeniz gerekir. Uzaktan erişimi yalnızca kimliği doğrulanmış bir kanaldan açın: tercihen Tailscale/WireGuard gibi bir VPN/mesh ağı, ya da TLS'li ve önünde ayrı bir kimlik doğrulama katmanı olan bir ters proxy (Caddy `forward_auth` + Authelia/Authentik, Cloudflare Access). Düz bir tünel servisi yalnızca panel parolası **ve** HTTPS ile birlikte kabul edilebilir; bu depo belirli bir yöntemi zorunlu kılmaz.
 
 HTTPS adresiniz hazır olduğunda:
 
@@ -295,7 +296,7 @@ HTTPS adresiniz hazır olduğunda:
    ```bash
    rona web restart
    ```
-   Bu adı eklemezseniz `TrustedHostMiddleware` isteği 400 ile reddeder.
+   Bu adı eklemezseniz `TrustedHostMiddleware` isteği 400 ile reddeder. Aynı adın `WEB_ALLOWED_HOSTS`'ta olması şarttır; oturum çerezi HTTPS'te (ya da `X-Forwarded-Proto` ileten bir proxy arkasında) otomatik `Secure` olur, `WEB_COOKIE_SECURE=true` ile zorlayabilirsiniz.
 4. Telefonda Chrome'da HTTPS adresinizi açın. Chrome menüsünden **"Uygulamayı yükle"**yi, ya da panel içinden **Ayarlar → Görünüm → "Uygulama olarak yükle"**yi seçin.
 5. İsteğe bağlı: düz HTTP erişimini kapatmak isterseniz `WEB_HOST=127.0.0.1` yapıp eski adresi `WEB_ALLOWED_HOSTS`'tan çıkarın -- panele yalnızca HTTPS adresiniz üzerinden erişilebilir kalır.
 
@@ -317,7 +318,7 @@ Bootstrap deseni `install.ps1`/`install.sh` ile aynıdır (bir Python 3.11+ yoru
 - **Ortamlar** — sanal ortamlar (`cli/.venv`, `backend/.venv`, `web-client/.venv`), `node_modules`, derlenmiş panel
 - **PATH entegrasyonu** — `rona` komutunun shim'i ve PATH girdisi
 - **Kurulum durumu** — `~/.rona/config.json`
-- **Kullanıcı verisi** — `.env` dosyaları, `rona.db`, loglar; seçilirse silmeden önce API anahtarlarınızın, anılarınızın, kişilerinizin ve görevlerinizin kalıcı olarak kaybolacağını söyleyen **ayrı bir ikinci onay** ister
+- **Kullanıcı verisi** — `.env` dosyaları, `rona.db`, loglar; seçilirse silmeden önce API anahtarlarınızın, anılarınızın, kişilerinizin ve görevlerinizin kalıcı olarak kaybolacağını söyleyen **ayrı bir ikinci onay** ister. Bu seçenek ayrıca `backend/prompts/custom/*` (prompt özelleştirmeleri, `user.md` dahil) ve `backend/toolbox/custom/.preserved/` (korunmuş OAuth token'ları) dosyalarını da siler
 - **Kurulu araç paketleri** — `backend/toolbox/custom/` altına kurulmuş isteğe bağlı paketler
 - **Çalışma artıkları** — pid/lock/log dosyaları
 
@@ -626,7 +627,10 @@ Google Takvim/Kişiler/Gmail paketleri de bir ortam değişkeni değil, doğruda
 | `AUTH_TOKEN` | Evet | — | `backend/.env` içindeki `AUTH_TOKEN` ile birebir aynı olmalı (`rona edit auth reset` ikisine birden yazar) |
 | `WEB_HOST` / `WEB_PORT` | Hayır | `127.0.0.1` / `8016` | Panelin dinleyeceği adres ve port |
 | `BACKEND_URL` | Hayır | `http://127.0.0.1:8000` | Backend'in adresi |
-| `WEB_ALLOWED_HOSTS` | Hayır | `localhost,127.0.0.1` | `TrustedHostMiddleware` izin listesi |
+| `WEB_PASSWORD_HASH` / `WEB_SESSION_SECRET` | Hayır | boş | Panel giriş parolasının scrypt özeti ve oturum çerezini imzalayan sır; elle düzenlemeyin, `rona web password` (ya da kurulum aracı) ikisini birlikte yazar. Parola yokken panel kilitli kalır ve `WEB_HOST` loopback dışındaysa hiç açılmaz |
+| `WEB_SESSION_DAYS` | Hayır | `30` | Oturum çerezinin geçerlilik süresi (gün) |
+| `WEB_COOKIE_SECURE` | Hayır | `auto` | `auto` (HTTPS'te ya da `X-Forwarded-Proto` ileten proxy arkasında `Secure`), `true` ya da `false` |
+| `WEB_ALLOWED_HOSTS` | Hayır | `localhost,127.0.0.1` | `TrustedHostMiddleware` izin listesi; panele bir alan adıyla erişiyorsanız o adı ekleyin |
 | `UI_LANGUAGE` | Hayır | `tr` | Panelin varsayılan dili (`tr`/`en`) -- her tarayıcı Ayarlar → Görünüm'den kendi seçimini yapıp bunu geçersiz kılabilir, `.env`'e dokunmadan; `rona edit lang` ile değiştirilir, restart gerekir |
 | `LOG_LEVEL` | Hayır | `INFO` | Log seviyesi |
 | `BACKEND_DIR` | Hayır | `../backend` | Yalnızca yerel geliştirme kolaylıkları (backend'i başlat/durdur, log takibi, salt-okunur veritabanı görünümü) için; yol geçersizse bu özellikler sessizce "kullanılamıyor" döner, panel çalışmaya devam eder |
@@ -704,9 +708,10 @@ Backend'in ana uç noktaları `/health`, `/chat`, `/chat/stream`'dir; yönetim/i
 `web-client/`, backend'den tamamen bağımsız, kendi `.env`'ini okuyan bir **FastAPI BFF (backend-for-frontend)** katmanıdır:
 
 - **`webui/server.py`** — `/api/*`, `/chat`, `/chat/stream`, `/health` isteklerini backend'e proxy'ler (`proxy.py`); derlenmiş React arayüzünü (`frontend/`'den `npm run build` ile üretilen `webui/dist/`) statik dosya olarak sunar; PWA dosyalarını (`manifest.webmanifest`, `sw.js`, `offline.html`, ikonlar) ve `index.html`'i her zaman `Cache-Control: no-cache` ile sunar, böylece bir `npm run build` panel yeniden başlatılmadan tarayıcılara yansır; bir CSRF koruma ara katmanı (güvenli olmayan metodlarda `Content-Type`/`Sec-Fetch-Site` kontrolü) ve `TrustedHostMiddleware` uygular.
+- **`webui/auth.py`** — parola girişi ve imzalı oturum çerezi (`rona_session`, HttpOnly, SameSite=Strict): `/api/*`, `/chat*`, `/health` ve `/host/*` (yalnızca `/host/healthz` hariç) geçerli bir oturum ister; yalnızca SPA kabuğu ve statik dosyalar herkese açıktır. İlk parola web'den belirlenemez (`rona web password` ya da kurulum aracı gerekir), art arda başarısız denemeler sınırlanır, parola yokken loopback dışı `WEB_HOST`'ta panel açılmayı reddeder. `server.py` ayrıca CSP ve diğer güvenlik başlıklarını ekler.
 - **`webui/frontend_build.py`** — derlenmiş arayüzün (`webui/dist/`) kaynak koddan (`frontend/src`, `frontend/public`, ...) eski olup olmadığını değiştirilme zamanlarını karşılaştırarak tespit eder; sonucu `/host/healthz`'in `frontend_stale` alanında bildirir. `rona web status`/`start`/`restart` bunu okuyup bir `git pull` sonrası unutulan derlemeyi uyarı olarak gösterir (bkz. [Güncelleme](#güncelleme)).
-- **`webui/host.py`** — yalnızca yerel geliştirme kolaylığı için: `BACKEND_DIR` altında backend sürecini başlatıp durdurma, logunu kuyruklama, `systemctl` varsa onun üzerinden yönetme (`/host/*` uç noktaları). Backend farklı bir makinede çalışıyorsa bu uç noktalar devre dışı kalır, panel yine de proxy üzerinden backend'e bağlanmaya devam eder.
-- **`webui/db.py`** — `BACKEND_DIR` içindeki `rona.db`'yi salt okunur açıp bazı yönetim görünümlerini (`/host/db/tasks`, `/host/db/subagents`) "degraded" (backend API'sinden değil, doğrudan dosyadan) modda sunar; dosya bulunamazsa boş sonuç döner.
+- **`webui/host.py`** — yalnızca yerel geliştirme kolaylığı için: `BACKEND_DIR` altında backend sürecini başlatıp durdurma, logunu kuyruklama, `systemctl` varsa onun üzerinden yönetme (`/host/*` uç noktaları). Backend farklı bir makinede çalışıyorsa bu uç noktalar devre dışı kalır, panel yine de proxy üzerinden backend'e bağlanmaya devam eder. Tüm `/host/*` uç noktaları (`/host/healthz` hariç) giriş yapılmış bir oturum ister.
+- **`webui/db.py`** — `BACKEND_DIR` içindeki `rona.db`'yi salt okunur (`mode=ro` URI'siyle; yazma denemeleri SQLite tarafından reddedilir) açıp bazı yönetim görünümlerini (`/host/db/tasks`, `/host/db/subagents`) "degraded" (backend API'sinden değil, doğrudan dosyadan) modda sunar; dosya bulunamazsa boş sonuç döner.
 - **`webui/supervisor.py`** — `python -m webui start|stop|restart|status` komutunu uygulayan, panelin kendi `uvicorn` sürecini yöneten basit bir denetleyici.
 - **`webui/i18n.py`** + **`webui/locales/{tr,en}.py`** — panelin kendi (proxy/host) hata mesajlarının dil kataloğu; `UI_LANGUAGE` `.env`'inden okunur. SPA fallback bunu `frontend/dist/index.html`'e sunmadan önce `<html lang>` ve `window.__RONA_LANG__` olarak sayfaya işler, böylece React ilk boyamadan önce doğru dilde açılır (tarayıcıdaki `localStorage["rona:lang"]` seçimi bunu ezip `.env`'e hiç dokunmadan geçersiz kılabilir).
 - **`frontend/`** — React + Vite + TypeScript kaynak kodu: canlı akışlı sohbet arayüzü (`components/chat/`) ve durum/bağlantı/yapılandırma/araç/görev/alt ajan/log/veri panellerinden oluşan yönetim arayüzü (`components/dashboard/`); `lib/i18n.ts` + `locales/{tr,en}.ts` + `components/LanguageProvider.tsx` frontend'in kendi dil kataloğu ve Context'idir. `lib/storage.ts`, sohbet listesini/klasörleri/mesajları artık tarayıcı `localStorage`'ında değil backend'in `/api/history*` uç noktalarında tutar (iyimser yazma + arka planda senkron); bir tarayıcının güncelleme öncesinden kalan eski `localStorage` geçmişi ilk açılışta otomatik olarak sunucuyla birleştirilir, silinmeden. `public/` altındaki `manifest.webmanifest`, `sw.js` ve `offline.html`, panelin PWA olarak kurulabilmesini ve sunucuya ulaşılamadığında kendi çevrimdışı sayfasını göstermesini sağlar (bkz. [Telefona uygulama olarak kurma](#telefona-uygulama-olarak-kurma-pwa)).
@@ -784,8 +789,9 @@ Asistanın adını değiştirmek isterseniz `backend/.env` içindeki `APP_NAME`'
 
 ## Güvenlik Notları
 
-- Backend'in tüm uç noktaları `AUTH_TOKEN` ile korunur; bu token'ı tahmin edilemeyecek şekilde rastgele üretin (`rona edit auth reset`) ve kimseyle paylaşmayın.
-- Web paneli, backend ile aynı `AUTH_TOKEN`'ı kullanır ve isteklerinizi backend'e bu token ile proxy'ler; paneli `127.0.0.1` dışına açacaksanız (ör. `WEB_HOST=0.0.0.0`) mutlaka bir ters proxy arkasında TLS ile sunun ve `WEB_ALLOWED_HOSTS`'u gerçek alan adınızla sınırlayın.
-- Web panelinin `/host/*` uç noktalarının (backend'i başlatma/durdurma, log takibi, ve artık paket kurma/güncelleme/kaldırma) kendine ait bir kimlik doğrulaması yoktur -- `/host/packages/*` de dahil, sunucudaki "yeniden başlat" butonuyla aynı erişim düzeyine sahiptir. Paneli yalnızca güvendiğiniz bir ağdan (ör. kendi VPN'iniz) erişilebilir tutun.
+- Backend'in tüm uç noktaları `AUTH_TOKEN` ile korunur (en az 32 karakter); bu token'ı tahmin edilemeyecek şekilde rastgele üretin (`rona edit auth reset`) ve kimseyle paylaşmayın. Backend varsayılan olarak yalnızca `127.0.0.1`'i dinler; başka bir adrese açacaksanız TLS (`SSL_CERTFILE`/`SSL_KEYFILE`) ya da TLS'li bir ters proxy kullanın.
+- Web paneli bir parolayla korunur (`rona web password`; imzalı, HttpOnly, SameSite=Strict oturum çerezi, başarısız denemeler sınırlanır, CSP ve güvenlik başlıkları). Panel backend'in `AUTH_TOKEN`'ını paylaşır ve isteklerinizi bu token ile proxy'ler, yani panele giren backend'in tamamına erişir. Parola yokken panel kilitli kalır ve loopback dışı bir `WEB_HOST`'ta hiç açılmaz. Paneli `127.0.0.1` dışına açacaksanız TLS'li bir ters proxy ya da VPN arkasında sunun, `WEB_ALLOWED_HOSTS`'u gerçek alan adınızla sınırlayın ve gerekirse `WEB_COOKIE_SECURE=true` yapın.
+- Web panelinin `/host/*` uç noktaları (backend'i başlatma/durdurma, log takibi, paket kurma/güncelleme/kaldırma) ve `/api/*`, `/chat*`, `/health` geçerli bir panel oturumu ister (yalnızca `/host/healthz` açıktır); yine de `/host/packages/*` sunucuda kod çalıştırmak anlamına gelir (paketler backend'in tüm yetkileriyle çalışır) -- yalnızca güvendiğiniz bir kataloğu kullanın ve mümkünse `--source ...@<sha>` ile sabitleyin. Güvenilen ana makine varsayımı sürer: aynı işletim sistemi kullanıcısı olarak kabuk erişimi olan biri `.env` dosyalarını (token'lar, parola özeti, oturum sırrı) okuyabilir; dosyalar mümkün olduğunda `0600` izinleriyle yazılır.
 - Hassas araç çağrıları (e-posta gönderme, kişi/görev/anı silme vb.) her zaman kullanıcı onayından geçer; `create_task` ile önceden onaylanan çağrılar yalnızca tanımlandıkları parametrelerle çalışabilir, yürütücü bunları değiştiremez. Anı ekleme/düzenleme ("deep" katmanı dahil) onay istemez -- katmanlar zaten konsolidasyon tarafından otomatik yönetilir; bir kişiyi silmek yine onaylıdır ve bağlı anılarını kalıcı silmek yerine arşive taşır.
 - Herhangi bir anahtarın veya token'ın sızdığından şüpheleniyorsanız ilgili sağlayıcıda hemen iptal edip yeniden oluşturun ve `AUTH_TOKEN`'ı değiştirin (`rona edit auth reset`).
+- Prompt injection: araç çıktıları (web sayfaları, e-postalar, takvim, kişiler) `<untrusted_data>` etiketiyle çitlenir ve modele veri olarak işlenmesi söylenir; bir tur/çalıştırma güvenilmeyen içerik okuduktan sonra veri sızdırabilecek ya da kalıcı kayıt yazabilecek araç çağrıları onaya tabi olur (gözetimsiz görev/alt ajan çalıştırmalarında reddedilir). Bu bir azaltımdır, mutlak koruma değildir. Ayrıntılar ve sertleştirme listesi için [SECURITY.md](SECURITY.md).

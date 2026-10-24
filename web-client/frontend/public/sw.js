@@ -11,9 +11,11 @@
 // non-navigation request (api/client.ts's fetches, /chat/stream's SSE,
 // /assets/*, /host/*) is left alone entirely, and a navigation always
 // tries the network first, only ever falling back to the cached
-// offline.html when the network is unreachable.
+// offline.html when the network is unreachable. The one exception is the
+// exact PRECACHE_URLS paths (the offline page's own scripts): they are
+// fetched network-first too, with the cached copy as the offline fallback.
 
-const CACHE_NAME = "rona-offline-v2";
+const CACHE_NAME = "rona-offline-v3";
 const OFFLINE_URL = "/offline.html";
 // offline.html's scripts are external (CSP script-src 'self'), so they have
 // to be cached too or the offline page would render without its logic.
@@ -40,26 +42,45 @@ self.addEventListener("activate", (event) => {
 });
 
 function refreshOfflinePage() {
-  // Best-effort, off the response path: keeps the cached fallback from
-  // drifting out of sync with a redeployed offline.html even though sw.js
-  // itself didn't change (a byte-for-byte identical sw.js never triggers
-  // the browser's own update-and-reinstall check).
+  // Best-effort, off the response path: keeps the cached fallback (the page
+  // and its scripts) from drifting out of sync with a redeployed build even
+  // though sw.js itself didn't change (a byte-for-byte identical sw.js never
+  // triggers the browser's own update-and-reinstall check).
   caches
     .open(CACHE_NAME)
-    .then((cache) => cache.add(new Request(OFFLINE_URL, { cache: "reload" })))
+    .then((cache) =>
+      Promise.all(PRECACHE_URLS.map((url) => cache.add(new Request(url, { cache: "reload" })))),
+    )
     .catch(() => {});
 }
 
-self.addEventListener("fetch", (event) => {
-  if (event.request.mode !== "navigate") return; // everything else: not our concern
+function isPrecachedAsset(request) {
+  if (request.method !== "GET") return false;
+  const url = new URL(request.url);
+  return url.origin === self.location.origin && PRECACHE_URLS.includes(url.pathname);
+}
 
-  event.respondWith(
-    fetch(event.request).then(
-      (response) => {
-        refreshOfflinePage();
-        return response;
-      },
-      () => caches.match(OFFLINE_URL).then((cached) => cached ?? Response.error()),
-    ),
-  );
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).then(
+        (response) => {
+          refreshOfflinePage();
+          return response;
+        },
+        () => caches.match(OFFLINE_URL).then((cached) => cached ?? Response.error()),
+      ),
+    );
+    return;
+  }
+  // Without this the offline page's own /offline.js and /theme-init.js would
+  // 404 while offline and its Retry button would do nothing.
+  if (isPrecachedAsset(event.request)) {
+    event.respondWith(
+      fetch(event.request).catch(() =>
+        caches.match(event.request.url).then((cached) => cached ?? Response.error()),
+      ),
+    );
+  }
+  // everything else: not our concern
 });

@@ -341,3 +341,91 @@ def test_archive_person_memories_archives_exactly_that_persons_rows(db_paths):
     assert len(matching) == 1
     assert matching[0]["reason"] == "person_deleted"
     assert matching[0]["person_id"] == person_id
+
+
+# ---- embedding_model / source are carried through ---------------------------------
+
+
+def _set_provenance(db_path, memory_id: int, model: str, source: str) -> None:
+    connection = _connect(db_path)
+    connection.execute(
+        "UPDATE memories SET embedding_model = ?, source = ? WHERE id = ?",
+        (model, source, memory_id),
+    )
+    connection.commit()
+    connection.close()
+
+
+def test_archive_and_restore_keep_embedding_model_and_source(db_paths):
+    memory_id = _insert_memory(db_paths, content="poisoned?")
+    _set_provenance(db_paths, memory_id, "text-embedding-004", "untrusted_context")
+
+    archive_id = archive.archive_memory(memory_id, reason="manual")
+    row = _get_archive_row(db_paths, archive_id)
+    assert (row["embedding_model"], row["source"]) == ("text-embedding-004", "untrusted_context")
+
+    assert archive.restore(archive_id) == memory_id
+    restored = _get_memory(db_paths, memory_id)
+    assert (restored["embedding_model"], restored["source"]) == (
+        "text-embedding-004",
+        "untrusted_context",
+    )
+
+
+def test_restore_with_a_taken_id_still_carries_the_columns(db_paths):
+    memory_id = _insert_memory(db_paths)
+    _set_provenance(db_paths, memory_id, "m1", "user")
+    archive_id = archive.archive_memory(memory_id, reason="manual")
+    connection = _connect(db_paths)
+    connection.execute(
+        "INSERT INTO memories (id, layer, content, embedding) VALUES (?, 'short', 'x', x'')",
+        (memory_id,),
+    )
+    connection.commit()
+    connection.close()
+
+    new_id = archive.restore(archive_id)
+
+    assert new_id != memory_id
+    restored = _get_memory(db_paths, new_id)
+    assert (restored["embedding_model"], restored["source"]) == ("m1", "user")
+
+
+def test_bulk_archive_keeps_the_columns(db_paths):
+    person_id = _insert_person(db_paths)
+    first = _insert_memory(db_paths, person_id=person_id)
+    second = _insert_memory(db_paths)
+    _set_provenance(db_paths, first, "m1", "untrusted_context")
+    _set_provenance(db_paths, second, "m2", "user")
+
+    connection = _connect(db_paths)
+    cursor = connection.cursor()
+    archive.archive_ids(cursor, [second], reason="auto", now=clock.to_db(NOW))
+    archive.archive_person_memories(cursor, person_id, now=clock.to_db(NOW))
+    connection.commit()
+    rows = connection.execute(
+        "SELECT memory_id, embedding_model, source FROM memory_archive ORDER BY memory_id"
+    ).fetchall()
+    connection.close()
+
+    assert [tuple(r) for r in rows] == [
+        (first, "m1", "untrusted_context"),
+        (second, "m2", "user"),
+    ]
+
+
+def test_archive_heals_a_db_whose_tables_lack_the_columns(db_paths):
+    # A database created before migrations 5/6 and never re-migrated.
+    memory_id = _insert_memory(db_paths, content="old row")
+    connection = _connect(db_paths)
+    connection.execute("ALTER TABLE memories DROP COLUMN embedding_model")
+    connection.execute("ALTER TABLE memories DROP COLUMN source")
+    connection.commit()
+    connection.close()
+
+    archive_id = archive.archive_memory(memory_id, reason="manual")
+    assert archive.restore(archive_id) == memory_id
+
+    restored = _get_memory(db_paths, memory_id)
+    assert restored["content"] == "old row"
+    assert restored["embedding_model"] is None and restored["source"] is None

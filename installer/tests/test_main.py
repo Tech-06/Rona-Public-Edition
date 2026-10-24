@@ -197,3 +197,48 @@ def test_main_interactive_without_lang_asks_once(tmp_path, monkeypatch):
     assert exit_code == 1  # bailed on the Python-version check, after asking
     with pytest.raises(StopIteration):
         next(responses)  # the language question was the only input() call
+
+
+def _web_only_args():
+    return ["--components", "web", "--lang", "en"]
+
+
+def _node_env(tmp_path, monkeypatch, node_version):
+    root = _make_root(tmp_path)
+    monkeypatch.setattr(main_module, "REPO_ROOT", root)
+    monkeypatch.setattr(main_module.state, "state_file", lambda: tmp_path / "h" / "config.json")
+    monkeypatch.setattr(main_module.detect, "python_version", lambda: (3, 12, 0))
+    monkeypatch.setattr(main_module.detect, "git_available", lambda: True)
+    monkeypatch.setattr(main_module.detect, "node_version", node_version)
+    monkeypatch.setattr(main_module.prereq, "ensure_prerequisite", lambda *a, **k: True)
+
+
+def test_main_rechecks_node_after_install_and_aborts_when_still_old(tmp_path, monkeypatch, capsys):
+    # distro nodejs: the binary exists after install, but it is v12
+    _node_env(tmp_path, monkeypatch, lambda: (12, 22, 9))
+    monkeypatch.setattr(
+        web_step, "install", lambda *a, **k: pytest.fail("web step must be skipped")
+    )
+
+    assert main_module.main(_web_only_args()) == 1
+
+    err = capsys.readouterr().err
+    assert "12.22.9" in err and "NodeSource" in err and "nvm" in err and "fnm" in err
+
+
+def test_main_node_unreadable_after_install_aborts(tmp_path, monkeypatch, capsys):
+    _node_env(tmp_path, monkeypatch, lambda: None)
+    monkeypatch.setattr(
+        web_step, "install", lambda *a, **k: pytest.fail("web step must be skipped")
+    )
+
+    assert main_module.main(_web_only_args()) == 1
+    assert "PATH" in capsys.readouterr().err
+
+
+def test_main_node_ok_after_install_continues(tmp_path, monkeypatch):
+    versions = iter([None, (20, 11, 0)])  # absent before, fine after the install
+    _node_env(tmp_path, monkeypatch, lambda: next(versions))
+    monkeypatch.setattr(web_step, "install", lambda root_, *, reinstall: True)
+
+    assert main_module.main(_web_only_args()) == 0

@@ -95,3 +95,23 @@ def test_start_uses_systemctl_when_unit_loaded(direct_path, monkeypatch):
     asyncio.run(host.server_start(_REQUEST))
     assert direct_path["systemctl"] == ["start"]
     assert direct_path["spawn"] == 0
+
+
+def test_unit_probe_runs_off_the_loop_and_is_cached(monkeypatch):
+    import threading
+
+    main = threading.current_thread()
+    calls = []
+
+    def probe():
+        calls.append(threading.current_thread())
+        return True
+
+    monkeypatch.setattr(host, "_systemd_unit_available", probe)
+
+    async def twice():
+        return await host._unit_available(), await host._unit_available()
+
+    assert asyncio.run(twice()) == (True, True)
+    assert len(calls) == 1
+    assert calls[0] is not main

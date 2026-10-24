@@ -280,3 +280,109 @@ def test_table_name_parser_is_conservative():
     assert names == ["a", "b", "v"]
     core = manager._core_table_names()
     assert {"people", "memories", "tasks", "conversation_registry"} <= core
+
+
+def test_purge_never_removes_host_owned_env_keys():
+    manifest = PackageManifest.model_validate(
+        {
+            "id": "greedy_pkg",
+            "name": "Greedy",
+            "version": "1.0.0",
+            "description": "d",
+            "config": [
+                {"key": "a", "target": "env", "env_var": "GOOGLE_API_KEY"},
+                {"key": "b", "target": "env", "env_var": "AUTH_TOKEN"},
+                {"key": "c", "target": "env", "env_var": "FLASH_MODEL"},
+                {"key": "d", "target": "env", "env_var": "EMBEDDING_MODEL_NAME"},
+                {"key": "e", "target": "env", "env_var": "GREEDY_OWN"},
+            ],
+        }
+    )
+    assert manager._purgeable_env_keys(manifest) == ["GREEDY_OWN"]
+
+
+def test_purge_skips_invalid_env_keys_instead_of_raising(
+    catalog, manager_env, tmp_db, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(db, "DB_PATH", tmp_db)
+    catalog("legacy_pkg", tools=[])
+    manager_env.append("legacy_pkg")
+    manager.install("legacy_pkg", source=catalog.source_spec)
+    packages.ENV_PATH.write_text("EXISTING_KEY=1\nLEGACY_OK=2\n", encoding="utf-8")
+    monkeypatch.setattr(
+        manager, "_purgeable_env_keys", lambda m: ["BAD KEY=x", "LEGACY_OK"]
+    )
+
+    result = manager.uninstall("legacy_pkg", purge=True)
+
+    assert result.removed_env_keys == ["LEGACY_OK"]
+    assert packages.ENV_PATH.read_text(encoding="utf-8") == "EXISTING_KEY=1\n"
+
+
+# ---------------------------------------------------------------------------
+# file-field dest_filename
+# ---------------------------------------------------------------------------
+
+BAD_DEST_FILENAMES = [
+    "../x.json",
+    "..",
+    ".",
+    "sub/x.json",
+    "sub\\x.json",
+    "/etc/passwd",
+    "C:\\Windows\\x.json",
+    "C:x.json",
+    "",
+]
+
+
+@pytest.mark.parametrize("name", BAD_DEST_FILENAMES)
+def test_manifest_rejects_non_bare_dest_filename(name):
+    with pytest.raises(ValueError):
+        PackageManifest.model_validate(
+            {
+                "id": "dest_pkg",
+                "name": "D",
+                "version": "1.0.0",
+                "description": "d",
+                "config": [{"key": "f", "target": "file", "dest_filename": name}],
+            }
+        )
+
+
+@pytest.mark.parametrize("name", ["../escape.json", "/tmp/escape.json"])
+def test_install_refuses_escaping_dest_filename(catalog, manager_env, tmp_path, name):  # noqa: F811
+    source_file = tmp_path / "creds.json"
+    source_file.write_text("{}", encoding="utf-8")
+    catalog(
+        "dest_bad",
+        manifest_extra={"config": [{"key": "f", "target": "file", "dest_filename": name}]},
+        tools=[],
+    )
+    manager_env.append("dest_bad")
+    with pytest.raises(Exception):
+        manager.install(
+            "dest_bad",
+            source=catalog.source_spec,
+            answers={"dest_bad": {"f": str(source_file)}},
+        )
+    assert not (packages.package_dir("dest_bad").parent / "escape.json").exists()
+
+
+def test_install_and_upload_agree_on_file_field_destination(catalog, manager_env, tmp_path):  # noqa: F811
+    source_file = tmp_path / "src.json"
+    source_file.write_text("{}", encoding="utf-8")
+    catalog(
+        "dest_ok",
+        manifest_extra={
+            "config": [{"key": "f", "target": "file", "dest_filename": "creds.json"}]
+        },
+        tools=[],
+    )
+    manager_env.append("dest_ok")
+    manager.install(
+        "dest_ok", source=catalog.source_spec, answers={"dest_ok": {"f": str(source_file)}}
+    )
+    pkg_dir = packages.package_dir("dest_ok")
+    assert (pkg_dir / "creds.json").is_file()
+    assert manager.store_file_field("dest_ok", "f", b"{\"a\": 1}") == pkg_dir / "creds.json"

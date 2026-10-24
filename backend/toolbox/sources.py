@@ -135,6 +135,9 @@ def _validate_entry_path(path: object, *, origin: str, pkg_id: str) -> str:
         problem = "must be relative"
     elif any(seg in ("", ".", "..") for seg in path.split("/")):
         problem = "must not contain empty, '.' or '..' segments"
+    elif path.startswith("-"):
+        # Handed to git as an argument; a leading '-' would read as an option.
+        problem = "must not start with '-'"
     if problem:
         raise SourceError(f"{origin}: package '{pkg_id}': invalid path {path!r}: {problem}")
     return path
@@ -315,7 +318,7 @@ class GitSource(CatalogSource):
         self._run([*clone, "--", self.url, str(tmp)])
         self._run(["git", "sparse-checkout", "init", "--cone"], cwd=tmp)
         if sparse_paths:
-            self._run(["git", "sparse-checkout", "set", *sparse_paths], cwd=tmp)
+            self._run(["git", "sparse-checkout", "set", "--", *sparse_paths], cwd=tmp)
         self._run(["git", "checkout", pin or self.ref], cwd=tmp)
         if pin is not None:
             head = self._run(["git", "rev-parse", "HEAD"], cwd=tmp).stdout.strip().lower()

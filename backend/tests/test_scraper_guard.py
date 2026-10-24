@@ -191,3 +191,57 @@ def test_rejects_credentials_and_non_http_schemes(fake_net):
     for bad in ("http://user:pw@example.com/", "http://user@example.com/", "ftp://example.com/"):
         assert ws.web_scraper(bad)["success"] is False
     assert fake_net["requests"] == []
+
+
+def test_tries_next_validated_address_when_first_does_not_connect(fake_net, monkeypatch):
+    v6 = "2606:2800:220:1:248:1893:25c8:1946"
+    fake_net["dns"] = [[v6, PUBLIC_IP]]
+    tried = []
+
+    def factory(pinned_ip):
+        tried.append(pinned_ip)
+        if ":" in pinned_ip:
+            def boom(request):
+                raise httpx.ConnectError("network unreachable")
+
+            return httpx.MockTransport(boom)
+        return httpx.MockTransport(lambda r: fake_net["handler"](r))
+
+    monkeypatch.setattr(ws, "_transport_factory", factory)
+    fake_net["handler"] = _html()
+    result = ws.web_scraper("http://example.com/")
+    assert result["success"] is True
+    assert tried == [PUBLIC_IP]  # IPv4 first, so the dead IPv6 is never needed
+
+    tried.clear()
+    monkeypatch.setattr(ws, "_resolve_checked", lambda url: (None, [v6, PUBLIC_IP]))
+    assert ws.web_scraper("http://example.com/")["success"] is True
+    assert tried == [v6, PUBLIC_IP]
+
+
+def test_connect_failure_on_every_address_is_an_error(fake_net, monkeypatch):
+    def boom(request):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(ws, "_transport_factory", lambda ip: httpx.MockTransport(boom))
+    result = ws.web_scraper("http://example.com/")
+    assert result["success"] is False
+
+
+@pytest.mark.parametrize(
+    "ctype",
+    [
+        "application/json",
+        "application/ld+json",
+        "text/xml",
+        "application/xml",
+        "application/rss+xml",
+        "application/atom+xml; charset=utf-8",
+    ],
+)
+def test_structured_text_content_types_are_returned_verbatim(fake_net, ctype):
+    body = '<root><item a="1">x</item></root>' if "xml" in ctype else '{"k": "v"}'
+    fake_net["handler"] = _html(body, ctype)
+    result = ws.web_scraper("http://example.com/")
+    assert result["success"] is True
+    assert result["content"] == body

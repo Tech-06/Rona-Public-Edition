@@ -43,6 +43,21 @@ def _allowed_tool_names() -> set[str]:
     return background_tool_names()
 
 
+def _reads_untrusted(tool_call: dict[str, Any]) -> bool:
+    name = tool_call["function"]["name"]
+    return has_tool(name) and untrusted.is_untrusted_output(name)
+
+
+def _call_tainted(
+    prior: bool, tool_calls: list[dict[str, Any]], tool_call: dict[str, Any]
+) -> bool:
+    """Taint one call runs under: earlier rounds, or another call of the same
+    round that reads untrusted content."""
+    return prior or any(
+        _reads_untrusted(other) for other in tool_calls if other is not tool_call
+    )
+
+
 def _tool_message(call_id: str, payload: dict[str, Any], name: str = "") -> dict[str, Any]:
     return untrusted.tool_message(call_id, name, payload)
 
@@ -150,18 +165,18 @@ async def _agent_loop(
         tool_calls = assistant.get("tool_calls") or []
         if not tool_calls:
             return assistant.get("content") or "", False
-        tainted = tainted or any(
-            untrusted.is_untrusted_output(call["function"]["name"])
-            for call in tool_calls
-            if has_tool(call["function"]["name"])
-        )
+        # Calls of one round run together, so a read in this round taints the
+        # OTHER calls of it -- never the reading call itself (a lone
+        # web_scraper fetch is a plain fetch).
+        call_taints = [_call_tainted(tainted, tool_calls, call) for call in tool_calls]
         context = untrusted.untrusted_context(task, messages)
         tool_messages = await asyncio.gather(
             *(
-                _execute_tool_call(tool_call, allowed_names, tainted, context)
-                for tool_call in tool_calls
+                _execute_tool_call(tool_call, allowed_names, call_taint, context)
+                for tool_call, call_taint in zip(tool_calls, call_taints)
             )
         )
+        tainted = tainted or any(_reads_untrusted(c) for c in tool_calls)
         messages.extend(tool_messages)
         messages = _trim_worker_messages(messages, settings.subagent_max_context_messages)
         rounds += 1

@@ -110,10 +110,17 @@ def force_kill(pid: int) -> None:
 
 
 def _netstat_listener_pid(output: str, port: int) -> int | None:
-    """PID of the first LISTENING TCP row whose local port is exactly ``port``."""
+    """PID of the first TCP listener whose local port is exactly ``port``.
+
+    The state column is localized ("LISTENING", "DINLENIYOR", "ABHÖREN"...),
+    so a listener is recognised by its foreign address instead: a listening
+    socket has no peer (``0.0.0.0:0``, ``[::]:0``, ``*:*``).
+    """
     for line in output.splitlines():
         parts = line.split()
-        if len(parts) < 5 or parts[0].upper() != "TCP" or parts[3].upper() != "LISTENING":
+        if len(parts) < 5 or parts[0].upper() != "TCP":
+            continue
+        if parts[2].rpartition(":")[2] not in ("0", "*"):
             continue
         if parts[1].rpartition(":")[2] == str(port):
             try:
